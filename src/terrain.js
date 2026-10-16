@@ -270,11 +270,12 @@ const TERRAIN = (function () {
         const dN = (up[rN * cols + c] - up[rS * cols + c]) / ((rS - rN) * cell || cell);
         // render normal of y = f(x, z) with x = east, z = south: (-df/de, 1, df/dn)
         const L = Math.sqrt(dE * dE + dN * dN + 1);
-        const col = vcolour(cls ? cls[i] : 0, Math.hypot(dE, dN), (h - minUp) / span, T.surfaceClasses);
+        const wx = T.e0 + c * cell, wz = r * cell - T.n0;
+        const col = vcolour(cls ? cls[i] : 0, Math.hypot(dE, dN), (h - minUp) / span, T.surfaceClasses, wx, wz);
         const o = vi * 11;
-        V[o] = T.e0 + c * cell;
+        V[o] = wx;
         V[o + 1] = yOverride == null ? h : yOverride;
-        V[o + 2] = r * cell - T.n0;
+        V[o + 2] = wz;
         V[o + 3] = -dE / L; V[o + 4] = 1 / L; V[o + 5] = dN / L;
         V[o + 6] = col[0]; V[o + 7] = col[1]; V[o + 8] = col[2];
         V[o + 9] = c / (cols - 1); V[o + 10] = r / (rows - 1);
@@ -329,13 +330,40 @@ const TERRAIN = (function () {
     return T;
   }
 
-  /* Terrain colour where there is no orthophoto: grass on the flat, rock on
-     the steep and the high. It reads better than it sounds, and it means a map
-     is worth flying before anyone downloads 600 KB of imagery. */
-  function vcolour(cls, slope, upFrac, table) {
-    if (cls > 0) return (table[cls] || SURFACE[cls] || SURFACE[0]).col;
-    const rockiness = clamp(smoothstep(0.30, 0.75, slope) + 0.45 * upFrac, 0, 1);
-    return mixc(SURFACE[1].col, SURFACE[2].col, rockiness);
+  /* Terrain colour where there is no orthophoto: the surface class if the map
+     carries one, otherwise grass on the flat and rock on the steep and the
+     high. It reads better than it sounds, and it means a map is worth flying
+     before anyone downloads 600 KB of imagery.
+
+     The grain on top is what stops it looking like plastic, and it is the
+     terrain's only texture: the ground is drawn untextured, because tiling an
+     8 m texture across a kilometre of hillside aliases into moiré bands (see
+     renderView in app.js). Two octaves, because one is not enough at both
+     ends — 31 m reads from the air, 7 m reads when you are landing on it. It
+     is a pure function of world position, so the same patch of ground gets the
+     same grain however the chunk is rebuilt, and no seam appears where two
+     levels of detail meet. */
+  function vcolour(cls, slope, upFrac, table, x, z) {
+    const base = cls > 0
+      ? (table[cls] || SURFACE[cls] || SURFACE[0]).col
+      : mixc(SURFACE[1].col, SURFACE[2].col, clamp(smoothstep(0.30, 0.75, slope) + 0.45 * upFrac, 0, 1));
+    const k = 0.84 + 0.26 * grain(x / 31, z / 31) + 0.10 * grain(x / 7 + 11, z / 7 - 5);
+    return [base[0] * k, base[1] * k, base[2] * k];
+  }
+
+  /* Value noise on the world grid: one hash, two smoothed lerps. Cheap enough
+     to run per vertex at mesh-build time, and a pure function of position, so
+     the same patch of ground gets the same grain at every level of detail. */
+  function hash2(i, j) {
+    let h = (i * 374761393 + j * 668265263) | 0;
+    h = (h ^ (h >> 13)) * 1274126177;
+    return ((h ^ (h >> 16)) >>> 0) / 4294967296;
+  }
+  function grain(x, y) {
+    const i = Math.floor(x), j = Math.floor(y), fx = x - i, fy = y - j;
+    const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+    const a = hash2(i, j), b = hash2(i + 1, j), c = hash2(i, j + 1), d = hash2(i + 1, j + 1);
+    return (a + (b - a) * sx) * (1 - sy) + (c + (d - c) * sx) * sy;
   }
 
   /* ---------- the flat ground the built-in field flies over ----------

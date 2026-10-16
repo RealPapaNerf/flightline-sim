@@ -131,7 +131,7 @@ function build(outDir) {
     builder: 'flightline test/fixture_map.js',
     origin: {
       lat: 37.67745, lon: -113.06284,
-      utm: { zone: 12, hemisphere: 'N', easting: 318244.0, northing: 4170512.0 },
+      utm: { zone: 12, hemisphere: 'N', easting: 318087.75, northing: 4172030.46 }, // from flmap's lib/utm.mjs
       datumElevM: FIELD,
     },
     grid: {

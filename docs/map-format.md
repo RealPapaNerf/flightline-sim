@@ -53,7 +53,7 @@ The colour image stays a JPEG, because 8 bits per channel is all colour needs.
   "origin": {
     "lat": 37.67745,
     "lon": -113.06284,
-    "utm": { "zone": 12, "hemisphere": "N", "easting": 318244.0, "northing": 4170512.0 },
+    "utm": { "zone": 12, "hemisphere": "N", "easting": 318087.75, "northing": 4172030.46 },
     "datumElevM": 1710.0
   },
 
@@ -122,6 +122,12 @@ zero.
 
 Latitude and longitude are carried for attribution, for the map picker, and so
 the builder can be re-run over the same ground. The sim does not fly on them.
+
+The UTM easting and northing are the same point, for lining a map up against a
+paper topo or a GPS set to UTM. Let the builder work them out — `flmap` has the
+Snyder series in `lib/utm.mjs`, checked by round trip to 0.84 mm. The example
+above was wrong by 1,526 m the first time it was written here by hand, which is
+how far off a plausible-looking guess can be.
 
 ### `grid` — the heightfield
 

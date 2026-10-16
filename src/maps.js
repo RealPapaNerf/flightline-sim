@@ -21,7 +21,7 @@ const MAPS = (function () {
 
   /* Where the public library lives. The sim lists maps from this index.json.
      Overridable so a map library can be served from anywhere static. */
-  const DEFAULT_LIBRARY = 'https://realpapanerf.github.io/flightline-maps/';
+  const DEFAULT_LIBRARY = 'https://realpapanerf.github.io/maps-folder/';
 
   /* Can this build reach another server at all? The claude.ai artifact runs
      from a blob or a sandboxed origin with no outbound fetch, so there is no

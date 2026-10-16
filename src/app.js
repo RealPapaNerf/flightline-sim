@@ -691,6 +691,9 @@
         ${mapInfo ? '<button class="btn small" id="mpOff">Back to the built-in field</button>' : ''}
       </div>
       <input type="file" id="mpFiles" multiple webkitdirectory directory style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none">
+      ${remote ? `<label class="lab" for="mpLib" style="margin-top:6px"><span>Map library</span></label>
+      <input type="text" id="mpLib" class="txt" spellcheck="false" autocomplete="off"
+        value="${esc(S.mapLib || MAPS.DEFAULT_LIBRARY)}" placeholder="${esc(MAPS.DEFAULT_LIBRARY)}">` : ''}
       <div id="mpMsg" class="help"></div>
       <div id="mpList2"></div>
       <div class="help">A map is a folder holding <code>map.json</code>, <code>height.u16</code> and
@@ -730,8 +733,16 @@
         buildSheet();
       })));
     };
+    const libEl = box.querySelector('#mpLib');
+    if (libEl) libEl.addEventListener('change', () => {
+      // a map library is any static folder with an index.json in it, so the
+      // repo can be renamed or a library hosted anywhere without a code change
+      S.mapLib = libEl.value.trim() === MAPS.DEFAULT_LIBRARY ? '' : libEl.value.trim();
+      libCache = null; listEl.innerHTML = ''; saveS();
+    });
     const listBtn = box.querySelector('#mpList');
     if (listBtn) listBtn.addEventListener('click', () => guard(async () => {
+      if (libEl) S.mapLib = libEl.value.trim() === MAPS.DEFAULT_LIBRARY ? '' : libEl.value.trim();
       say('Reading the map library…');
       libCache = await MAPS.fetchLibrary(S.mapLib || MAPS.DEFAULT_LIBRARY);
       say(`${libCache.maps.length} map${libCache.maps.length === 1 ? '' : 's'}.`);
@@ -2787,11 +2798,19 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     if (chunks) {
       /* The terrain, chunk by chunk at whatever level of detail each one is
          currently built at. With a colour image the chunk's own UVs index it
-         corner to corner; without one the vertex colours carry the surface
-         class and slope and the grass texture tiles over the top for grain. */
-      const o = colorTex
-        ? { tex: colorTex.tex, mix: snowMix }
-        : { tex: grassTex, worldUV: true, texScale: 1 / 8, mix: snowMix };
+         corner to corner.
+
+         Without one the terrain is NOT textured, which is a deliberate
+         difference from the built-in field. The field tiles the grass texture
+         in world space every 8 m, and that is fine over a flat plane you are
+         standing on. Over a kilometre of hillside seen at a grazing angle one
+         pixel covers many tiles, and without anisotropic filtering the mip
+         level is chosen from the larger derivative — so the tiling aliases
+         into broad moiré bands that follow the contours. It is unmistakable
+         once seen and it made the terrain look corrugated. The grain lives in
+         the vertex colours instead (terrain.js, `grain`), where it is a
+         function of world position and cannot alias at any distance. */
+      const o = colorTex ? { tex: colorTex.tex, mix: snowMix } : { mix: snowMix };
       for (const ch of chunks) {
         if (!ch.mesh || !chunkAhead(ch, cam)) continue;
         GLR.draw(R, ch.mesh, I, o);

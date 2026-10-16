@@ -178,6 +178,37 @@ function serve() {
     ok(fs.statSync(f).size > 20000, `${name} is not a blank frame`, `${kb} KB of PNG`);
   }
 
+  /* The settings panel builds its own DOM, and nothing else here touches it,
+     so a typo in the Map tab would ship silently. Open it and look. */
+  console.log('\n== The Map tab in Settings ==');
+  const panel = await page.evaluate(() => {
+    const F = window.__flightline;
+    F.S.sheetTab = 'map';
+    document.querySelector('#bSettings').click();
+    const box = document.querySelector('#mapBox');
+    if (!box) return { built: false };
+    return {
+      built: true,
+      flying: (box.querySelector('.kv span:last-child') || {}).textContent || '',
+      buttons: [...box.querySelectorAll('button')].map((b) => b.textContent.trim()),
+      libValue: (box.querySelector('#mpLib') || {}).value || '(no field)',
+      hasPicker: !!box.querySelector('#mpFiles'),
+      status: (box.querySelector('.help') || {}).textContent || '',
+    };
+  });
+  ok(panel.built, 'the Map tab builds', panel.built ? 'yes' : 'no #mapBox');
+  if (panel.built) {
+    console.log(`  flying:  ${panel.flying}`);
+    console.log(`  buttons: ${panel.buttons.join(' | ')}`);
+    console.log(`  library: ${panel.libValue}`);
+    ok(panel.hasPicker, 'the folder picker is there', 'yes');
+    ok(panel.buttons.some((b) => /folder/i.test(b)), 'it offers a folder', panel.buttons.join(', '));
+    ok(/Synthetic ridge/.test(panel.flying), 'it names the map being flown', panel.flying);
+  }
+  await page.screenshot({ path: path.join(OUT, '07-map-settings.png') });
+  await page.evaluate(() => document.querySelector('#shClose').click());
+  await page.waitForTimeout(200);
+
   console.log('\n== Back to the built-in field ==');
   const back = await page.evaluate(() => {
     const F = window.__flightline;

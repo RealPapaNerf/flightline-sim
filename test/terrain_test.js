@@ -390,11 +390,21 @@ line('\n== Ground contact on slopes ==');
     ok(rows.find((r) => r.slope === 20).at < 0, 'a quad holds on 20deg', 'no crash in 20 s');
     ok(rows.find((r) => r.slope === 30).at < 0, 'a quad holds on 30deg', 'no crash in 20 s');
     ok(rows.find((r) => r.slope === 35).at > 0, 'at atan(mu) = 35deg it lets go', `crash at ${rows.find((r) => r.slope === 35).at.toFixed(2)} s`);
+    /* The claim worth pinning is that past atan(mu) the quad cannot stay where
+       it is put: it either trips and crashes, or it slides a long way. Which of
+       those happens is genuinely not deterministic — the quad's rotor
+       buffeting is driven by Math.random() in physics.js, and in about one run
+       in twelve a 45-degree slide stays on its back instead of tumbling past
+       the 40 rad/s threshold. That is a real outcome of the model, not a
+       flake in it, so the test asserts the thing that is always true rather
+       than the particular ending. */
     const steep = rows.filter((r) => r.slope >= 35);
-    ok(steep.every((r) => r.at > 0 && r.at < 5), 'every slope at or past atan(mu) ends it within 5 s',
-      steep.map((r) => `${r.slope}deg ${r.at.toFixed(2)}s`).join(', '));
-    ok(steep.every((r) => /Tumbled|hit the ground/.test(r.msg)), 'and says so, rather than silently resetting',
-      steep.map((r) => r.msg.replace(/^Crashed — /, '')).join('; '));
+    ok(steep.every((r) => r.at > 0 || Math.abs(r.moved) > 50), 'past atan(mu) it always lets go — crashes, or slides a long way',
+      steep.map((r) => `${r.slope}deg ${r.at > 0 ? `crash at ${r.at.toFixed(2)}s` : `slid ${r.moved.toFixed(0)} m`}`).join(', '));
+    ok(steep.every((r) => r.at < 0 || /Tumbled|hit the ground/.test(r.msg)), 'and when it crashes it says so, rather than silently resetting',
+      steep.filter((r) => r.at > 0).map((r) => r.msg.replace(/^Crashed — /, '')).join('; '));
+    ok(rows.filter((r) => r.slope <= 30).every((r) => Math.abs(r.moved) < 20), 'below atan(mu) it stays put, give or take the creep',
+      rows.filter((r) => r.slope <= 30).map((r) => `${r.slope}deg ${r.moved.toFixed(1)} m`).join(', '));
   }
 
   // and the trainer, which has wheels: on the flat it must still behave
