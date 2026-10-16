@@ -130,9 +130,9 @@ const FL = (function () {
       contact: { kW: 0, cW: 0, kB: 900, cB: 9, muRoll: 0, muLat: 0, muBody: 0.45 },
       crash: { wheelImpact: 99 },
       starts: ['launch', 'air'],
-      trim: { a: 0.004, e: -0.08 }, // built-in mechanical trim (stick units): hands-off ≈ 40 mph
+      trim: { a: 0.004, e: -0.06 }, // built-in mechanical trim (stick units): hands-off ≈ 36 mph
       stab: { kRoll: 1.2, dRoll: 0.04, kPitch: 1.1, dPitch: 0.05, turn: 0.4 },
-      fpvCam: [0.2, 0, -0.03], // body FRD
+      fpvCam: [0.27, 0, -0.005], // nose camera, body FRD (definition x)
     },
 
     trainer: {
@@ -342,11 +342,11 @@ const FL = (function () {
     }
   }
 
-  // hand launch: a firm throw, ~9 m/s along the nose
+  // hand launch: a firm overhand throw, ~11 m/s (25 mph) along the nose
   function launch(s) {
     if (!s.held) return;
     s.held = false;
-    s.v = mulMV(quatToMat(s.q), [9, 0, 0]);
+    s.v = mulMV(quatToMat(s.q), [11, 0, 0]);
     s.w = [0, 0, 0];
   }
 
