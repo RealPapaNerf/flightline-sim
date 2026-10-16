@@ -163,24 +163,29 @@ const TERRAIN = (function () {
        Step is half a cell, so no single cell is stepped over, capped at
        `maxSteps` samples for a long ray (a 2 km shot across a 4 m map is 1,024
        steps at half a cell, which is the cap). A crossing is then bisected
-       four times, to about 1/16 of a step. */
+       four times, to about 1/16 of a step.
+
+       `minGap` is the closest the ray came to the ground and `minGapT` is where
+       along it that happened; the radio's knife-edge diffraction needs both,
+       because a shot that clears a ridge by 10 m is not the same link as one
+       that clears it by 200. */
     T.ray = function (aN, aE, aUp, bN, bE, bUp, out, maxSteps) {
       out = out || {};
       const dN = bN - aN, dE = bE - aE, dUp = bUp - aUp;
       const len = Math.hypot(dN, dE, dUp);
       const steps = Math.max(2, Math.min(maxSteps || 1024, Math.ceil((2 * Math.hypot(dN, dE)) / cell) + 2));
       let prevT = 0, prevGap = aUp - T.heightAt(aN, aE);
-      out.hit = false; out.t = 1; out.minGap = prevGap;
+      out.hit = false; out.t = 1; out.minGap = prevGap; out.minGapT = 0;
       out.n = bN; out.e = bE; out.up = bUp; out.dist = len;
       if (prevGap <= 0) { // started underground: hit at once
-        out.hit = true; out.t = 0; out.n = aN; out.e = aE; out.up = aUp; out.dist = 0; out.minGap = prevGap;
+        out.hit = true; out.t = 0; out.n = aN; out.e = aE; out.up = aUp; out.dist = 0; out.minGap = prevGap; out.minGapT = 0;
         return out;
       }
       for (let i = 1; i <= steps; i++) {
         const t = i / steps;
         const n = aN + dN * t, e = aE + dE * t;
         const gap = aUp + dUp * t - T.heightAt(n, e);
-        if (gap < out.minGap) out.minGap = gap;
+        if (gap < out.minGap) { out.minGap = gap; out.minGapT = t; }
         if (gap <= 0) {
           let lo = prevT, hi = t, gLo = prevGap;
           for (let k = 0; k < 4; k++) {
@@ -192,7 +197,7 @@ const TERRAIN = (function () {
           out.hit = true; out.t = hi;
           out.n = aN + dN * hi; out.e = aE + dE * hi; out.up = aUp + dUp * hi;
           out.dist = len * hi;
-          out.minGap = Math.min(out.minGap, 0);
+          out.minGap = 0; out.minGapT = hi;
           return out;
         }
         prevT = t; prevGap = gap;
@@ -354,9 +359,9 @@ const TERRAIN = (function () {
       out = out || {};
       const len = Math.hypot(bN - aN, bE - aE, bUp - aUp);
       // flat ground at up = 0: the only hit is where the segment crosses it
-      if (aUp >= 0 && bUp >= 0) { out.hit = false; out.t = 1; out.minGap = Math.min(aUp, bUp); out.n = bN; out.e = bE; out.up = bUp; out.dist = len; return out; }
+      if (aUp >= 0 && bUp >= 0) { out.hit = false; out.t = 1; out.minGap = Math.min(aUp, bUp); out.minGapT = aUp <= bUp ? 0 : 1; out.n = bN; out.e = bE; out.up = bUp; out.dist = len; return out; }
       const t = aUp === bUp ? 0 : clamp(aUp / (aUp - bUp), 0, 1);
-      out.hit = true; out.t = t; out.minGap = 0;
+      out.hit = true; out.t = t; out.minGap = 0; out.minGapT = t;
       out.n = aN + (bN - aN) * t; out.e = aE + (bE - aE) * t; out.up = 0; out.dist = len * t;
       return out;
     },

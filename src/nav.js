@@ -75,8 +75,10 @@ const NAV = (function () {
   }
 
   /* ---------------- sensors and the estimate ----------------
-     opt: { lidar: LIDARS key, surface(n, e) → { h: top height (m), refl: 0–1 }, beta: optical extinction (1/m),
-            precipR: mm/h, snowing: bool, V: airspeed (m/s) } */
+     opt: { lidar: LIDARS key, surface(n, e) → { h: top height above the datum (m), refl: 0–1 },
+            beta: optical extinction (1/m), precipR: mm/h, snowing: bool, V: airspeed (m/s) }
+     `surface` may return a height below the datum: over a map the ground is
+     wherever the map says, not at zero. */
   function sensors(nav, s, opt, dt) {
     nav.t += dt;
     const R = quatToMat(s.q), h = -s.p[2], t = nav.t;
@@ -97,9 +99,23 @@ const NAV = (function () {
     // lidar: ray along the body's down axis to the ground, or whatever stands on it
     const L = LIDARS[opt.lidar] || LIDARS.none, rg = nav.rng;
     rg.valid = false; rg.m = 0;
-    if (L.max > 0 && R[8] > 0.25 && h > 0.05) {
-      let tR = h / R[8], srf = opt.surface ? opt.surface(s.p[0] + R[2] * tR, s.p[1] + R[5] * tR) : { h: 0, refl: 0.4 };
-      if (srf.h > 0 && srf.h < h) { tR = (h - srf.h) / R[8]; srf = opt.surface(s.p[0] + R[2] * tR, s.p[1] + R[5] * tR); }
+    /* The beam leaves along the body's down axis, so where it lands depends on
+       how high the ground is there, and how high the ground is there depends on
+       where it lands. Over the flat field one correction settled it. Over
+       terrain it has to iterate: start from the ground straight below, step to
+       where that says the beam lands, and repeat. Three passes converge to
+       under a centimetre for anything shallower than the beam's own angle; a
+       wall steeper than that is a case this does not claim to get right, and
+       the reading simply comes out long. */
+    const probe = (t2) => (opt.surface ? opt.surface(s.p[0] + R[2] * t2, s.p[1] + R[5] * t2) : { h: 0, refl: 0.4 });
+    const srf0 = probe(0);
+    if (L.max > 0 && R[8] > 0.25 && h - srf0.h > 0.05) {
+      let tR = (h - srf0.h) / R[8], srf = probe(tR);
+      for (let it = 0; it < 3; it++) {
+        const d2 = (h - srf.h) / R[8];
+        if (!(d2 > 0.01) || Math.abs(d2 - tR) < 0.01) break;
+        tR = d2; srf = probe(tR);
+      }
       // returned signal relative to a 90% target at max range: (ρ/0.9)·cosθ·(max/r)²·e^(−2βr)
       const m = (srf.refl / 0.9) * R[8] * (L.max / Math.max(tR, 0.1)) ** 2 * Math.exp(-2 * (opt.beta || 0) * tR);
       rg.m = m;
@@ -180,12 +196,12 @@ const NAV = (function () {
     const dz = (x, d) => (Math.abs(x) < d ? 0 : (x - Math.sign(x) * d) / (1 - d));
     let vzCmd = 0, vH = null, yawRate = sticks ? st.r : 0;
     if (ap.mode === 'rtl') {
-      const home = [0, 0], dx = home[0] - e.p[0], dy = home[1] - e.p[1], dist = Math.hypot(dx, dy);
+      const home = cfg.home || [0, 0], dx = home[0] - e.p[0], dy = home[1] - e.p[1], dist = Math.hypot(dx, dy);
       if (ap.phase === 'climb') { ap.altT = Math.max(ap.altT, cfg.rtlAlt); vzCmd = 0; if (e.alt > cfg.rtlAlt - 1 || e.alt > ap.altT - 1) ap.phase = 'return'; ap.posT = e.p.slice(); }
       if (ap.phase === 'return') {
         const sp = Math.min(8, 0.6 * dist + 0.5); vH = [(dx / (dist || 1)) * sp, (dy / (dist || 1)) * sp];
         const want = Math.atan2(dy, dx); if (dist > 4) yawRate = clamp(wrapPi(want - eu.yaw) * 1.2, -1, 1);
-        if (dist < 2) { ap.phase = 'land'; ap.posT = [0, 0, 0]; }
+        if (dist < 2) { ap.phase = 'land'; ap.posT = [home[0], home[1], 0]; }
       }
       if (ap.phase === 'land') { vzCmd = e.alt > 6 ? -1.5 : -0.5; ap.altT = e.alt; if (s.wow && Math.abs(s.v[2]) < 0.3) ap.landed = true; }
     } else {

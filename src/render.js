@@ -223,9 +223,28 @@ void main(){
     const gl = R.gl, buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(geo.a), gl.STATIC_DRAW);
-    return { buf, count: geo.a.length / 11 };
+    return { buf, count: geo.a.length / 11, tris: geo.a.length / 33 };
   }
-  function freeMesh(R, m) { if (m) R.gl.deleteBuffer(m.buf); }
+
+  /* An indexed mesh, for geometry that shares vertices — which means the
+     terrain. A heightfield chunk has one vertex per post and two triangles per
+     cell, so indexing it costs 4,485 vertices where spelling out every
+     triangle costs 26,112: 5.8x the vertex data, and smooth normals become
+     impossible because each triangle would carry its own copy. Takes the same
+     interleaved layout as Geo (pos3 nrm3 col3 uv2, 44 bytes) so draw() and the
+     shader do not change.
+
+     Indices are Uint16, which caps a chunk at 65,536 vertices; terrain.js
+     keeps a chunk to 4,485, so WebGL 1 needs no element-index extension. */
+  function meshIdx(R, m) {
+    const gl = R.gl, buf = gl.createBuffer(), ibuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, m.verts, gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibuf);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.idx, gl.STATIC_DRAW);
+    return { buf, ibuf, count: m.idx.length, tris: m.idx.length / 3, bytes: m.verts.byteLength + m.idx.byteLength };
+  }
+  function freeMesh(R, m) { if (!m) return; R.gl.deleteBuffer(m.buf); if (m.ibuf) R.gl.deleteBuffer(m.ibuf); }
 
   function texture(R, canvas) {
     const gl = R.gl, t = gl.createTexture();
@@ -259,8 +278,35 @@ void main(){
     gl.uniform3fv(L.uTint, o.tint || ONE);
     gl.uniform4fv(L.uMix, o.mix || NOMIX);
     gl.uniform1f(L.uFogOn, o.noFog ? 0 : 1);
-    gl.drawArrays(gl.TRIANGLES, 0, m.count);
+    if (m.ibuf) {
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, m.ibuf);
+      gl.drawElements(gl.TRIANGLES, m.count, gl.UNSIGNED_SHORT, 0);
+    } else gl.drawArrays(gl.TRIANGLES, 0, m.count);
   }
 
-  return { M4, Geo, create, mesh, freeMesh, texture, draw };
+  /* A loaded image as a texture, clamped rather than tiled: a map's orthophoto
+     is draped over the terrain once, corner to corner, so repeating it would
+     wrap the imagery round. WebGL 1 refuses mipmaps and REPEAT on a texture
+     whose sides are not powers of two, so a non-power-of-two image gets plain
+     bilinear and no mipmap — which is why the builder writes 2048 x 2048. */
+  function imageTex(R, img) {
+    const gl = R.gl, t = gl.createTexture();
+    const pot = (v) => (v & (v - 1)) === 0;
+    const two = pot(img.width) && pot(img.height);
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    if (two) {
+      gl.generateMipmap(gl.TEXTURE_2D);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      if (R.aniso) gl.texParameterf(gl.TEXTURE_2D, R.aniso.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(8, gl.getParameter(R.aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
+    } else gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    return { tex: t, pot: two, w: img.width, h: img.height };
+  }
+  function freeTex(R, t) { if (t) R.gl.deleteTexture(t.tex || t); }
+
+  return { M4, Geo, create, mesh, meshIdx, freeMesh, texture, imageTex, freeTex, draw };
 })();

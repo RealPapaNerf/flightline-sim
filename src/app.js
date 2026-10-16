@@ -45,6 +45,8 @@
     net: { relay: 'off', room: '', url: '', key: '', ws: '', cdn: '', col: 0, spec: false, rate: 20, delay: 120, coll: 'off', laps: 3 },
     curve: 'normal', // helicopter pitch curve: 'normal' or '3d' (idle up)
     sheetTab: 'aircraft', // last settings tab
+    // terrain maps: which of the open map's starts a reset uses, and where to list maps from
+    mapStart: '', mapLib: '',
     hud: 'hud', // FPV OSD style: 'hud' (pitch ladder and tapes) or 'classic'
     // link and sensors: downward lidar, RC link, video transmitter, interference (%), RTL altitude (m) for planes / rotorcraft
     lidar: 'tf02', rcLink: 'elrs24', vtx: 'a600', rfNoise: 0, rtlAlt: { plane: 50, rotary: 15 },
@@ -206,6 +208,67 @@
   };
   const SOCK_POS = [20, 4.1, -24];
   let world = null; // { ground, runway, decal, scenery, obstacles }
+
+  /* ---------------------------------------------------------------- terrain
+     A map's heightfield, or the flat ground the sim shipped with. `terrain`
+     always answers, so nothing downstream has to ask whether a map is open;
+     `mapInfo` is null for the built-in field and is what everything else
+     branches on. env.terrain stays null for the built-in field so the physics
+     keeps its original flat-ground path exactly. */
+  let terrain = TERRAIN.FLAT;
+  let mapInfo = null;
+  let chunks = null; // [{ info, lod, want, mesh }], one per terrain chunk
+  let colorTex = null;
+  let drawnTris = 0, drawnChunks = 0; // what the last frame actually sent
+  const rayOut = {};
+  const EYE = [0, 1.7, 0]; // where you stand, in render coords (x east, y up, z south)
+  const agl = () => -st.p[2] - terrain.heightAt(st.p[0], st.p[1]);
+  const mapRange = () => (mapInfo ? mapInfo.rangeM : 1500);
+  const homeNE = () => (mapInfo ? [mapInfo.home.n, mapInfo.home.e] : [0, 0]);
+
+  /* Level of detail. Each chunk is sized from how close it is to the nearer of
+     the camera and the aircraft, and at most one chunk is rebuilt per frame: a
+     full-detail chunk takes 0.6 ms to build, so rebuilding a whole ring at
+     once would blow a 16.7 ms frame, while one a frame is invisible.
+     Thresholds are in chunk widths, so they follow the map's cell size. */
+  const LOD_AT = [0.4, 1.3, 3.2];
+  // distance from a point to a chunk's footprint: zero inside it, and the
+  // real gap outside. Measuring to the centre instead would size a chunk by
+  // where its middle is rather than where its near edge is.
+  function boxDist(px, pz, i) {
+    const dx = Math.max(0, i.x0 - px, px - i.x1);
+    const dz = Math.max(0, i.z0 - pz, pz - i.z1);
+    return Math.hypot(dx, dz);
+  }
+  function updateChunkLods(camPos) {
+    if (!chunks) return;
+    const chunkM = TERRAIN.CHUNK * terrain.cell;
+    const ax = st.p[1], az = -st.p[0];
+    let pick = null, best = -1;
+    for (const ch of chunks) {
+      const i = ch.info;
+      const d = Math.min(boxDist(camPos[0], camPos[2], i), boxDist(ax, az, i)) / chunkM;
+      let want = TERRAIN.LODS.length - 1;
+      for (let l = 0; l < LOD_AT.length; l++) if (d < LOD_AT[l]) { want = l; break; }
+      ch.want = want;
+      // nearest chunk needing the biggest change goes first
+      if (want !== ch.lod) { const score = Math.abs(want - ch.lod) * 1000 - d; if (score > best) { best = score; pick = ch; } }
+    }
+    if (pick) {
+      GLR.freeMesh(R, pick.mesh);
+      pick.mesh = GLR.meshIdx(R, terrain.chunkMesh(pick.info.k, pick.want));
+      pick.lod = pick.want;
+    }
+  }
+
+  /* Is this chunk worth sending? Anything well behind the camera is not. The
+     view matrix's third row is minus the camera's forward direction. */
+  function chunkAhead(ch, cam) {
+    const v = cam.view, i = ch.info;
+    const fx = -v[2], fy = -v[6], fz = -v[10];
+    const dx = i.cxM - cam.pos[0], dy = (i.top + terrain.minUp) / 2 - cam.pos[1], dz = i.czM - cam.pos[2];
+    return dx * fx + dy * fy + dz * fz > -(i.radius + 80);
+  }
 
   function buildWorld(density) {
     const counts = { low: [110, 160], med: [240, 420], high: [420, 800] }[density] || [240, 420];
@@ -417,6 +480,266 @@
       else if (o.k === 'box' && o.y0 < 2 && o.y1 >= 3 && o.x1 - o.x0 > 2) blockers.push({ n: -(o.z0 + o.z1) / 2, e: (o.x0 + o.x1) / 2, r: Math.hypot(o.x1 - o.x0, o.z1 - o.z0) / 2, h: o.y1 });
     }
     world = { courseId: 'oval8', ground: GLR.mesh(R, gg), runway: GLR.mesh(R, gr), decal: GLR.mesh(R, gd), scenery: GLR.mesh(R, g), obstacles: shapes, gates, blockers };
+  }
+
+  /* ---------------------------------------------------------------- a map's world
+     The terrain is NOT in `scenery`: it is drawn chunk by chunk so the level of
+     detail can follow the camera. Everything else — pads, trees, buildings,
+     poles, wires, gates, search targets — is built here from map.json, with
+     every height measured up from the ground at that point, so the same
+     obstacle list works whatever the terrain does underneath it. */
+  function buildMapWorld(map) {
+    const T = map.terrain, up = (n, e) => T.heightAt(n, e);
+    const obstacles = [], gates = [];
+    const P = (n, e, u) => [e, u, -n]; // NED + up -> render (x east, y up, z south)
+
+    // --- pads and runways, subdivided so one on sloping ground follows it
+    const gr = new Geo();
+    for (const pad of map.pads) {
+      const c = Math.cos(pad.yawDeg * D2R), s = Math.sin(pad.yawDeg * D2R);
+      const hl = pad.lengthM / 2, hw = pad.widthM / 2;
+      const NL = clamp(Math.ceil(pad.lengthM / 8), 1, 64), NW = clamp(Math.ceil(pad.widthM / 8), 1, 64);
+      const at = (u, v) => {
+        const n = pad.n + c * hl * u - s * hw * v, e = pad.e + s * hl * u + c * hw * v;
+        return P(n, e, up(n, e) + 0.05);
+      };
+      for (let i = 0; i < NL; i++) for (let j = 0; j < NW; j++) {
+        const u0 = -1 + (2 * i) / NL, u1 = -1 + (2 * (i + 1)) / NL, v0 = -1 + (2 * j) / NW, v1 = -1 + (2 * (j + 1)) / NW;
+        gr.quad(at(u0, v0), at(u1, v0), at(u1, v1), at(u0, v1), [1, 1, 1],
+          [[(u0 + 1) / 2, (v0 + 1) / 2], [(u1 + 1) / 2, (v0 + 1) / 2], [(u1 + 1) / 2, (v1 + 1) / 2], [(u0 + 1) / 2, (v1 + 1) / 2]]);
+      }
+    }
+
+    // --- the pilot's mat, so you can see where you are standing
+    const gd = new Geo();
+    {
+      const pn = map.pilot.n, pe = map.pilot.e, pu = up(pn, pe) + 0.06;
+      gd.quad(P(pn - 1.2, pe - 1.5, pu), P(pn - 1.2, pe + 1.5, pu), P(pn + 1.2, pe + 1.5, pu), P(pn + 1.2, pe - 1.5, pu), C.mat);
+    }
+
+    const g = new Geo(mulberry32(7717)); g.jit = 0.12;
+    const seg = (a, b, r) => obstacles.push({ k: 'seg', a, b, r });
+
+    for (const o of map.obstacles) {
+      const n = +o.n || 0, e = +o.e || 0;
+      if (o.t === 'tree') {
+        const base = up(n, e), h = +o.h || 8, cr = +o.r || 2;
+        const kind = o.kind === 'pine' ? 0.2 : o.kind === 'juniper' ? 0.9 : o.kind === 'broadleaf' ? 0.6 : 0.5;
+        g.cyl(e, base, -n, 0.25, 0.18, h * 0.35, 5, C.trunk, false);
+        if (kind < 0.45) { g.cyl(e, base + h * 0.25, -n, cr, 0, h * 0.55, 7, C.tree); g.cyl(e, base + h * 0.55, -n, cr * 0.7, 0, h * 0.45, 7, C.tree2); }
+        else if (kind < 0.8) g.blob(e, base + h * 0.62, -n, cr, h * 0.42, cr, C.tree2);
+        else g.blob(e, base + h * 0.45, -n, cr * 0.75, h * 0.45, cr * 0.75, C.juniper);
+        obstacles.push({ k: 'cyl', x: e, z: -n, r: cr * 0.75, y0: base, y1: base + h });
+      } else if (o.t === 'building') {
+        const sn = +o.sizeN || 4, se2 = +o.sizeE || 4, h = +o.h || 3;
+        // the floor sits on the lowest corner, so it never floats on a slope
+        const base = Math.min(up(n - sn / 2, e - se2 / 2), up(n - sn / 2, e + se2 / 2), up(n + sn / 2, e - se2 / 2), up(n + sn / 2, e + se2 / 2));
+        const x0 = e - se2 / 2, x1 = e + se2 / 2, z0 = -n - sn / 2, z1 = -n + sn / 2;
+        g.box(x0, base, z0, x1, base + h, z1, { top: C.roof, bottom: C.wall, side: C.wall });
+        if (o.roof === 'gable') {
+          g.quad([x0, base + h, z0], [x1, base + h, z0], [x1, base + h + sn * 0.25, (z0 + z1) / 2], [x0, base + h + sn * 0.25, (z0 + z1) / 2], C.roof);
+          g.quad([x0, base + h + sn * 0.25, (z0 + z1) / 2], [x1, base + h + sn * 0.25, (z0 + z1) / 2], [x1, base + h, z1], [x0, base + h, z1], C.roof);
+        }
+        obstacles.push({ k: 'box', x0, y0: base, z0, x1, y1: base + h + (o.roof === 'gable' ? sn * 0.25 : 0), z1 });
+      } else if (o.t === 'pole') {
+        const base = up(n, e), h = +o.h || 10, r = +o.r || 0.16;
+        g.cyl(e, base, -n, r, r * 0.8, h, 6, [0.42, 0.32, 0.22]);
+        obstacles.push({ k: 'cyl', x: e, z: -n, r, y0: base, y1: base + h });
+      } else if (o.t === 'wire') {
+        const a = o.a || {}, b = o.b || {};
+        const an = +a.n || 0, ae = +a.e || 0, bn = +b.n || 0, be = +b.e || 0;
+        const au = up(an, ae) + (+a.up || 0), bu = up(bn, be) + (+b.up || 0);
+        const r = +o.r || 0.02, sag = +o.sagM || 0, N = sag > 0.01 ? 6 : 1;
+        const wireCol = [0.13, 0.13, 0.14];
+        let prev = null;
+        for (let i = 0; i <= N; i++) {
+          const f = i / N, dip = 4 * sag * f * (1 - f); // parabola, deepest in the middle
+          const q = P(an + (bn - an) * f, ae + (be - ae) * f, au + (bu - au) * f - dip);
+          if (prev) {
+            // two crossed ribbons, so a thin wire is visible from any angle
+            const d = [q[0] - prev[0], q[1] - prev[1], q[2] - prev[2]];
+            const sd = Math.hypot(d[0], d[2]) || 1, sv = [(-d[2] / sd) * r, 0, (d[0] / sd) * r], uv = [0, r, 0];
+            const add = (x, y) => [x[0] + y[0], x[1] + y[1], x[2] + y[2]], sub = (x, y) => [x[0] - y[0], x[1] - y[1], x[2] - y[2]];
+            g.quad(add(prev, uv), add(q, uv), sub(q, uv), sub(prev, uv), wireCol);
+            g.quad(add(prev, sv), add(q, sv), sub(q, sv), sub(prev, sv), wireCol);
+            seg(prev, q, Math.max(r, 0.04));
+          }
+          prev = q;
+        }
+      } else if (o.t === 'gate') {
+        addGate(g, o, up, obstacles, null);
+      } else if (o.t === 'target') {
+        const base = up(n, e);
+        g.blob(e, base + 0.45, -n, 0.3, 0.45, 0.22, o.kind === 'hiker' ? [0.9, 0.3, 0.1] : [0.85, 0.8, 0.2]);
+      }
+    }
+    for (const gt of map.gates) addGate(g, gt, up, obstacles, gates);
+
+    // --- wind shelter: anything tall and wide enough to shed a wake downwind
+    const blockers = [];
+    for (const o of obstacles) {
+      if (o.k === 'cyl' && o.r >= 0.5 && o.y1 - o.y0 >= 3.5) blockers.push({ n: -o.z, e: o.x, r: o.r * 1.3, h: o.y1 - o.y0 });
+      else if (o.k === 'box' && o.y1 - o.y0 >= 3 && o.x1 - o.x0 > 2) blockers.push({ n: -(o.z0 + o.z1) / 2, e: (o.x0 + o.x1) / 2, r: Math.hypot(o.x1 - o.x0, o.z1 - o.z0) / 2, h: o.y1 - o.y0 });
+    }
+    for (const o of obstacles) {
+      if (o.k === 'cyl') { o.cx = o.x; o.cz = o.z; o.br = o.r; }
+      else if (o.k === 'box') { o.cx = (o.x0 + o.x1) / 2; o.cz = (o.z0 + o.z1) / 2; o.br = Math.hypot(o.x1 - o.x0, o.z1 - o.z0) / 2; }
+      else { o.cx = (o.a[0] + o.b[0]) / 2; o.cz = (o.a[2] + o.b[2]) / 2; o.br = Math.hypot(o.b[0] - o.a[0], o.b[2] - o.a[2]) / 2 + o.r; }
+    }
+
+    freeWorld();
+    world = {
+      courseId: `${map.id}/${map.gates.length}`, // ghost laps belong to one map's course
+      ground: null, runway: GLR.mesh(R, gr), decal: GLR.mesh(R, gd), scenery: GLR.mesh(R, g),
+      obstacles, gates, blockers,
+    };
+    chunks = [];
+    for (let k = 0; k < T.chunkCount; k++) {
+      const info = T.chunkInfo(k);
+      // start coarse: the first frame then promotes what is near, one a frame
+      chunks.push({ info, lod: TERRAIN.LODS.length - 1, want: TERRAIN.LODS.length - 1, mesh: GLR.meshIdx(R, T.chunkMesh(k, TERRAIN.LODS.length - 1)) });
+    }
+  }
+
+  // a gate, standing on the ground, shared by course gates and scenery gates
+  function addGate(g, o, up, obstacles, gates) {
+    const n = +o.n || 0, e = +o.e || 0, psi = (+o.yawDeg || 0) * D2R;
+    const W = +o.widthM || 2.2, H = +o.heightM || 2.0, bb = +o.baseM || 0, base = up(n, e);
+    const col = (gates ? gates.length : obstacles.length) % 2 ? C.blue : C.orange;
+    const m = M4.chain(M4.trans(e, base, -n), M4.rotY(psi));
+    g.with(m, () => {
+      g.box(-W / 2 - 0.2, bb, -0.1, -W / 2, bb + H + 0.2, 0.1, col);
+      g.box(W / 2, bb, -0.1, W / 2 + 0.2, bb + H + 0.2, 0.1, col);
+      g.box(-W / 2 - 0.2, bb + H, -0.1, W / 2 + 0.2, bb + H + 0.2, 0.1, col);
+      if (bb > 0) for (const sx of [-1, 1]) g.box(sx * (W / 2 + 0.1) - 0.05, 0, -0.05, sx * (W / 2 + 0.1) + 0.05, bb, 0.05, C.post);
+    });
+    const tf = (q) => [m[0] * q[0] + m[4] * q[1] + m[8] * q[2] + m[12], m[1] * q[0] + m[5] * q[1] + m[9] * q[2] + m[13], m[2] * q[0] + m[6] * q[1] + m[10] * q[2] + m[14]];
+    const A = (lx, ly) => tf([lx, ly, 0]);
+    obstacles.push({ k: 'seg', a: A(-W / 2 - 0.1, 0), b: A(-W / 2 - 0.1, bb + H + 0.2), r: 0.12 });
+    obstacles.push({ k: 'seg', a: A(W / 2 + 0.1, 0), b: A(W / 2 + 0.1, bb + H + 0.2), r: 0.12 });
+    obstacles.push({ k: 'seg', a: A(-W / 2 - 0.2, bb + H + 0.1), b: A(W / 2 + 0.2, bb + H + 0.1), r: 0.12 });
+    if (bb > 0) obstacles.push({ k: 'seg', a: A(-W / 2 - 0.2, bb - 0.1), b: A(W / 2 + 0.2, bb - 0.1), r: 0.12 });
+    if (gates) gates.push({ x: e, z: -n, psi, b: base + bb, W, H, top: base + bb + H + 0.2 });
+  }
+
+  /* ---------------------------------------------------------------- opening a map
+     `loaded` is what MAPS.fetchMap or MAPS.fromFiles handed back:
+     { json, heights, surface, image }. terrain.js does the decoding and the
+     checking; this puts the result into the running sim. */
+  let mapStatus = '';
+  function openMap(loaded) {
+    const map = TERRAIN.loadMap(loaded.json, loaded.heights, loaded.surface);
+    terrain = map.terrain;
+    mapInfo = map;
+    env.terrain = terrain;
+    GLR.freeTex(R, colorTex); colorTex = null;
+    if (loaded.image) colorTex = GLR.imageTex(R, loaded.image);
+    buildMapWorld(map);
+    // you stand where the map says, 1.7 m above the ground there
+    EYE[0] = map.pilot.e; EYE[1] = map.pilot.up + 1.7; EYE[2] = -map.pilot.n;
+    // field elevation drives density altitude, so the weather follows the map
+    S.elevFt = Math.round((map.fieldElevM / 0.3048) / 250) * 250;
+    if (!map.starts.some((s) => s.id === S.mapStart)) S.mapStart = map.starts.length ? map.starts[0].id : '';
+    applySetting('elevFt');
+    saveS();
+    doReset();
+    mapStatus = `${map.name}${map.region ? ` — ${map.region}` : ''}: ${terrain.cols}x${terrain.rows} posts at ${terrain.cell} m, ` +
+      `${(terrain.widthM / 1000).toFixed(2)} x ${(terrain.heightM / 1000).toFixed(2)} km, ` +
+      `${Math.round(terrain.maxUp - terrain.minUp)} m of relief, field ${Math.round(map.fieldElevM)} m` +
+      (colorTex ? `, imagery ${colorTex.w}x${colorTex.h}${colorTex.pot ? '' : ' (not a power of two: no mipmaps, so it will shimmer at distance)'}` : ', no imagery');
+    for (const w of map.warnings) mapStatus += `\nWarning: ${w}`;
+    toast(`Flying ${map.name}`);
+    return map;
+  }
+
+  function closeMap() {
+    GLR.freeTex(R, colorTex); colorTex = null;
+    // the chunk list has to go before the terrain does, or the next frame asks
+    // flat terrain for a chunk mesh
+    if (chunks) for (const ch of chunks) GLR.freeMesh(R, ch.mesh);
+    chunks = null;
+    terrain = TERRAIN.FLAT; mapInfo = null; env.terrain = null;
+    EYE[0] = 0; EYE[1] = 1.7; EYE[2] = 0;
+    mapStatus = '';
+    buildWorld(S.scenery);
+    doReset();
+  }
+
+  /* ---------------------------------------------------------------- the map panel
+     Two ways in. A URL library is one fetch of index.json and then the map's
+     folder; a local folder is a directory picker, which is the only route the
+     claude.ai artifact build has, because it cannot reach another server at
+     all. The panel says which of those apply rather than letting a fetch fail
+     silently in the network tab. */
+  let libCache = null, mapBusy = false;
+  function buildMapPanel(box) {
+    const remote = MAPS.canFetchRemote();
+    const cur = mapInfo
+      ? `<b>${esc(mapInfo.name)}</b>${mapInfo.region ? ` · ${esc(mapInfo.region)}` : ''}`
+      : '<b>The built-in field</b> · flat ground, the eight-gate course, the power line and the search scene';
+    box.innerHTML = `
+      <div class="kv"><span>Flying</span><span>${cur}</span></div>
+      ${mapStatus ? `<div class="help" style="white-space:pre-line">${esc(mapStatus)}</div>` : ''}
+      ${mapInfo && mapInfo.attribution ? `<div class="help">${esc(mapInfo.attribution)}${mapInfo.author ? ` · by ${esc(mapInfo.author)}` : ''}${mapInfo.license ? ` · ${esc(mapInfo.license)}` : ''}</div>` : ''}
+      <div class="actions" style="justify-content:flex-start;flex-wrap:wrap">
+        <button class="btn small" id="mpOpen">Open a map folder…</button>
+        ${remote ? '<button class="btn small" id="mpList">List the public maps</button>' : ''}
+        ${mapInfo ? '<button class="btn small" id="mpOff">Back to the built-in field</button>' : ''}
+      </div>
+      <input type="file" id="mpFiles" multiple webkitdirectory directory style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none">
+      <div id="mpMsg" class="help"></div>
+      <div id="mpList2"></div>
+      <div class="help">A map is a folder holding <code>map.json</code>, <code>height.u16</code> and
+        optionally <code>surface.u8</code> and a colour image — the format is in
+        <code>docs/map-format.md</code>. Pick the folder itself, or a whole library folder and the
+        first map in it opens.${remote ? '' : ' This build cannot reach another server, so the folder picker is the only way in — which is also how it works offline at the field.'}</div>`;
+
+    const msg = box.querySelector('#mpMsg');
+    const say = (s) => { msg.textContent = s; };
+    const fail = (e) => { msg.innerHTML = `<b style="color:#ff8a80">${esc(e.message || String(e))}</b>`; };
+    const guard = async (fn) => {
+      if (mapBusy) return;
+      mapBusy = true;
+      try { await fn(); } catch (e) { fail(e); } finally { mapBusy = false; }
+    };
+
+    const files = box.querySelector('#mpFiles');
+    box.querySelector('#mpOpen').addEventListener('click', () => files.click());
+    files.addEventListener('change', () => guard(async () => {
+      const loaded = await MAPS.fromFiles(files.files, say);
+      openMap(loaded);
+      buildSheet();
+    }));
+    const off = box.querySelector('#mpOff');
+    if (off) off.addEventListener('click', () => { closeMap(); buildSheet(); });
+
+    const listEl = box.querySelector('#mpList2');
+    const renderList = (lib) => {
+      listEl.innerHTML = `<div class="lab"><span>${esc(lib.name)}${lib.updated ? ` · ${esc(lib.updated)}` : ''}</span></div>` +
+        (lib.maps.length
+          ? `<div class="seg wrap" role="group" aria-label="Maps">${lib.maps.map((m, i) => `<button type="button" data-i="${i}">${esc(m.name || m.id)}${m.bytes ? ` · ${(m.bytes / 1e6).toFixed(1)} MB` : ''}</button>`).join('')}</div>`
+          : '<div class="help">That library lists no maps yet.</div>');
+      listEl.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => guard(async () => {
+        const entry = lib.maps[Number(b.dataset.i)];
+        const loaded = await MAPS.fetchMap(lib.base, entry, say);
+        openMap(loaded);
+        buildSheet();
+      })));
+    };
+    const listBtn = box.querySelector('#mpList');
+    if (listBtn) listBtn.addEventListener('click', () => guard(async () => {
+      say('Reading the map library…');
+      libCache = await MAPS.fetchLibrary(S.mapLib || MAPS.DEFAULT_LIBRARY);
+      say(`${libCache.maps.length} map${libCache.maps.length === 1 ? '' : 's'}.`);
+      renderList(libCache);
+    }));
+    if (libCache) renderList(libCache);
+  }
+
+  function freeWorld() {
+    if (world) for (const k of ['ground', 'runway', 'decal', 'scenery']) GLR.freeMesh(R, world[k]);
+    if (chunks) for (const ch of chunks) GLR.freeMesh(R, ch.mesh);
+    chunks = null;
   }
 
   // sky dome (unlit, follows the camera)
@@ -815,19 +1138,38 @@
   const packStartC = () => (S.packWarm ? Math.max(30, atmo.Tc) : atmo.Tc); // pre-warmed packs come out of a warm bag at ~30 °C
   updateAtmos();
 
+  /* Where a reset puts you. On the built-in field that is one of the
+     aircraft's own start names; on a map it is one of the map's `starts`,
+     which physics takes as an object and places against the terrain. */
+  function currentStart() {
+    if (mapInfo && mapInfo.starts.length) {
+      const want = S.mapStart;
+      return mapInfo.starts.find((s) => s.id === want) || mapInfo.starts[0];
+    }
+    return startOf(AC.id);
+  }
+  const startInAir = (w) => (w && typeof w === 'object' ? w.aglM > 0.05 : w === 'air');
+
   function doReset() {
-    const where = startOf(AC.id);
-    FL.reset(st, AC, where, packStartC());
+    const where = currentStart();
+    FL.reset(st, AC, where, packStartC(), mapInfo ? terrain : null);
     if (race.r && race.phase !== 'off') { // line up abreast so a room doesn't start in a heap
       const ids = [...race.r.peers.keys()].concat([myId]).sort();
-      st.p[1] += ids.indexOf(myId) * 4;
+      const shift = ids.indexOf(myId) * 4;
+      if (shift) {
+        // keep the height above the ground, which moves when the shift is onto a slope
+        const agl0 = -st.p[2] - terrain.heightAt(st.p[0], st.p[1]);
+        st.p[1] += shift;
+        st.p[2] = -terrain.heightAt(st.p[0], st.p[1]) - agl0;
+      }
     }
     NAV.reset(nav, st); fsActive = false;
-    armed = where === 'air';
-    if (where === 'air') kb.thr = AC.kind === 'quad' ? AC.hoverThr : AC.kind === 'heli' ? AC.hoverThrCurve[S.curve] : AC.kind === 'wing' ? 0.55 : 0.6;
+    const inAir = startInAir(where);
+    armed = inAir;
+    if (inAir) kb.thr = AC.kind === 'quad' ? AC.hoverThr : AC.kind === 'heli' ? AC.hoverThrCurve[S.curve] : AC.kind === 'wing' ? 0.55 : 0.6;
     else kb.thr = 0;
-    flapSet = 0; gearDown = where !== 'air'; st.gear = gearDown ? 1 : 0;
-    crashAt = 0; crashAnnounced = false; flightTime = 0; timerOn = where === 'air'; launchHold = 0; acc = 0; farWarned = false;
+    flapSet = 0; gearDown = !inAir; st.gear = gearDown ? 1 : 0;
+    crashAt = 0; crashAnnounced = false; flightTime = 0; timerOn = inAir; launchHold = 0; acc = 0; farWarned = false;
     for (let i = 0; i < 3; i++) gust[i] = 0;
     courseReset(); obsPrev = null;
     hideBanner();
@@ -1819,6 +2161,9 @@
         seg('crashes', 'Crashes', [[true, 'On'], [false, 'Off']]),
         seg('autoReset', 'After a crash', [[true, 'Auto reset (3 s)'], [false, 'Wait for me']]),
       ] },
+      { tab: 'map', title: 'Map', items: [{ type: 'maps' },
+        ...(mapInfo && mapInfo.starts.length > 1 ? [seg('mapStart', 'Reset puts you', mapInfo.starts.map((s) => [s.id, s.name]), '', () => S.mapStart, (v) => { S.mapStart = v; saveS(); doReset(); refreshBar(); })] : []),
+      ] },
       { tab: 'controller', title: 'Controller', items: [{ type: 'radio' },
         seg('stickMode', 'Stick mode (keyboard & touch)', [['2', 'Mode 2'], ['1', 'Mode 1']], 'With a radio the setup wizard maps channels, so this only affects keys and touch.'),
         seg('touch', 'Touch sticks', [['auto', 'Auto'], ['on', 'On'], ['off', 'Off']]),
@@ -1943,7 +2288,7 @@
     Object.assign(S, p[3]); S.wxPreset = id; saveS(); updateAtmos(); doReset(); buildSheet();
     toast(`${p[1]}: ${p[2]}`);
   }
-  const TABS = [['aircraft', 'Aircraft'], ['builder', 'Builder'], ['controller', 'Controller'], ['racing', 'Racing'], ['weather', 'Weather'], ['link', 'Link & sensors'], ['display', 'Display'], ['graphics', 'Graphics & sound'], ['model', 'Flight model']];
+  const TABS = [['aircraft', 'Aircraft'], ['builder', 'Builder'], ['controller', 'Controller'], ['map', 'Map'], ['racing', 'Racing'], ['weather', 'Weather'], ['link', 'Link & sensors'], ['display', 'Display'], ['graphics', 'Graphics & sound'], ['model', 'Flight model']];
   function setTab(t) { if (S.sheetTab !== t) { S.sheetTab = t; saveS(); $('#sheet').scrollTop = 0; } buildSheet(); }
   function buildSheet() {
     const body = $('#shBody');
@@ -1991,6 +2336,9 @@
           box.querySelectorAll('button').forEach((b0) => b0.addEventListener('click', () => applyPreset(b0.dataset.id)));
         } else if (it.type === 'da') {
           box.id = 'daBox'; box.innerHTML = daHtml();
+        } else if (it.type === 'maps') {
+          box.id = 'mapBox';
+          buildMapPanel(box);
         } else if (it.type === 'radio') {
           box.innerHTML = `<div class="radio-box"><div class="name" id="rbName"></div><div class="actions" style="justify-content:flex-start"><button class="btn small" id="rbCtl">Controls &amp; buttons</button><button class="btn small" id="rbSetup">Guided setup</button></div><div class="help">One profile per controller (your HOTAS, your radio…), picked automatically when you plug it in. Each keeps its own stick mapping, button names and actions, rates and expo.</div></div>`;
           box.querySelector('#rbCtl').addEventListener('click', () => { closeSheet(); openCtl(); });
@@ -2386,7 +2734,6 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     return M4.fromRT(R3, [s.p[1], -s.p[2], -s.p[0]]);
   }
   let losFov = 50 * D2R;
-  const EYE = [0, 1.7, 0];
   function losCam(v, planeM) {
     const p = [planeM[12], planeM[13], planeM[14]];
     const d = Math.hypot(p[0] - EYE[0], p[1] - EYE[1], p[2] - EYE[2]);
@@ -2431,10 +2778,25 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     }
     gl.enable(gl.DEPTH_TEST); gl.depthMask(true);
     const I = M4.ident(), sn = snowCover(), WHITE = [0.93, 0.94, 0.96];
-    GLR.draw(R, world.ground, I, { tex: grassTex, worldUV: true, texScale: 1 / 8, mix: sn ? [...WHITE, sn] : null });
+    const snowMix = sn ? [...WHITE, sn] : null;
+    if (chunks) {
+      /* The terrain, chunk by chunk at whatever level of detail each one is
+         currently built at. With a colour image the chunk's own UVs index it
+         corner to corner; without one the vertex colours carry the surface
+         class and slope and the grass texture tiles over the top for grain. */
+      const o = colorTex
+        ? { tex: colorTex.tex, mix: snowMix }
+        : { tex: grassTex, worldUV: true, texScale: 1 / 8, mix: snowMix };
+      for (const ch of chunks) {
+        if (!ch.mesh || !chunkAhead(ch, cam)) continue;
+        GLR.draw(R, ch.mesh, I, o);
+        drawnTris += ch.mesh.tris; drawnChunks++;
+      }
+    } else GLR.draw(R, world.ground, I, { tex: grassTex, worldUV: true, texScale: 1 / 8, mix: snowMix });
     gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(-2, -4);
-    GLR.draw(R, world.runway, M4.trans(0, 0.02, 0), { tex: runwayTex, mix: sn ? [...WHITE, sn * 0.6] : null });
-    GLR.draw(R, world.decal, M4.trans(0, 0.02, 0));
+    const decalM = mapInfo ? I : M4.trans(0, 0.02, 0);
+    GLR.draw(R, world.runway, decalM, { tex: runwayTex, mix: sn ? [...WHITE, sn * 0.6] : null });
+    GLR.draw(R, world.decal, decalM);
     gl.disable(gl.POLYGON_OFFSET_FILL);
     GLR.draw(R, world.scenery, I, { mix: sn ? [...WHITE, sn * 0.35] : null });
     GLR.draw(R, sockMesh, sockM);
@@ -2450,13 +2812,20 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     const propMs = model.props.map((pr) => (pr.tilt ? M4.chain(planeM, pr.mat, pr.tilt(st), pr.post, M4.rotZ(pr.ang)) : M4.chain(planeM, pr.mat, M4.rotZ(pr.ang))));
     if (v.kind !== 'fpv') model.props.forEach((pr, i) => GLR.draw(R, pr.blades, propMs[i], { mix: propMix }));
     // shadow (sun overhead), drawn once per pixel via stencil
-    const hgt = planeM[13];
+    /* The shadow is the model squashed flat onto the ground, so on a map it has
+       to be squashed onto the ground *under the model*, not onto the datum —
+       otherwise a quad over a ridge casts its shadow into the valley floor.
+       One sample under the centre of gravity, which is right to within the
+       slope across the model's own length. */
+    const shGnd = terrain.heightAt(st.p[0], st.p[1]);
+    const flatM = mapInfo ? M4.mul(M4.trans(0, shGnd + 0.035, 0), M4.scale(1, 0, 1)) : FLAT;
+    const hgt = planeM[13] - shGnd; // height above the ground under it, not above the datum
     if (hgt < 120) {
       gl.enable(gl.STENCIL_TEST); gl.stencilFunc(gl.EQUAL, 0, 0xff); gl.stencilOp(gl.KEEP, gl.KEEP, gl.INCR);
       gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
       gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(-4, -8);
       const a = 0.42 * (1 - smooth(25, 120, hgt));
-      for (let i = 0; i < model.parts.length; i++) GLR.draw(R, model.parts[i].mesh, M4.mul(FLAT, partM[i]), { unlit: true, alpha: a, tint: SHADOW_TINT, noFog: true });
+      for (let i = 0; i < model.parts.length; i++) GLR.draw(R, model.parts[i].mesh, M4.mul(flatM, partM[i]), { unlit: true, alpha: a, tint: SHADOW_TINT, noFog: true });
       gl.disable(gl.POLYGON_OFFSET_FILL); gl.disable(gl.STENCIL_TEST);
       gl.depthMask(true); gl.disable(gl.BLEND);
     }
@@ -2757,6 +3126,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     const eu = FL.eulerFromMat(FL.quatToMat(st.q));
     // what the flight controller reports: baro height above home, GPS ground speed and position
     const alt = nav.baro.alt, gs = Math.hypot(nav.gps.v[0], nav.gps.v[1]);
+    const aglNow = agl();
     const W = warnings();
     for (const v of views) {
       ctx.save(); ctx.beginPath(); ctx.rect(v.x, v.y, v.w, v.h); ctx.clip();
@@ -2793,6 +3163,15 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
           osdText(`LQ ${lq} ${Math.round(nav.link.rcRssi)}dBm`, v.x + m, y1, 'left', fs * 0.72, col);
           osdText(`GPS ${nav.gps.sats}`, v.x + v.w - m, y1, 'right', fs * 0.72);
           if (S.lidar !== 'none') osdText(nav.rng.valid && nav.est.src === 'lidar' ? `RNG ${U.alt(nav.rng.d)}` : 'RNG ---', v.x + v.w - m, y1 + fs * 0.95, 'right', fs * 0.72, nav.est.src === 'lidar' ? '#93ffa6' : 'rgba(255,255,255,0.6)');
+          /* Height above the ground directly below, straight out of the
+             heightfield. The altitude tape reads height above the field, which
+             over a mountain is not the number that keeps you out of the trees:
+             fly up a valley and the tape climbs while the ground climbs faster.
+             Shown only on a map, because on the flat field the two are equal. */
+          if (mapInfo) {
+            const ag = aglNow;
+            osdText(`AGL ${U.alt(Math.max(0, ag))}`, v.x + m, y1 + fs * 0.95, 'left', fs * 0.72, ag < 15 ? '#ffd36a' : ag < 5 ? '#ff6157' : '#93ffa6');
+          }
         }
         if (!hud) {
           osdText(`ALT ${U.alt(alt)}`, v.x + m, cy, 'left', fs);
@@ -3015,8 +3394,11 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   // what's under a point (NED north, east): top height and how well it reflects the lidar's 905 nm light
   function surfaceAt(n, e) {
     const x = e, z = -n, P = FL.PRECIP[S.precip], wet = P.liquid && P.R > 0 && atmo.Tc > 0;
-    const onRunway = Math.abs(x) <= 60 && z >= -17 && z <= -7;
-    let h = 0, refl = snowCover() > 0 ? 0.7 : onRunway ? 0.12 : 0.45;
+    const onRunway = !mapInfo && Math.abs(x) <= 60 && z >= -17 && z <= -7;
+    // the ground is wherever the map says, and its class sets the reflectivity
+    let h = terrain.heightAt(n, e);
+    let refl = mapInfo ? terrain.reflAt(n, e) : onRunway ? 0.12 : 0.45;
+    if (snowCover() > 0) refl = 0.7;
     for (const o of world.obstacles) {
       if (o.k === 'cyl' && o.r >= 0.3 && o.y1 > h && (x - o.x) ** 2 + (z - o.z) ** 2 < o.r * o.r) { h = o.y1; refl = o.r > 2.5 ? 0.5 : 0.35; }
       else if (o.k === 'box' && o.y1 > h && x >= o.x0 && x <= o.x1 && z >= o.z0 && z <= o.z1) { h = o.y1; refl = 0.25; }
@@ -3025,8 +3407,37 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     return { h, refl };
   }
   // radio obstructions between your antenna (1.5 m up where you stand) and the aircraft: trees and buildings
+  /* Loss from a single terrain edge between you and the aircraft, by ITU-R
+     P.526's knife-edge approximation. The Fresnel parameter is
+
+       v = -c * sqrt(2 (d1 + d2) / (lambda d1 d2))
+
+     with c the clearance above the terrain at its closest, d1 and d2 the
+     distances from each end to that point, and lambda = 300 / f(MHz) metres.
+     Loss is then J(v) = 6.9 + 20 log10(sqrt((v - 0.1)^2 + 1) + v - 0.1) dB for
+     v > -0.78, and nothing below that. At v = 0 — the beam exactly grazing the
+     ridge — that is 6.0 dB, which is the textbook result, and it rises steeply
+     once the ridge is actually in the way. This is why a quad down in a canyon
+     loses the link while one 50 m higher does not, and it comes out of the
+     heightfield for free. */
+  function terrainDiffraction(fMHz) {
+    if (!mapInfo) return 0;
+    const pn = mapInfo.pilot.n, pe = mapInfo.pilot.e;
+    const aUp = terrain.heightAt(pn, pe) + 1.5;
+    terrain.ray(pn, pe, aUp, st.p[0], st.p[1], -st.p[2], rayOut);
+    const total = Math.max(1, rayOut.dist);
+    const d1 = Math.max(1, total * rayOut.minGapT), d2 = Math.max(1, total - d1);
+    const lambda = 300 / Math.max(1, fMHz);
+    const c = rayOut.hit ? Math.min(rayOut.minGap, -0.5) : rayOut.minGap;
+    const v = -c * Math.sqrt((2 * (d1 + d2)) / (lambda * d1 * d2));
+    if (v <= -0.78) return 0;
+    const q = v - 0.1;
+    return Math.max(0, 6.9 + 20 * Math.log10(Math.sqrt(q * q + 1) + q));
+  }
+
   function obstruction() {
-    const a = [0, 1.5, 0], b = [st.p[1], -st.p[2], -st.p[0]], d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const pn = mapInfo ? mapInfo.pilot.n : 0, pe = mapInfo ? mapInfo.pilot.e : 0;
+    const a = [pe, terrain.heightAt(pn, pe) + 1.5, -pn], b = [st.p[1], -st.p[2], -st.p[0]], d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
     let trees = 0, bldg = 0;
     for (const o of world.obstacles) {
       if (o.k === 'cyl' && o.r >= 0.5) {
@@ -3043,8 +3454,9 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
         if (t0 < t1 && t0 < 0.98) bldg++;
       }
     }
-    const loss = (f) => Math.min(60, trees * (f < 1000 ? 3 : f < 3000 ? 6 : 10) + bldg * (f < 1000 ? 10 : f < 3000 ? 18 : 25));
-    return { rc: loss(NAV.RCLINKS[S.rcLink].f), vid: loss(NAV.VTXS[S.vtx].f), trees, bldg };
+    const loss = (f) => Math.min(80, trees * (f < 1000 ? 3 : f < 3000 ? 6 : 10) + bldg * (f < 1000 ? 10 : f < 3000 ? 18 : 25) + terrainDiffraction(f));
+    const rcF = NAV.RCLINKS[S.rcLink].f;
+    return { rc: loss(rcF), vid: loss(NAV.VTXS[S.vtx].f), trees, bldg, terr: terrainDiffraction(rcF) };
   }
   // noise floor rise: the interference slider (up to 30 dB) plus the power line's corona hiss nearby
   const noiseRise = () => 0.3 * S.rfNoise + (Math.abs(st.p[0] - 330) < 30 ? 6 : 0);
@@ -3054,10 +3466,10 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       const k = `${AC.id}|${env.rho.toFixed(3)}`;
       if (stallVsCache.k !== k) stallVsCache = { k, Vs: FL.stallSpeed(AC, env.rho).Vs };
       const Vs = stallVsCache.Vs, Vc = clamp(1.9 * Vs, 12, 22);
-      return { kind: 'plane', rtlAlt: S.rtlAlt.plane, Vcruise: Vc, Vmin: 1.35 * Vs, Vmax: Math.min(28, 3 * Vs), loiterR: Math.max(30, (Vc * Vc) / (9.81 * Math.tan(30 * D2R))), aTrim: 2 * D2R, thrTrim: AC.kind === 'wing' ? 0.45 : 0.5 };
+      return { kind: 'plane', home: homeNE(), rtlAlt: S.rtlAlt.plane, Vcruise: Vc, Vmin: 1.35 * Vs, Vmax: Math.min(28, 3 * Vs), loiterR: Math.max(30, (Vc * Vc) / (9.81 * Math.tan(30 * D2R))), aTrim: 2 * D2R, thrTrim: AC.kind === 'wing' ? 0.45 : 0.5 };
     }
     const heli = AC.kind === 'heli';
-    return { kind: AC.kind, rtlAlt: S.rtlAlt.rotary, hover: heli ? AC.hoverThrCurve[S.curve] : AC.hoverThr, curveK: S.curve === '3d' ? 0.18 : 0.3,
+    return { kind: AC.kind, home: homeNE(), rtlAlt: S.rtlAlt.rotary, hover: heli ? AC.hoverThrCurve[S.curve] : AC.hoverThr, curveK: S.curve === '3d' ? 0.18 : 0.3,
       base0: heli ? 0 : AC.motor.idle + AC.hoverThr * (1 - AC.motor.idle), idle: heli ? 0 : AC.motor.idle };
   }
   let lastSrc = 'baro';
@@ -3476,8 +3888,9 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
         if (!crashAnnounced) { crashAnnounced = true; showBanner('Crashed', `${st.crashMsg}. ${S.autoReset ? 'Resetting…' : 'Press R, flip reset, or tap here.'}`, true); }
         if (S.autoReset && now - crashAt > 3000) doReset();
       }
-      const d = Math.hypot(st.p[0], st.p[1]);
-      if (d > 1500) { doReset(); toast('Flew out of range. Reset.'); }
+      // out of range: measured from where you stand, and the map sets how far
+      const pn = mapInfo ? mapInfo.pilot.n : 0, pe = mapInfo ? mapInfo.pilot.e : 0;
+      if (Math.hypot(st.p[0] - pn, st.p[1] - pe) > mapRange()) { doReset(); toast('Flew out of range. Reset.'); }
     }
     avatars.length = 0;
     ghostTick(paused ? 0 : dt);
@@ -3487,6 +3900,9 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     viewAc = watched ? watched.ac : AC.id;
     const planeM = watched ? planeMatrix(watched.st) : planeMatrix(st);
     const views = layout();
+    drawnTris = 0; drawnChunks = 0;
+    // size the terrain against the view the pilot is actually looking through
+    if (chunks) updateChunkLods(views.length ? (views[0].cam ? views[0].cam.pos : EYE) : EYE);
     const losD = Math.hypot(planeM[12] - EYE[0], planeM[13] - EYE[1], planeM[14] - EYE[2]);
     // LOS zoom: keep the wingspan at a set share of the view height (mild 4%, strong 8%)
     const share = { mild: 0.04, strong: 0.08 }[S.losZoom];
@@ -3509,5 +3925,8 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { gl.bindTexture(gl.TEXTURE_2D, runwayTex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, runwayTexture()); gl.generateMipmap(gl.TEXTURE_2D); });
   if (S.net.relay !== 'off' && S.net.room) raceJoin(); // you were in a room when you closed the page
   requestAnimationFrame((t) => { last = t; frame(t); });
-  window.__flightline = { st, S, env, nav: () => nav, setAp: (m) => setAp(m), AC: () => AC, doReset, FL, IN: () => IN, prof, ctl, world: () => world, course, ghost, avatars, laps: LAPS, rec: () => rec, race, raceJoin, raceReady, NET, myId }; // debugging and tests
+  window.__flightline = { st, S, env, nav: () => nav, setAp: (m) => setAp(m), AC: () => AC, doReset, FL, IN: () => IN, prof, ctl, world: () => world, course, ghost, avatars, laps: LAPS, rec: () => rec, race, raceJoin, raceReady, NET, myId,
+    terrain: () => terrain, mapInfo: () => mapInfo, openMap, closeMap, TERRAIN, MAPS,
+    terrainStats: () => ({ tris: drawnTris, chunks: drawnChunks, lods: chunks ? chunks.map((c) => c.lod) : [] }),
+    agl }; // debugging and tests
 })();

@@ -5,7 +5,7 @@
   dist/artifact.html  body fragment for publishing as a claude.ai artifact
 
 Sources: src/shell.html (head + markup), then src/physics.js, src/aircraft.js, src/nav.js,
-src/render.js, src/ghost.js, src/net.js, src/app.js.
+src/render.js, src/terrain.js, src/maps.js, src/ghost.js, src/net.js, src/app.js.
 Run from the repo root:  python3 tools/build.py
 """
 import pathlib
@@ -15,7 +15,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
 
 shell = (SRC / "shell.html").read_text()
-js = "\n".join((SRC / f).read_text() for f in ("physics.js", "aircraft.js", "nav.js", "render.js", "ghost.js", "net.js", "app.js"))
+js = "\n".join((SRC / f).read_text() for f in ("physics.js", "aircraft.js", "nav.js", "render.js", "terrain.js", "maps.js", "ghost.js", "net.js", "app.js"))
 version = __import__("hashlib").sha1(js.encode()).hexdigest()[:8]
 
 split = shell.index('<div id="stage">')
