@@ -1,75 +1,152 @@
 # Flightline RC Sim
 
-A browser flight simulator for practising RC fixed-wing flying on a Chromebook, with
-line-of-sight, FPV, and a stacked split view for a portrait screen. It ships two
-aircraft: a **Nano Goblin** (580 mm plank wing) and a **1.5 m high-wing trainer**.
-Plug in your transmitter over USB and fly it like the real thing.
+A browser flight simulator for practising RC flying on a Chromebook: fixed wings,
+quads and a helicopter. You can fly line-of-sight, FPV, or a stacked split view for a
+portrait screen. Plug in your transmitter or HOTAS over USB and fly it like the real
+thing, in the weather you're worried about, with a radio link that can fail.
 
-The flight model is built for stall practice. Each wing, tail and fin is cut into
-strips that each see their own airflow and stall on their own, so wing drop, tip
-stall, accelerated stalls and stall–spin entries come out of the physics instead of
-being scripted.
+The flight models are built for practice that transfers:
+- Wings are cut into strips that each stall on their own, so wing drop, tip stall and
+  stall–spin entries come out of the physics.
+- Quads run a Betaflight-style rate controller.
+- The heli has a governed rotor you can autorotate.
+- Weather, icing, cold batteries, sensors and the radio link all change how the aircraft
+  flies, not just how it looks.
 
 ## Run it
 
-- **On the web:** <https://realpapanerf.github.io/flightline-sim/> (after GitHub Pages
-  is switched on; see below).
-- **Locally:** open `index.html` in Chrome. It is one self-contained file. Offline, the
-  OSD falls back to a system monospace font.
-
-### Switch on GitHub Pages (once)
-
-Repo → **Settings** → **Pages** → *Build and deployment* → Source: **Deploy from a
-branch**, Branch: **main**, folder **/ (root)** → **Save**. The site appears at the
-address above within a minute or two.
+- **On the web:** <https://realpapanerf.github.io/flightline-sim/>
+- **Locally:** open `index.html` in Chrome. It's one self-contained file.
 
 ### Put it on the Chromebook as an app
 
-ChromeOS keeps apps in the launcher and shelf rather than on a desktop.
+1. Open the web address in Chrome.
+2. Click the install icon at the right end of the address bar (or ⋮ → *Cast, save and
+   share* → *Install page as app…*).
+3. Right-click the new Flightline icon in the launcher → **Pin to shelf**.
 
-1. Open the Pages address in Chrome.
-2. Click the install icon at the right end of the address bar (or ⋮ menu →
-   *Cast, save and share* → *Install page as app…*).
-3. Flightline now has its own icon in the launcher. Right-click it → **Pin to shelf**.
+The installed app opens in its own window and runs offline at the field.
 
-The installed app opens in its own window, and a service worker caches it so it runs
-with no internet at the field.
+GitHub Pages is switched on under Repo → Settings → Pages → Deploy from a branch → main →
+/ (root).
+
+## The aircraft
+
+| | What it is | Power |
+|---|---|---|
+| **Nano Goblin** | 580 mm plank wing, 250 g, hand-launched | 2S 3200 Li-ion, pusher |
+| **1.5 m trainer** | high-wing tricycle, 1.3 kg, runway | 3S 2200 LiPo, 10″ prop |
+| **5-inch quad** | freestyle, 650 g, ~8.5:1 thrust/weight | 6S 1300 LiPo |
+| **4″ LR** | long range, 340 g | 4S1P 18650 Li-ion |
+| **7″ LR** | long range, 1.05 kg | 6S2P 18650 Li-ion |
+| **13″ lifter** | 3.7 kg, landing gear, three-camera pod | 12S2P 21700 Li-ion |
+| **450 heli** | flybarless, 2,900 rpm governor, Normal and 3D pitch curves | 6S 1300 LiPo |
+
+Li-ion packs can't feed a full punch on the bigger quads: the voltage dives and the
+thrust goes with it. Bench numbers for each aircraft come from `node test/quad_test.js
+<id>`, `node test/heli_test.js` and `node test/fm_test.js`.
+
+**How the planes stall.** The Goblin mushes: full up elevon gives a nose-high bob and
+sink, and a hard pull at speed stalls it at about 6 g. The trainer stalls root-first and
+drops a wing. Stall it in a turn and the inside wing goes first: the base-to-final
+stall–spin.
+
+**The heli.** Throttle hold (`H`) stops the motor and leaves the collective live. Lower
+the collective and the air coming up through the disc keeps the rotor turning. Flare and
+cushion with the stored headspeed. Leave the collective up and the rotor dies.
+
+## Flight modes
+
+- **Manual / Acro:** sticks move surfaces (planes) or command rotation rates (multirotors).
+- **Horizon:** levels near centre stick, full stick flips or rolls.
+- **Trainer:** manual or acro, but stopped at the bank and pitch limits.
+- **Stabilised / Angle:** sticks command bank and pitch. Limits are adjustable.
+- **Autopilot (ArduPilot-style):**
+  - `J` Alt hold
+  - `K` Loiter (GPS position hold for multirotors, a circle for planes)
+  - `G` RTL
+  - any flight-mode switch, or `M`, takes control back
+- **RC failsafe:** a second without packets starts an RTL. When the link returns, RTL
+  continues until you switch modes.
+
+## Weather (Settings → Weather)
+
+Presets:
+- Clear day
+- High & hot
+- Hot & humid
+- Cold front
+- Storm outflow
+- Cold & clear
+- Freezing fog
+- Freezing drizzle
+- Snow squall
+
+Then adjust anything:
+- **Density altitude** from field elevation, temperature, humidity and altimeter
+  setting. Wings, props and rotors all lose performance in thin air.
+- **Wind, gusts and turbulence:** Dryden turbulence including rotational gusts that
+  rock small wings, plus gusty, sinking air in the lee of trees and buildings.
+- **Rain, snow, fog, cloud ceiling:** reduced visibility, a cloud deck that hides the
+  model from the ground and whites out FPV, and drops or frost on the FPV lens.
+- **Icing:** in supercooled cloud, freezing fog, drizzle or wet snow, ice builds on
+  leading edges and props. Small chords ice first. Stall speed rises, drag and weight
+  climb, prop thrust falls, and ice sheds with a shake.
+- **Cold batteries:** a cold pack sags hard on a punch and warms as you fly. You can
+  start it pre-warmed.
+
+Every equation and coefficient is listed under Settings → Flight model. The icing
+numbers follow published trends but err pessimistic: a reason to turn around early, not
+a margin to fly to.
+
+## Link and sensors (Settings → Link & sensors)
+
+- **Sensors:**
+  - GPS: latency and wander
+  - Baro: drift, and reads low at speed
+  - Downward lidar: TF-Luna, TFmini Plus, TF02-Pro or SF11/C. Range depends on the
+    surface (snow good, wet asphalt bad), bank angle and weather.
+
+  The autopilot flies on these, and the OSD shows them.
+- **RC link:** ELRS 2.4 GHz or 900 MHz. Link quality falls with distance, trees and
+  buildings in the way, low-and-far flying, flying overhead, and an interference
+  slider. Lost packets freeze the sticks.
+- **Analog video:** 25 / 200 / 600 mW. The picture goes to snow, then tears, then
+  drops out, OSD included.
+
+## FPV OSD
+
+**HUD** (default):
+- pitch ladder
+- speed tape and altitude tape with vario
+- heading tape and bank scale
+- flight-path marker
+
+Plus link quality, GPS sats, rangefinder, battery, throttle (collective and rpm on the
+heli), and home arrow with distance. **Classic** shows a horizon line and numbers instead.
 
 ## Controllers: radios, HOTAS, gamepads
 
-Anything Chrome sees as a game controller works: an EdgeTX/OpenTX radio (RadioMaster,
-Jumper, FrSky…) in USB joystick mode, a HOTAS, or a gamepad.
+Anything Chrome sees as a game controller works: an EdgeTX/OpenTX radio in USB joystick
+mode, a HOTAS, or a gamepad.
 
-**Profiles.** Each controller gets its own profile the first time it's plugged in, and
-plugging it in again makes that profile active. A profile keeps the controller's stick
-mapping, button names and actions, and its own rates and expo, so a HOTAS and a radio
-never overwrite each other. A HOTAS whose stick and throttle are separate USB devices can
-share one profile (Controls & buttons → *Add to this profile*). Profiles can be renamed
-or deleted there too.
+- **Profiles:** one per controller, picked automatically when you plug it in. Each keeps
+  its own stick mapping, button names and actions, rates and expo. A HOTAS with separate
+  stick and throttle USB devices can share one profile.
+- **Sticks:** Settings → Controller → **Guided setup**, or **Learn** per axis in
+  Controls & buttons. On a radio, choose **USB Joystick (HID)** when you plug it in.
+- **Buttons:** every button and hat gets a channel. Press **Record buttons**, press
+  things one at a time, name them, and give each an action:
+  - reset, pause, views
+  - every flight mode and autopilot mode, stabilised while held
+  - throttle cut / heli throttle hold
+  - heli pitch curve
+  - hand launch
+  - trims, camera tilt, LOS zoom, OSD mode
+  - stall indicator, engineering readout
+  - switch aircraft, start position
 
-**Sticks.** ⚙ Settings → Controls → **Guided setup** walks through throttle, roll, pitch
-and yaw (directions and ranges are detected, so reversed axes don't matter), plus
-optional reset / view / stabilised-mode buttons. Or set one axis at a time with **Learn**
-in Controls & buttons. On a radio, choose **USB Joystick (HID)** when you plug it in.
-
-**Buttons.** Every button on every controller has a channel. In **Controls & buttons**,
-press **Record buttons**, then press buttons and hats one at a time: each press jumps to
-its channel and puts the cursor in its name box. Hats that Chrome reports as an axis
-(common on HOTAS sticks) are added as channels when you record them. Give any channel a
-name now and an action whenever you want one:
-
-reset · pause · views · stabilised mode (toggle, or while held / switch on) · throttle
-cut (toggle or hold) · hand-launch throw · trims for elevator, aileron and rudder (hold
-to repeat, like radio trims) · trim reset · FPV camera tilt · LOS zoom · OSD mode · stall
-indicator · engineering readout · switch aircraft · start position.
-
-Trims are stored per aircraft and add to the built-in trim.
-
-Chrome only reports a controller after a stick moves or a button is pressed, so do that
-after plugging in. If your radio's sim model has its own rates and expo, set the sim's
-expo to 0% for that profile (Settings → Rates & expo shows which profile you're editing).
-
-## Controls
+## Keys
 
 | | Mode 2 (default) | Mode 1 |
 |---|---|---|
@@ -78,105 +155,67 @@ expo to 0% for that profile (Settings → Rates & expo shows which profile you'r
 | Roll | `←` / `→` | `←` / `→` |
 | Yaw | `A` / `D` | `A` / `D` |
 
-`R` reset · `V` cycle view (also `1` LOS, `2` FPV, `3` split) · `M` manual/stabilised ·
-`P` or `Space` pause · `F` full screen · `L` throw the Goblin at any throttle.
+| Key | Action |
+|---|---|
+| `R` | Reset |
+| `V` | Cycle view (`1` LOS, `2` FPV, `3` split) |
+| `M` | Cycle flight mode |
+| `J` `K` `G` | Alt hold, loiter, RTL |
+| `H` | Throttle cut (heli: throttle hold) |
+| `I` | Heli Normal / 3D pitch curve |
+| `L` | Throw the Goblin |
+| `P` or `Space` | Pause |
+| `F` | Full screen |
 
-Touch screens get on-screen sticks (Settings → Controls → Touch sticks). Controller buttons can do all of these and more; see above.
+Touch screens get on-screen sticks.
 
-**Hand launch (Goblin):** pull throttle to zero to arm, then push it past 70%. The model
-is thrown once the motor is wound up, a firm 25 mph toss. Launch too slow or with the
-motor still spooling and it will sink, like the real thing. A touch of up elevator helps;
-a lot of it stalls it into the ground.
+**Hand launch (Goblin):** pull throttle to zero to arm, then push past 70%. It's thrown
+once the motor is wound up.
 
-## Views
+## Views and the field
 
-- **LOS** – you stand at the flight line facing north; the runway runs east–west in
-  front of you. *LOS zoom* keeps a small model visible on a small screen.
-- **FPV** – nose camera with adjustable field of view and tilt, Betaflight-style OSD
-  (altitude, speed, vario, battery, throttle, home arrow and distance).
-- **Split** – LOS on top, FPV below when the screen is upright (side by side when wide).
-  Rotate the Chromebook to portrait for the stacked layout.
+- **LOS:** you stand at the flight line facing north, with the runway east–west in front
+  of you. *LOS zoom* keeps a small model visible.
+- **FPV:** nose camera with adjustable field of view and tilt.
+- **Split:** LOS on top, FPV below in portrait (side by side when wide).
 
-## The aircraft
+The field has:
+- an eight-gate FPV course with a lap timer
+- pylons and plane gates
+- slalom poles and a tree line
+- a power line with sagging wires
+- a barn, silo and water tower
+- a search scene
 
-Numbers solved from the model at sea level (Settings → Flight model shows them live for
-your field elevation and temperature):
+Collisions with all of them count.
 
-| | Nano Goblin | 1.5 m trainer |
-|---|---|---|
-| Flying weight | 250 g | 1.3 kg |
-| Span · area | 580 mm · 139 in² | 1.5 m · 512 in² |
-| 1-g stall | 18 mph | 18 mph |
-| Hands-off (trimmed) | ~36 mph | ~28 mph |
-| Top speed | 65 mph | 45 mph |
-| Power | 2S 3200 Li-ion, 3″ pusher | 3S 2200 LiPo, 10″ prop |
+## Ideas
 
-Goblin geometry, weight and power system follow Strix's published specs (580 mm span,
-~140 in², 200–250 g, 1606 motor on 2S, 3052 prop, 60–70 mph top speed). CG position,
-airfoil coefficients and inertia are estimates.
-
-**How they stall.** The Goblin, like most planks, mushes: with full up elevon it bobs
-nose-high and sinks with the wings roughly level; yank hard at speed and it stalls at
-about 6 g. Pro-spin inputs give a spiral it leaves in under a second. The trainer stalls
-root-first, then drops a wing; stall it in a turn and the inside wing goes first and the
-bank tightens: the base-to-final stall–spin.
-
-### Matching your own Goblin
-
-Everything lives in `DEFS.goblin` in `src/physics.js`. The ones worth changing first:
-
-- `mass` – weigh it ready to fly (FC, GPS, lidar and camera add up).
-- `batt` – chemistry (`lipo`/`liion`), cell count, capacity, internal resistance.
-- `prop.T0` (static thrust, N) and `prop.Vp` (pitch speed, m/s) for your motor/prop.
-- `staticMargin` – where your CG sits (fraction of MAC ahead of the neutral point).
-- `defl` – elevon throws in degrees for roll and pitch.
-
-Then run `node test/perf.js` and `node test/fm_test.js goblin` to see what changed.
-
-## Flight model
-
-- **Strip theory.** Each surface is cut into spanwise strips. Each strip's angle of
-  attack comes from the aircraft's velocity plus its rotation (taken at ¾ chord), so
-  roll, pitch and yaw damping, dihedral effect and weathervaning emerge from geometry.
-- **Lift and stall.** Linear lift below the stall, flat-plate normal force above,
-  blended with a sigmoid (Beard & McLain, *Small Unmanned Aircraft*, 2012). Each strip
-  has its own stall angle from a Schrenk load distribution, so tapered and swept wings
-  stall at the tips first and rectangular wings at the root.
-- **Controls.** Flap effectiveness and hinge-moment change from thin-airfoil theory for
-  the actual flap-to-chord ratio. Servos are rate-limited. The Goblin's EPP elevons lose
-  some authority at high dynamic pressure.
-- **Tail.** Downwash from the wing's lift, plus prop wash from momentum theory on a
-  tractor prop (lets the trainer steer and lift its tail on the ground).
-- **Propulsion.** Thrust ∝ rpm², falling off toward pitch speed; rpm follows battery
-  voltage under load; prop torque rolls the model.
-- **Air.** ISA density from field elevation and temperature (density altitude shown),
-  log wind profile near the ground, filtered gusts, ground effect on induced drag.
-- **Ground.** Spring–damper contact points with friction, steerable nose wheel, crash
-  detection by impact and scrape speed per point (prop strikes included).
-- **Integration.** 400 Hz fixed step, quaternion attitude, about 1 ms of CPU per
-  simulated second.
-
-**Simplified:** no strip-to-strip induced-flow coupling beyond the load distribution, no
-dynamic stall, no gyroscopic prop effects, rigid airframe except the elevon flex factor,
-trees are cylinders.
+Planned features, with their order and dependencies, live in [`ideas/`](ideas/README.md):
+- the Mission Planner-style mode
+- the ArduPilot SITL bridge
+- gimbal and night / thermal cameras
+- terrain maps and a map builder
+- the 13″ recovery mission
+- multiplayer racing
 
 ## Development
 
 ```
-src/physics.js   flight model (no DOM; runs in Node for tests)
+src/physics.js   flight models: strip-theory wings, quads, heli, weather, icing, batteries (no DOM)
+src/nav.js       sensors, link budget, autopilot (no DOM)
 src/render.js    small WebGL 1 renderer
-src/app.js       world, aircraft meshes, cameras, OSD, controller profiles and buttons, settings, loop
+src/app.js       world, aircraft meshes, cameras, HUD/OSD, controllers, settings, loop
 src/shell.html   page markup and styles
 src/sw.js        offline cache for the installed app
 tools/build.py   assembles index.html (and dist/artifact.html) from src/
-tools/make_icons.py  draws the app icons
-test/fm_test.js  flight-model bench tests (stall, spin, roll rate, launch, landing…)
-test/perf.js     trim solver: level-flight table, stall speed, top speed
+test/*.js        bench tests: fm_test (planes), perf (trim table), quad_test <id>, heli_test,
+                 modes_test, weather_test, nav_test
 ```
 
-Edit `src/`, then run `python3 tools/build.py`. `index.html` is generated, so commit it
-along with the sources (GitHub Pages serves it directly).
+Edit `src/`, then run `python3 tools/build.py`. `index.html` is generated; commit it with
+the sources (GitHub Pages serves it directly). Run the tests with `node test/<name>.js`.
 
 ## License
 
-MIT. See [LICENSE](LICENSE). Use it, fork it, change it; keep the copyright notice.
+MIT. See [LICENSE](LICENSE).
