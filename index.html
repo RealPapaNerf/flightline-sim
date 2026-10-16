@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<!-- built by tools/build.py from src/ (26e4d035); edit the sources, not this file -->
+<!-- built by tools/build.py from src/ (86799552); edit the sources, not this file -->
 <title>Flightline RC Sim</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Browser RC flight trainer: Nano Goblin and trainer flight models, line of sight, FPV and split view, USB transmitter support.">
@@ -4474,7 +4474,11 @@ if (typeof module !== 'undefined') module.exports = NET;
     if (r.ok && !ACS[r.def.id]) installDef(r.def, r.meta, r.spec);
     else importNotes.push(`${id}: ${r.ok ? 'id already taken' : r.errors.join('; ')}`);
   }
-  const saveAircraft = () => store(AKEY, userFiles);
+  function saveAircraft() {
+    store(AKEY, userFiles);
+    // storage can be switched off or full; better to say so than to lose it quietly
+    if (Object.keys(userFiles).length && load(AKEY) === null) toast('This browser would not save the aircraft — export it to a file to keep it');
+  }
   if (!ACS[S.aircraft]) S.aircraft = 'goblin';
   let AC = ACS[S.aircraft];
   const MODES = ['manual', 'horizon', 'trainer', 'stab'];

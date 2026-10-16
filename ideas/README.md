@@ -39,7 +39,7 @@ foundation.md  ──┬── sensors (GPS, baro, downward lidar)
 | [Gimbal and day / night / thermal cameras](gimbal-and-cameras.md) | pinned | medium | foundation (sensors) |
 | [Link loss and interference, advanced](link-and-failsafe.md) | pinned | medium | foundation (link) |
 | [Real ArduPilot in the loop](ardupilot-bridge.md) | pinned | medium–large | foundation helps, not required |
-| [More aircraft](aircraft.md) | pinned | small–medium each | camera plane needs gimbal |
+| [More aircraft](aircraft.md) | done (v1) | small–medium each | the camera plane still wants the gimbal |
 | [Terrain maps from lidar](terrain-maps.md) | pinned | large | — |
 | [Failures and weather extras](failures-and-weather-extras.md) | pinned | small each | some need foundation |
 | [Check the sim against your own data](validate-with-your-data.md) | pinned | small | — |

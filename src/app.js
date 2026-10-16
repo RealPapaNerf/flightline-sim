@@ -121,7 +121,11 @@
     if (r.ok && !ACS[r.def.id]) installDef(r.def, r.meta, r.spec);
     else importNotes.push(`${id}: ${r.ok ? 'id already taken' : r.errors.join('; ')}`);
   }
-  const saveAircraft = () => store(AKEY, userFiles);
+  function saveAircraft() {
+    store(AKEY, userFiles);
+    // storage can be switched off or full; better to say so than to lose it quietly
+    if (Object.keys(userFiles).length && load(AKEY) === null) toast('This browser would not save the aircraft — export it to a file to keep it');
+  }
   if (!ACS[S.aircraft]) S.aircraft = 'goblin';
   let AC = ACS[S.aircraft];
   const MODES = ['manual', 'horizon', 'trainer', 'stab'];
