@@ -133,6 +133,7 @@ const FL = (function () {
       trim: { a: 0.004, e: -0.06 }, // built-in mechanical trim (stick units): hands-off ≈ 36 mph
       stab: { kRoll: 1.2, dRoll: 0.04, kPitch: 1.1, dPitch: 0.05, turn: 0.4 },
       fpvCam: [0.27, 0, -0.005], // nose camera, body FRD (definition x)
+      colR: 0.25, // obstacle-collision radius, m
     },
 
     trainer: {
@@ -188,6 +189,7 @@ const FL = (function () {
       trim: { a: 0.004, e: -0.08 }, // built-in mechanical trim (stick units): hands-off ≈ 29 mph
       stab: { kRoll: 1.8, dRoll: 0.12, kPitch: 1.4, dPitch: 0.1, turn: 0.6 },
       fpvCam: [0.3, 0, -0.1],
+      colR: 0.55,
     },
   };
 

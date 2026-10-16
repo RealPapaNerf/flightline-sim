@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<!-- built by tools/build.py from src/ (a43cc28e); edit the sources, not this file -->
+<!-- built by tools/build.py from src/ (602ec264); edit the sources, not this file -->
 <title>Flightline RC Sim</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Browser RC flight trainer: Nano Goblin and trainer flight models, line of sight, FPV and split view, USB transmitter support.">
@@ -436,6 +436,7 @@ const FL = (function () {
       trim: { a: 0.004, e: -0.06 }, // built-in mechanical trim (stick units): hands-off ≈ 36 mph
       stab: { kRoll: 1.2, dRoll: 0.04, kPitch: 1.1, dPitch: 0.05, turn: 0.4 },
       fpvCam: [0.27, 0, -0.005], // nose camera, body FRD (definition x)
+      colR: 0.25, // obstacle-collision radius, m
     },
 
     trainer: {
@@ -491,6 +492,7 @@ const FL = (function () {
       trim: { a: 0.004, e: -0.08 }, // built-in mechanical trim (stick units): hands-off ≈ 29 mph
       stab: { kRoll: 1.8, dRoll: 0.12, kPitch: 1.4, dPitch: 0.1, turn: 0.6 },
       fpvCam: [0.3, 0, -0.1],
+      colR: 0.55,
     },
   };
 
@@ -1246,6 +1248,7 @@ void main(){
     battery: true, crashes: true, autoReset: true,
     quality: 1, scenery: 'med', aa: false, fps: false, eng: false, sound: true, units: 'imp',
     trim: {}, // user trims per aircraft, stick units, set from controller trim buttons
+    course: true, best: {}, // gate course lap timer, best lap per aircraft (s)
   };
   const load = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
   const store = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage blocked */ } };
@@ -1375,17 +1378,24 @@ void main(){
     const g = new Geo(rnd); g.jit = 0.14;
     const clearOf = (x, z, pad) => Math.abs(z + 12) > pad + 6 || Math.abs(x) > 70 + pad; // runway strip
     // trees
-    let placed = 0, tries = 0;
-    while (placed < counts[0] && tries++ < 6000) {
-      const ang = rnd() * Math.PI * 2, r = 120 + Math.pow(rnd(), 0.8) * 850;
-      const x = Math.cos(ang) * r, z = Math.sin(ang) * r;
-      if (Math.abs(z + 12) < 45 && Math.abs(x) < 450) continue; // keep the approach corridors open
-      const h = 5 + rnd() * 7, cr = 1.6 + rnd() * 2.2, kind = rnd();
+    const tree = (x, z, h, cr, kind) => {
       g.cyl(x, 0, z, 0.25, 0.18, h * 0.35, 5, C.trunk, false);
       if (kind < 0.45) { g.cyl(x, h * 0.25, z, cr, 0, h * 0.55, 7, C.tree); g.cyl(x, h * 0.55, z, cr * 0.7, 0, h * 0.45, 7, C.tree2); }
       else if (kind < 0.8) g.blob(x, h * 0.62, z, cr, h * 0.42, cr, kind < 0.62 ? C.tree2 : C.tree);
       else g.blob(x, h * 0.45, z, cr * 0.75, h * 0.45, cr * 0.75, C.juniper);
       obstacles.push({ x, z, r: cr * 0.75, h });
+    };
+    const keepClear = (x, z) =>
+      (Math.abs(z + 12) < 45 && Math.abs(x) < 450) || // runway approach corridors
+      (Math.abs(x) < 115 && z < -35 && z > -200) || // race course
+      Math.hypot(x - 195, z + 108) < 30 || Math.hypot(x + 200, z + 250) < 18 || Math.hypot(x - 260, z + 390) < 22 || // farm, tower, search scene
+      Math.abs(z + 330) < 8; // under the power line
+    let placed = 0, tries = 0;
+    while (placed < counts[0] && tries++ < 6000) {
+      const ang = rnd() * Math.PI * 2, r = 120 + Math.pow(rnd(), 0.8) * 850;
+      const x = Math.cos(ang) * r, z = Math.sin(ang) * r;
+      if (keepClear(x, z)) continue;
+      tree(x, z, 5 + rnd() * 7, 1.6 + rnd() * 2.2, rnd());
       placed++;
     }
     // bushes and sage (low, no collision)
@@ -1417,23 +1427,132 @@ void main(){
     g.quad([-18.3, 3.3, 6.5], [-13.7, 3.3, 6.5], [-13.7, 2.6, 8.3], [-18.3, 2.6, 8.3], C.roof);
     obstacles.push({ x: -16, z: 6.5, r: 2.2, h: 3.3 });
     g.box(4, 0.7, 3, 6, 0.75, 4, C.wall); for (const [x, z] of [[4.1, 3.1], [5.85, 3.1], [4.1, 3.85], [5.85, 3.85]]) g.box(x, 0, z, x + 0.06, 0.7, z + 0.06, C.post);
-    // pylons
-    for (const x of [-90, 90]) { g.cyl(x, 0, -120, 0.7, 0.05, 3.2, 8, C.orange); g.cyl(x, 1.4, -120, 0.4, 0.33, 0.4, 8, C.white, false); obstacles.push({ x, z: -120, r: 0.6, h: 3.2 }); }
-    // gates to fly through
-    const gate = (m) => g.with(m, () => {
+    // ---------- obstacles ----------
+    // Collision shapes: {x,z,r,h} cylinders standing on the ground, {k:'cyl', x,z,r,y0,y1},
+    // axis-aligned {k:'box'}, and {k:'seg', a,b,r} for wires, bars and posts at any angle.
+    const seg = (a2, b2, r) => obstacles.push({ k: 'seg', a: a2, b: b2, r });
+    const tf = (m, q) => [m[0] * q[0] + m[4] * q[1] + m[8] * q[2] + m[12], m[1] * q[0] + m[5] * q[1] + m[9] * q[2] + m[13], m[2] * q[0] + m[6] * q[1] + m[10] * q[2] + m[14]];
+    // pylons for plane patterns
+    for (const x of [-150, 150]) { g.cyl(x, 0, -120, 0.7, 0.05, 3.2, 8, C.orange); g.cyl(x, 1.4, -120, 0.4, 0.33, 0.4, 8, C.white, false); obstacles.push({ x, z: -120, r: 0.6, h: 3.2 }); }
+    // big gates for planes
+    const bigGate = (m) => g.with(m, () => {
       for (const x of [-10, 10]) g.cyl(x, 0, 0, 0.25, 0.25, 9.6, 8, C.white);
       g.box(-10.3, 9.0, -0.25, 10.3, 9.6, 0.25, C.white);
       g.box(-9.7, 7.5, -0.08, 9.7, 9.0, 0.08, C.blue);
     });
-    gate(M4.trans(0, 0, -180));
-    gate(M4.mul(M4.trans(-230, 0, -70), M4.rotY(Math.PI / 2)));
-    for (const [x, z] of [[-10, -180], [10, -180], [-230, -60], [-230, -80]]) obstacles.push({ x, z, r: 0.35, h: 9.6 });
+    bigGate(M4.trans(0, 0, -240));
+    bigGate(M4.mul(M4.trans(-250, 0, -70), M4.rotY(Math.PI / 2)));
+    for (const [x, z] of [[-10, -240], [10, -240], [-250, -60], [-250, -80]]) obstacles.push({ x, z, r: 0.35, h: 9.6 });
+    seg([-10, 9.3, -240], [10, 9.3, -240], 0.4); seg([-250, 9.3, -60], [-250, 9.3, -80], 0.4);
+
+    // FPV race course: 8 gates on an oval north of the runway, flown in order
+    const gates = [];
+    const NG = 8, ocx = 0, ocz = -118, orx = 78, orz = 52, raise = [0, 0, 0, 3, 0, 0, 1.5, 0];
+    for (let k = 0; k < NG; k++) {
+      const th = Math.PI / 2 + (k / NG) * Math.PI * 2;
+      const x = ocx + orx * Math.cos(th), z = ocz + orz * Math.sin(th);
+      const tx = -orx * Math.sin(th), tz = orz * Math.cos(th);
+      const psi = Math.atan2(tx, tz); // gate normal along the course direction
+      const bb = raise[k], W = 2.2, H = 2.0, col = k % 2 ? C.blue : C.orange;
+      const m = M4.mul(M4.trans(x, 0, z), M4.rotY(psi));
+      g.with(m, () => {
+        g.box(-W / 2 - 0.2, bb, -0.1, -W / 2, bb + H + 0.2, 0.1, col);
+        g.box(W / 2, bb, -0.1, W / 2 + 0.2, bb + H + 0.2, 0.1, col);
+        g.box(-W / 2 - 0.2, bb + H, -0.1, W / 2 + 0.2, bb + H + 0.2, 0.1, col);
+        if (bb > 0) {
+          g.box(-W / 2 - 0.2, bb - 0.2, -0.1, W / 2 + 0.2, bb, 0.1, col);
+          for (const sx of [-1, 1]) g.box(sx * (W / 2 + 0.1) - 0.05, 0, -0.05, sx * (W / 2 + 0.1) + 0.05, bb - 0.2, 0.05, C.post);
+        } else for (const sx of [-1, 1]) g.box(sx * (W / 2 + 0.1) - 0.25, 0, -0.35, sx * (W / 2 + 0.1) + 0.25, 0.06, 0.35, C.post);
+      });
+      const P = (lx, ly) => tf(m, [lx, ly, 0]);
+      seg(P(-W / 2 - 0.1, 0), P(-W / 2 - 0.1, bb + H + 0.2), 0.12);
+      seg(P(W / 2 + 0.1, 0), P(W / 2 + 0.1, bb + H + 0.2), 0.12);
+      seg(P(-W / 2 - 0.2, bb + H + 0.1), P(W / 2 + 0.2, bb + H + 0.1), 0.12);
+      if (bb > 0) seg(P(-W / 2 - 0.2, bb - 0.1), P(W / 2 + 0.2, bb - 0.1), 0.12);
+      gates.push({ x, z, psi, b: bb, W, H, top: bb + H + 0.2 });
+    }
+
+    // slalom poles east of the runway
+    for (let x = 70; x <= 170; x += 20) {
+      for (let k = 0; k < 5; k++) g.cyl(x, k, -40, 0.09, 0.09, 1, 8, k % 2 ? C.white : [0.85, 0.15, 0.12], false);
+      obstacles.push({ x, z: -40, r: 0.09, h: 5 });
+    }
+    // tree line west of the course, and one big lone tree
+    for (let z = -20; z >= -200; z -= 14) tree(-170 + (rnd() - 0.5) * 4, z, 8 + rnd() * 5, 2 + rnd() * 1.4, rnd() * 0.8);
+    tree(70, -215, 15, 5, 0.7);
+
+    // power line across the north end; the wires are thin and hard to see, like real ones
+    const wireCol = [0.13, 0.13, 0.14];
+    const ribbon = (a2, b2, w) => {
+      const d = [b2[0] - a2[0], b2[1] - a2[1], b2[2] - a2[2]];
+      const sd = Math.hypot(d[0], d[2]) || 1, s2 = [-d[2] / sd * w / 2, 0, d[0] / sd * w / 2], u = [0, w / 2, 0];
+      const add = (p2, q) => [p2[0] + q[0], p2[1] + q[1], p2[2] + q[2]], sub = (p2, q) => [p2[0] - q[0], p2[1] - q[1], p2[2] - q[2]];
+      g.quad(add(a2, u), add(b2, u), sub(b2, u), sub(a2, u), wireCol);
+      g.quad(add(a2, s2), add(b2, s2), sub(b2, s2), sub(a2, s2), wireCol);
+    };
+    const PLZ = -330, poles = [];
+    for (let x = -630; x <= 630; x += 70) poles.push(x);
+    for (const x of poles) {
+      g.cyl(x, 0, PLZ, 0.16, 0.13, 10, 6, [0.42, 0.32, 0.22]);
+      g.box(x - 0.08, 9.1, PLZ - 1.4, x + 0.08, 9.3, PLZ + 1.4, [0.42, 0.32, 0.22]);
+      obstacles.push({ x, z: PLZ, r: 0.16, h: 10 });
+      obstacles.push({ k: 'box', x0: x - 0.1, x1: x + 0.1, y0: 9.1, y1: 9.3, z0: PLZ - 1.4, z1: PLZ + 1.4 });
+    }
+    for (let i = 0; i < poles.length - 1; i++) for (const dz of [-1.2, 0, 1.2]) {
+      const x0 = poles[i], x1 = poles[i + 1], sag = 0.9, n = 4;
+      for (let k = 0; k < n; k++) {
+        const t0 = k / n, t1 = (k + 1) / n;
+        const A = [lerp(x0, x1, t0), 9.45 - 4 * sag * t0 * (1 - t0), PLZ + dz], B = [lerp(x0, x1, t1), 9.45 - 4 * sag * t1 * (1 - t1), PLZ + dz];
+        ribbon(A, B, 0.05);
+        seg(A, B, 0.04);
+      }
+    }
+
+    // farm: barn and silo
+    const red = [0.62, 0.16, 0.12], roofC = [0.3, 0.3, 0.32];
+    g.box(184, 0, -116, 196, 6, -104, { top: roofC, bottom: red, side: red });
+    g.quad([183.5, 6, -116.5], [196.5, 6, -116.5], [196.5, 9, -110], [183.5, 9, -110], roofC);
+    g.quad([183.5, 9, -110], [196.5, 9, -110], [196.5, 6, -103.5], [183.5, 6, -103.5], roofC);
+    for (const x of [184, 196]) g.tri([x, 6, -116], [x, 9, -110], [x, 6, -104], red);
+    g.box(188, 0, -103.98, 192, 4, -103.9, C.white);
+    obstacles.push({ k: 'box', x0: 184, x1: 196, y0: 0, y1: 6, z0: -116, z1: -104 });
+    obstacles.push({ k: 'box', x0: 184, x1: 196, y0: 6, y1: 9, z0: -113, z1: -107 });
+    g.cyl(203, 0, -112, 2.6, 2.6, 13, 10, [0.62, 0.66, 0.7]);
+    g.blob(203, 13, -112, 2.6, 1.6, 2.6, [0.55, 0.58, 0.62]);
+    obstacles.push({ x: 203, z: -112, r: 2.6, h: 14.6 });
+
+    // water tower
+    for (const [dx, dz] of [[-3, -3], [3, -3], [-3, 3], [3, 3]]) { g.cyl(-200 + dx, 0, -250 + dz, 0.18, 0.18, 15, 6, [0.7, 0.72, 0.75], false); obstacles.push({ x: -200 + dx, z: -250 + dz, r: 0.18, h: 15 }); }
+    g.cyl(-200, 15, -250, 4, 4, 6, 14, [0.82, 0.86, 0.9]);
+    g.cyl(-200, 21, -250, 4.2, 0, 2, 14, [0.5, 0.56, 0.62]);
+    obstacles.push({ k: 'cyl', x: -200, z: -250, r: 4.1, y0: 15, y1: 23 });
+
+    // search scene in the scrub: parked car, tent, and a person in a red jacket
+    g.box(256, 0.3, -392, 260.4, 1.0, -390.2, [0.2, 0.35, 0.65]);
+    g.box(257, 1.0, -391.8, 259.4, 1.5, -390.4, [0.16, 0.25, 0.45]);
+    for (const [x, z] of [[256.8, -392.05], [259.6, -392.05], [256.8, -390.15], [259.6, -390.15]]) g.with(M4.mul(M4.trans(x, 0.32, z), M4.rotX(Math.PI / 2)), () => g.cyl(0, -0.12, 0, 0.32, 0.32, 0.24, 8, [0.08, 0.08, 0.09]));
+    obstacles.push({ k: 'box', x0: 256, x1: 260.4, y0: 0, y1: 1.5, z0: -392, z1: -390.2 });
+    g.tri([264, 0, -386], [266, 1.4, -386], [268, 0, -386], [1.0, 0.5, 0.1]);
+    g.tri([264, 0, -389], [266, 1.4, -389], [268, 0, -389], [1.0, 0.5, 0.1]);
+    g.quad([264, 0, -386], [266, 1.4, -386], [266, 1.4, -389], [264, 0, -389], [1.0, 0.5, 0.1]);
+    g.quad([268, 0, -386], [266, 1.4, -386], [266, 1.4, -389], [268, 0, -389], [0.9, 0.44, 0.08]);
+    g.box(271.1, 0, -383.1, 271.5, 0.85, -382.9, [0.2, 0.22, 0.28]);
+    g.box(271, 0.85, -383.15, 271.6, 1.45, -382.85, [0.85, 0.12, 0.1]);
+    g.blob(271.3, 1.6, -383, 0.13, 0.15, 0.13, [0.85, 0.68, 0.55]);
+
     // windsock pole
     g.cyl(SOCK_POS[0], 0, SOCK_POS[2], 0.07, 0.05, SOCK_POS[1], 6, C.white);
     obstacles.push({ x: SOCK_POS[0], z: SOCK_POS[2], r: 0.2, h: SOCK_POS[1] });
 
     if (world) for (const k of ['ground', 'runway', 'decal', 'scenery']) GLR.freeMesh(R, world[k]);
-    world = { ground: GLR.mesh(R, gg), runway: GLR.mesh(R, gr), decal: GLR.mesh(R, gd), scenery: GLR.mesh(R, g), obstacles };
+    // normalise collision shapes and keep a coarse radius for quick rejection
+    const shapes = obstacles.map((o) => (o.k ? o : { k: 'cyl', x: o.x, z: o.z, r: o.r, y0: 0, y1: o.h }));
+    for (const o of shapes) {
+      if (o.k === 'cyl') { o.cx = o.x; o.cz = o.z; o.br = o.r; }
+      else if (o.k === 'box') { o.cx = (o.x0 + o.x1) / 2; o.cz = (o.z0 + o.z1) / 2; o.br = Math.hypot(o.x1 - o.x0, o.z1 - o.z0) / 2; }
+      else { o.cx = (o.a[0] + o.b[0]) / 2; o.cz = (o.a[2] + o.b[2]) / 2; o.br = Math.hypot(o.b[0] - o.a[0], o.b[2] - o.a[2]) / 2 + o.r; }
+    }
+    world = { ground: GLR.mesh(R, gg), runway: GLR.mesh(R, gr), decal: GLR.mesh(R, gd), scenery: GLR.mesh(R, g), obstacles: shapes, gates };
   }
 
   // sky dome (unlit, follows the camera)
@@ -1450,6 +1569,8 @@ void main(){
     }
     return GLR.mesh(R, g);
   })();
+
+  const markerMesh = (() => { const g = new Geo(); g.blob(0, 0, 0, 1, 1, 1, [1.0, 0.55, 0.1]); return GLR.mesh(R, g); })();
 
   // windsock: three tapering bands along +x, origin at the pole top
   const sockMesh = (() => {
@@ -1572,6 +1693,7 @@ void main(){
     if (where === 'air') { kb.thr = AC.kind === 'wing' ? 0.55 : 0.6; }
     crashAt = 0; crashAnnounced = false; flightTime = 0; timerOn = where === 'air'; launchHold = 0; acc = 0; farWarned = false;
     for (let i = 0; i < 3; i++) gust[i] = 0;
+    courseReset(); obsPrev = null;
     hideBanner();
   }
 
@@ -2328,6 +2450,7 @@ void main(){
         rng('fpvTilt', 'FPV camera tilt', -20, 35, 1, (v) => `${v > 0 ? '+' : ''}${v}°`, 'Positive tilts the camera up.'),
         seg('osd', 'FPV OSD', [['full', 'Full'], ['min', 'Minimal'], ['off', 'Off']]),
         seg('losInfo', 'LOS readout', [[true, 'On'], [false, 'Off']]),
+        seg('course', 'Gate course', [[true, 'Timer on'], [false, 'Off']], 'Eight gates on an oval north of the runway. Fly them in order; an orange marker floats over the next one. Laps run from gate 1 back to gate 1.', null, (v) => { S.course = v; saveS(); courseReset(); }),
         seg('stallCue', 'Stall indicator', [[false, 'Off'], [true, 'On']], 'Flashes STALL when a wing panel is stalled. Off is realistic; turn it on while you learn what a stall looks like.'),
         seg('eng', 'Engineering readout', [[false, 'Off'], [true, 'On']], 'Angle of attack, sideslip, load factor and stalled area per wing.'),
       ] },
@@ -2536,6 +2659,10 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     gl.disable(gl.POLYGON_OFFSET_FILL);
     GLR.draw(R, world.scenery, I);
     GLR.draw(R, sockMesh, sockM);
+    if (S.course && world.gates.length) { // marker floating over the next gate
+      const gt = world.gates[course.next], bob = Math.sin(course.clock * 3) * 0.15;
+      GLR.draw(R, markerMesh, M4.chain(M4.trans(gt.x, gt.top + 1.1 + bob, gt.z), M4.rotY(course.clock * 2), M4.scale(0.32, 0.45, 0.32)), { unlit: true });
+    }
     const model = MODELS[AC.id];
     const partM = [];
     for (const p of model.parts) { const m = p.anim ? M4.chain(planeM, p.mat, p.anim(st)) : M4.mul(planeM, p.mat); partM.push(m); GLR.draw(R, p.mesh, m); }
@@ -2646,6 +2773,8 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       // warnings
       W.forEach(([t, c], i) => osdText(t, cx, topY + fs * 1.6 + i * fs * 1.35, 'center', fs, c));
       if (osdFlash.t > 0) osdText(osdFlash.text, cx, cy - fs * 3, 'center', fs, '#cfe9f3');
+      const ct = courseText();
+      if (ct) osdText(ct, cx, v.kind === 'fpv' ? v.y + v.h - m - fs * 1.6 - lift : v.y + v.h - m - fs * 3.2 - lift, 'center', v.kind === 'fpv' ? fs : Math.max(11, fs * 0.8), '#ffd36a');
       ctx.restore();
     }
     // split divider
@@ -2751,13 +2880,71 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       sa: inp.a, se: inp.e,
     };
   }
-  function checkObstacles() {
-    if (!S.crashes || st.crashed || st.held) return;
-    const x = st.p[1], y = -st.p[2], z = -st.p[0];
+  // the aircraft is a sphere of radius AC.colR (about half its size) for obstacle checks
+  function hitObstacle(p, R0) {
     for (const o of world.obstacles) {
-      const dx = x - o.x, dz = z - o.z;
-      if (y < o.h && dx * dx + dz * dz < (o.r + 0.4) * (o.r + 0.4)) { st.crashed = true; st.crashMsg = 'Hit an obstacle'; return; }
+      const qx = p[0] - o.cx, qz = p[2] - o.cz, lim = o.br + R0;
+      if (qx * qx + qz * qz > lim * lim) continue;
+      if (o.k === 'cyl') {
+        if (p[1] < o.y0 - R0 || p[1] > o.y1 + R0) continue;
+        const dx = p[0] - o.x, dz = p[2] - o.z;
+        if (dx * dx + dz * dz < (o.r + R0) * (o.r + R0)) return o;
+      } else if (o.k === 'box') {
+        const cx = clamp(p[0], o.x0, o.x1), cy = clamp(p[1], o.y0, o.y1), cz = clamp(p[2], o.z0, o.z1);
+        if ((p[0] - cx) ** 2 + (p[1] - cy) ** 2 + (p[2] - cz) ** 2 < R0 * R0) return o;
+      } else {
+        const a = o.a, d = [o.b[0] - a[0], o.b[1] - a[1], o.b[2] - a[2]];
+        const t = clamp(((p[0] - a[0]) * d[0] + (p[1] - a[1]) * d[1] + (p[2] - a[2]) * d[2]) / (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]), 0, 1);
+        const ex = p[0] - a[0] - d[0] * t, ey = p[1] - a[1] - d[1] * t, ez = p[2] - a[2] - d[2] * t;
+        if (ex * ex + ey * ey + ez * ez < (o.r + R0) * (o.r + R0)) return o;
+      }
     }
+    return null;
+  }
+  // swept check along the path flown since the last frame, so thin poles and wires can't be skipped
+  let obsPrev = null;
+  function checkObstacles() {
+    const p = [st.p[1], -st.p[2], -st.p[0]], prev = obsPrev;
+    obsPrev = p;
+    if (!S.crashes || st.crashed || st.held || !prev) return;
+    const R0 = AC.colR || 0.3, d = Math.hypot(p[0] - prev[0], p[1] - prev[1], p[2] - prev[2]);
+    if (d > 50) return; // teleported (reset)
+    const n = Math.max(1, Math.ceil(d / (R0 * 0.5)));
+    for (let i = 1; i <= n; i++) {
+      const t = i / n, q = [lerp(prev[0], p[0], t), lerp(prev[1], p[1], t), lerp(prev[2], p[2], t)];
+      const o = hitObstacle(q, R0);
+      if (o) { st.crashed = true; st.crashMsg = o.k === 'seg' && o.r < 0.06 ? 'Hit the power lines' : 'Hit an obstacle'; return; }
+    }
+  }
+
+  /* ---------- gate course: fly the gates in order; lap time from gate 1 to gate 1 ---------- */
+  const course = { next: 0, lapStart: null, clock: 0, prev: null };
+  const fmtLap = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
+  function courseReset() { course.next = 0; course.lapStart = null; course.prev = null; }
+  function courseTick(dt) {
+    course.clock += dt;
+    const p = [st.p[1], -st.p[2], -st.p[0]], prev = course.prev;
+    course.prev = p;
+    if (!S.course || !prev || st.crashed || st.held || !world.gates.length) return;
+    const gt = world.gates[course.next], c = Math.cos(gt.psi), s = Math.sin(gt.psi);
+    const loc = (q) => { const dx = q[0] - gt.x, dz = q[2] - gt.z; return [c * dx - s * dz, q[1], s * dx + c * dz]; };
+    const a = loc(prev), b = loc(p);
+    if ((a[2] < 0) === (b[2] < 0)) return;
+    const t = a[2] / (a[2] - b[2]), x = a[0] + (b[0] - a[0]) * t, y = a[1] + (b[1] - a[1]) * t;
+    if (Math.abs(x) > gt.W / 2 || y < gt.b || y > gt.b + gt.H) return;
+    if (course.next === 0) {
+      if (course.lapStart !== null) {
+        const lap = course.clock - course.lapStart, best = S.best[AC.id];
+        if (!best || lap < best) { S.best[AC.id] = lap; saveS(); flash(`LAP ${fmtLap(lap)} · NEW BEST`); } else flash(`LAP ${fmtLap(lap)}`);
+      } else flash('LAP STARTED');
+      course.lapStart = course.clock;
+    }
+    course.next = (course.next + 1) % world.gates.length;
+  }
+  function courseText() {
+    if (!S.course || course.lapStart === null) return '';
+    const best = S.best[AC.id];
+    return `GATE ${course.next + 1}/${world.gates.length}  ${fmtLap(course.clock - course.lapStart)}${best ? '  BEST ' + fmtLap(best) : ''}`;
   }
 
   let last = performance.now(), fpsN = 0, fpsT = 0, fpsVal = 0, barT = 0;
@@ -2790,6 +2977,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       }
       if (steps >= 60) acc = 0;
       checkObstacles();
+      courseTick(dt);
       if (!timerOn && armed && inp.thr > 0.1) timerOn = true;
       if (timerOn && !st.crashed) flightTime += dt;
       propAng += st.n * dt * 60;
@@ -2822,7 +3010,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   refreshBar(); refreshTouch(); refreshCtlStatus();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { gl.bindTexture(gl.TEXTURE_2D, runwayTex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, runwayTexture()); gl.generateMipmap(gl.TEXTURE_2D); });
   requestAnimationFrame((t) => { last = t; frame(t); });
-  window.__flightline = { st, S, env, AC: () => AC, doReset, FL, IN: () => IN, prof, ctl }; // debugging and tests
+  window.__flightline = { st, S, env, AC: () => AC, doReset, FL, IN: () => IN, prof, ctl, world: () => world, course }; // debugging and tests
 })();
 
 </script>
