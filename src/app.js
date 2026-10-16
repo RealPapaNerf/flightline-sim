@@ -2065,6 +2065,25 @@
       .catch((e) => { impMsg = { from: url, ok: false, errors: ['could not fetch that: ' + e.message], warnings: [] }; })
       .then(() => syncSheet());
   }
+  // everything in the folder, one after another, skipping what is already here
+  function loadFolderAll() {
+    if (!folder || !folder.items) return;
+    const todo = folder.items.map((x) => 'aircraft/' + x.file);
+    const added = [], failed = [];
+    impMsg = { from: `${todo.length} aircraft`, loading: true }; syncSheet();
+    const next = (i) => {
+      if (i >= todo.length) {
+        impMsg = { from: `the folder`, ok: added.length > 0, id: added.join(', '),
+          errors: failed, warnings: [], all: `${added.length} loaded${failed.length ? `, ${failed.length} skipped` : ''}` };
+        return syncSheet();
+      }
+      fetchJson(todo[i])
+        .then((txt) => { const r = addAircraftFile(txt, false); if (r.ok) added.push(r.id); else failed.push(todo[i] + ': ' + r.errors.join('; ')); })
+        .catch((e) => failed.push(todo[i] + ': ' + e.message))
+        .then(() => next(i + 1));
+    };
+    next(0);
+  }
 
   /* ---------------------------------------------------------------- flaps, gear, transition */
   let flapSet = 0, gearDown = true, fwdCmd = 0;
@@ -2516,7 +2535,7 @@
     if (!m) return '';
     if (m.loading) return `<div class="help">Loading ${esc(m.from)}…</div>`;
     const bad = (m.errors || []).length ? `<div class="help" style="color:var(--bad)"><b>${esc(m.from)} did not load.</b> ${m.errors.map(esc).join(' · ')}</div>` : '';
-    const good = m.ok ? `<div class="help" style="color:var(--good)"><b>${esc(m.from)} loaded as “${esc(m.id)}”.</b></div>` : '';
+    const good = m.ok ? `<div class="help" style="color:var(--good)"><b>${m.all ? esc(m.all) : `${esc(m.from)} loaded as “${esc(m.id)}”`}.</b>${m.all ? ` ${esc(m.id)}` : ''}</div>` : '';
     const warn = (m.warnings || []).length ? `<div class="help" style="color:var(--warn)">${m.warnings.length} thing${m.warnings.length > 1 ? 's were' : ' was'} changed to keep the numbers sane: ${m.warnings.map(esc).join(' · ')}</div>` : '';
     return good + bad + warn;
   }
@@ -2539,7 +2558,8 @@
         if (folder.loading) h += '<div class="help">Loading aircraft/index.json…</div>';
         else if (folder.error) h += `<div class="help" style="color:var(--warn)">aircraft/index.json: ${esc(folder.error)}. There may not be one yet.</div>`;
         else if (!folder.items.length) h += '<div class="help">The folder list is empty.</div>';
-        else h += `<div class="laps" style="margin-top:6px">${folder.items.map((x) => `<div class="lap"><b>${KIND_TAG[x.kind] || '·'}</b><span>${esc(x.name || x.file)}<br><span class="help">${esc(x.blurb || x.file)}</span></span><div class="acts"><button class="btn small" data-url="aircraft/${esc(x.file)}">Load</button></div></div>`).join('')}</div>`;
+        else h += `<div class="setrow" style="margin:6px 0"><button class="btn small primary" id="acDirAll">Load all ${folder.items.length}</button></div>`
+          + `<div class="laps">${folder.items.map((x) => `<div class="lap"><b>${KIND_TAG[x.kind] || '·'}</b><span>${esc(x.name || x.file)}<br><span class="help">${esc(x.blurb || x.file)}</span></span><div class="acts"><button class="btn small" data-url="aircraft/${esc(x.file)}">Load</button></div></div>`).join('')}</div>`;
       }
       h += `<div class="setrow" style="margin-top:8px"><input class="txt" id="acUrl" type="text" placeholder="https://… a raw aircraft .json URL" style="flex:1 1 200px"><button class="btn small" id="acUrlGo">Load</button></div>
         <div class="help">A URL only works if the other site allows cross-origin reads; GitHub’s <b>raw.githubusercontent.com</b> does.</div>`;
@@ -2551,6 +2571,7 @@
     box.querySelector('#acImp').addEventListener('click', importAircraftPick);
     box.querySelector('#acBld').addEventListener('click', () => bldOpen(s.spec ? AC.id : null));
     const dir = box.querySelector('#acDir'); if (dir) dir.addEventListener('click', browseFolder);
+    const all = box.querySelector('#acDirAll'); if (all) all.addEventListener('click', loadFolderAll);
     const go = box.querySelector('#acUrlGo');
     if (go) go.addEventListener('click', () => { const u = box.querySelector('#acUrl').value.trim(); if (u) loadAircraftUrl(u, true); });
     box.querySelectorAll('[data-fly]').forEach((b0) => b0.addEventListener('click', () => setAircraft(b0.dataset.fly)));

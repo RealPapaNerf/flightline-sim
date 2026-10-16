@@ -1,7 +1,7 @@
 /* Flightline service worker: makes the installed app work offline at the field.
    The page is one file, so the cache is tiny. A new build changes CACHE, and the
    old cache is dropped on activate. */
-const CACHE = 'flightline-62d55b68';
+const CACHE = 'flightline-50d8f17f';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
 
 self.addEventListener('install', (e) => {
@@ -23,8 +23,10 @@ self.addEventListener('fetch', (e) => {
   const sameOrigin = url.origin === self.location.origin;
   const font = url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com';
   if (!sameOrigin && !font) return;
-  // network first for the page itself (so updates arrive), cache first for everything else
-  if (sameOrigin && (req.mode === 'navigate' || url.pathname.endsWith('/') || url.pathname.endsWith('index.html'))) {
+  /* Network first for the page itself and for the aircraft folder, so new
+     builds and new aircraft arrive; cache first for everything else. Both
+     still fall back to the cache, so the field still works with no signal. */
+  if (sameOrigin && (req.mode === 'navigate' || url.pathname.endsWith('/') || url.pathname.endsWith('index.html') || url.pathname.includes('/aircraft/'))) {
     e.respondWith(
       fetch(req)
         .then((res) => { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); return res; })

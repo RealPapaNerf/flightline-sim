@@ -23,8 +23,10 @@ self.addEventListener('fetch', (e) => {
   const sameOrigin = url.origin === self.location.origin;
   const font = url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com';
   if (!sameOrigin && !font) return;
-  // network first for the page itself (so updates arrive), cache first for everything else
-  if (sameOrigin && (req.mode === 'navigate' || url.pathname.endsWith('/') || url.pathname.endsWith('index.html'))) {
+  /* Network first for the page itself and for the aircraft folder, so new
+     builds and new aircraft arrive; cache first for everything else. Both
+     still fall back to the cache, so the field still works with no signal. */
+  if (sameOrigin && (req.mode === 'navigate' || url.pathname.endsWith('/') || url.pathname.endsWith('index.html') || url.pathname.includes('/aircraft/'))) {
     e.respondWith(
       fetch(req)
         .then((res) => { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); return res; })
