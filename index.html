@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<!-- built by tools/build.py from src/ (9e3037df); edit the sources, not this file -->
+<!-- built by tools/build.py from src/ (f40ca5a8); edit the sources, not this file -->
 <title>Flightline RC Sim</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Browser RC flight trainer: Nano Goblin and trainer flight models, line of sight, FPV and split view, USB transmitter support.">
@@ -3462,6 +3462,153 @@ const TERRAIN = (function () {
     return (a + (b - a) * sx) * (1 - sy) + (c + (d - c) * sx) * sy;
   }
 
+  /* ---------- terrain-shaped wind ----------
+     Three things the ground does to the wind, all of them out of the
+     heightfield and none of them needing a new data file.
+
+     1. ORO­GRAPHIC LIFT AND SINK. At the surface the flow follows the ground,
+        so the vertical wind is the horizontal wind dotted with the slope:
+
+            w = V . grad(h)  =  Wn * dh/dn + We * dh/de
+
+        That is ridge lift on a windward face and sink on a lee face, and it is
+        exact at the surface rather than a fudge. Two refinements:
+
+        - The slope is measured over a stencil that WIDENS WITH HEIGHT. At
+          height z the flow only feels terrain features bigger than about z: a
+          4 m bump does nothing to the air 300 m above it. Widening the stencil
+          gives that for free and gives the decay with height for free with it,
+          instead of multiplying by an invented exponential.
+        - The result is saturated through tanh, scaled by the wind speed. A
+          cliff has an enormous gradient over a short stencil and the linear
+          formula would hand back 90 m/s of updraft; air cannot be deflected
+          faster than it is moving. tanh leaves gentle slopes untouched (a 0.3
+          slope in 10 m/s gives 2.91 m/s rather than 3.00) and bounds the
+          cliff at the wind speed.
+
+     2. THE LEE. Looking upwind along the local flow finds the crest that is
+        sheltering this spot, how far above it is and how far back. The wake
+        reaches about ten crest heights downwind and about 1.6 crest heights
+        up — the same numbers the sim already uses for the wake behind a tree
+        or a barn, so terrain and obstacles shelter on one model. The returned
+        factor goes into the same `lee` the caller already applies, which is
+        what drives reduced wind, sinking air and mechanical turbulence.
+
+     3. CHANNELLING. A valley turns the wind to run along it. Sampling the
+        rise on four axes finds the one that climbs least — the valley's axis —
+        and the rise across it says how confined you are. Fully channelled,
+        only the along-axis component of the wind survives, so a wind blowing
+        straight across a canyon leaves almost nothing in the bottom of it.
+        Confinement fades out as you climb above the rims.
+
+     Everything here is a function of position, so it is the same for every
+     aircraft and nothing has to be stored between frames. About 60 height
+     lookups a call at roughly 50 ns each, once a frame: around 3 microseconds.
+
+     What this is NOT: a flow solver. There is no continuity, no separation
+     bubble with reversed flow in it, and no mountain wave downstream. It is
+     three local rules, each one defensible on its own, tuned to be worth
+     flying rather than to be published. */
+  function terrainWind(T, n, e, agl, Wn, We, out) {
+    out = out || {};
+    out.wN = Wn; out.wE = We; out.wD = 0;
+    out.lift = 0; out.lee = 0; out.conf = 0; out.crestM = 0; out.axisN = 1; out.axisE = 0;
+    const speed = Math.hypot(Wn, We);
+    if (T.isFlat || speed < 0.4) return out;
+
+    const ground = T.heightAt(n, e);
+    const upHere = ground + Math.max(0, agl);
+    let wN = Wn, wE = We;
+
+    /* --- 3. channelling, first: the flow that then follows the ground and
+       runs into the lee is the channelled flow, not the synoptic one.
+
+       Sampled at three radii, keeping whichever is most confining. One radius
+       cannot work: a 300 m-wide canyon is invisible to a 100 m probe and a
+       narrow gully is averaged away by a 700 m one. Confinement is measured
+       as the cross-axis rise relative to the radius, so it is scale-free — a
+       30% grade on both flanks reads the same at 150 m as at 700 m.
+
+       The formula is self-correcting about what is NOT a valley: it needs an
+       axis along which the ground does not climb. On a plain ringed by
+       mountains, or in a bowl, every direction rises, the best axis rises as
+       much as the flanks do, and the difference — and so the channelling —
+       goes to zero. */
+    let conf = 0, aN = 1, aE = 0;
+    for (const R of [150, 350, 700]) {
+      let bestRise = Infinity, bN = 1, bE = 0;
+      for (let k = 0; k < 4; k++) {
+        const th = (k / 4) * Math.PI, cn = Math.cos(th), ce = Math.sin(th);
+        const rise = Math.max(
+          T.heightAt(n + cn * R, e + ce * R) - ground,
+          T.heightAt(n - cn * R, e - ce * R) - ground,
+        );
+        if (rise < bestRise) { bestRise = rise; bN = cn; bE = ce; }
+      }
+      // both flanks must rise, or it is a hillside rather than a valley
+      const cross = Math.min(
+        T.heightAt(n - bE * R, e + bN * R) - ground,
+        T.heightAt(n + bE * R, e - bN * R) - ground,
+      );
+      let c = clamp((cross - Math.max(0, bestRise)) / (0.30 * R), 0, 1);
+      c *= clamp(1 - agl / Math.max(20, cross), 0, 1); // climb above the rims and it stops
+      if (c > conf) { conf = c; aN = bN; aE = bE; }
+    }
+    if (conf > 0.01) {
+      const along = wN * aN + wE * aE;
+      wN += (aN * along - wN) * conf;
+      wE += (aE * along - wE) * conf;
+    }
+    out.conf = conf;
+    out.axisN = aN; out.axisE = aE;
+
+    const flow = Math.hypot(wN, wE);
+    if (flow < 0.2) { out.wN = wN; out.wE = wE; return out; }
+    const ux = wN / flow, uy = wE / flow; // the way the air is going
+
+    /* --- 2. the lee: what upwind is sheltering this spot, and by how much.
+       Every sample along the upwind line is scored, and the best score wins —
+       not the tallest crest. A 30 m knoll 200 m upwind shelters you more than
+       a 400 m mountain 3 km back, and taking the tallest would miss that. It
+       also removes the question of which crest to measure from when there are
+       several.
+
+       The look distance is fixed rather than scaled to the aircraft, because
+       what matters is the terrain's scale, not yours: the wake of a 200 m
+       ridge reaches 2 km downwind whether you are at 20 m or 200 m. Steps are
+       spaced as the square of the fraction, so sampling is tight close in —
+       where a narrow crest would otherwise be stepped over — and loose far
+       out, where only big terrain still matters. */
+    const look = clamp(2000, 300, Math.max(T.widthM, T.heightM));
+    let best = 0, bestH = 0;
+    for (let i = 1; i <= 28; i++) {
+      const f = i / 28, d = look * f * f;
+      const obsH = T.heightAt(n - ux * d, e - uy * d) - ground;
+      if (obsH <= 5) continue;
+      const vert = clamp(1 - agl / (1.6 * obsH), 0, 1); // how deep the wake runs
+      const down = clamp(1 - d / (10 * obsH), 0, 1); // and how far back it reaches
+      const s = vert * down;
+      if (s > best) { best = s; bestH = obsH; }
+    }
+    out.lee = best;
+    out.crestM = bestH;
+
+    /* --- 1. the flow follows the ground */
+    const spread = clamp(1.3 * agl + 2 * T.cell, 2 * T.cell, 600);
+    const dn = (T.heightAt(n + spread, e) - T.heightAt(n - spread, e)) / (2 * spread);
+    const de = (T.heightAt(n, e + spread) - T.heightAt(n, e - spread)) / (2 * spread);
+    const raw = wN * dn + wE * de;
+    const lift = flow * Math.tanh(raw / flow);
+
+    out.wN = wN; out.wE = wE;
+    out.lift = lift;
+    out.wD = -lift; // NED: z is down, so lift is negative
+    void upHere;
+    return out;
+  }
+
+  const newWind = () => ({ wN: 0, wE: 0, wD: 0, lift: 0, lee: 0, conf: 0, crestM: 0, axisN: 1, axisE: 0 });
+
   /* ---------- the flat ground the built-in field flies over ----------
      Same interface, every answer a constant, so nothing downstream needs to
      ask whether a map is loaded. */
@@ -3616,6 +3763,7 @@ const TERRAIN = (function () {
   return {
     SURFACE, CLASS_OF, CHUNK, LODS,
     fromGrid, loadMap, encodeHeights, checkFormat, newProbe,
+    terrainWind, newWind,
     FLAT,
   };
 })();
@@ -4428,6 +4576,7 @@ if (typeof module !== 'undefined') module.exports = NET;
     sheetTab: 'aircraft', // last settings tab
     // terrain maps: which of the open map's starts a reset uses, and where to list maps from
     mapStart: '', mapLib: '',
+    terrainWind: true, // upslope lift, lee sink and canyon channelling, on a map
     hud: 'hud', // FPV OSD style: 'hud' (pitch ladder and tapes) or 'classic'
     // link and sensors: downward lidar, RC link, video transmitter, interference (%), RTL altitude (m) for planes / rotorcraft
     lidar: 'tf02', rcLink: 'elrs24', vtx: 'a600', rfNoise: 0, rtlAlt: { plane: 50, rotary: 15 },
@@ -4591,7 +4740,11 @@ if (typeof module !== 'undefined') module.exports = NET;
     post: [0.5, 0.44, 0.36], rope: [1.0, 0.5, 0.1], orange: [1.0, 0.45, 0.1], white: [0.94, 0.94, 0.95], wall: [0.76, 0.73, 0.67], roof: [0.55, 0.2, 0.18],
     blue: [0.15, 0.5, 0.82], mat: [0.2, 0.21, 0.22],
   };
-  const SOCK_POS = [20, 4.1, -24];
+  const SOCK_POS = [20, 4.1, -24]; // render coords, relative to where you stand
+  // where the windsock stands, in NED metres: beside the pilot, whoever's field it is
+  const sockNE = () => (mapInfo
+    ? { n: mapInfo.pilot.n - SOCK_POS[2], e: mapInfo.pilot.e + SOCK_POS[0] }
+    : { n: -SOCK_POS[2], e: SOCK_POS[0] });
   let world = null; // { ground, runway, decal, scenery, obstacles }
 
   /* ---------------------------------------------------------------- terrain
@@ -4904,6 +5057,13 @@ if (typeof module !== 'undefined') module.exports = NET;
 
     const g = new Geo(mulberry32(7717)); g.jit = 0.12;
     const seg = (a, b, r) => obstacles.push({ k: 'seg', a, b, r });
+
+    // the windsock's pole, beside where you stand
+    {
+      const sn = map.pilot.n - SOCK_POS[2], se2 = map.pilot.e + SOCK_POS[0], sb = up(sn, se2);
+      g.cyl(se2, sb, -sn, 0.07, 0.05, SOCK_POS[1], 6, C.white);
+      obstacles.push({ k: 'cyl', x: se2, z: -sn, r: 0.2, y0: sb, y1: sb + SOCK_POS[1] });
+    }
 
     for (const o of map.obstacles) {
       const n = +o.n || 0, e = +o.e || 0;
@@ -6558,6 +6718,8 @@ if (typeof module !== 'undefined') module.exports = NET;
         seg('autoReset', 'After a crash', [[true, 'Auto reset (3 s)'], [false, 'Wait for me']]),
       ] },
       { tab: 'map', title: 'Map', items: [{ type: 'maps' },
+        seg('terrainWind', 'Terrain-shaped wind', [[true, 'On'], [false, 'Off']],
+          'On a map, the ground shapes the wind: it blows up a windward slope and sinks down a lee one, a valley turns it to run along itself, and the air behind a ridge is sheltered, sinking and rough. Off leaves the wind the same everywhere, as it is on the built-in field. Only does anything with a map loaded.'),
         ...(mapInfo && mapInfo.starts.length > 1 ? [seg('mapStart', 'Reset puts you', mapInfo.starts.map((s) => [s.id, s.name]), '', () => S.mapStart, (v) => { S.mapStart = v; saveS(); doReset(); refreshBar(); })] : []),
       ] },
       { tab: 'controller', title: 'Controller', items: [{ type: 'radio' },
@@ -7667,6 +7829,11 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     const ii = iceInfo(), wxa = env.wx || {};
     const out = [`air ${(wxa.T ?? atmo.Tc).toFixed(1)}°C   pack ${st.bT.toFixed(1)}°C ${Math.round(FL.battR(AC.batt, st.bT) * 1000)} mΩ`];
     if (ii.kc > 0 || st.iceProp > 0 || st.iceLens > 0) out.push(`ice k/c ${(ii.kc * 100).toFixed(2)}%  lift −${Math.round(ii.lift * 100)}%  prop −${Math.round(ii.prop * 100)}%  +${Math.round(ii.mass * 1000)} g`);
+    if (mapInfo && S.terrainWind) {
+      const w = Math.hypot(env.wind[0], env.wind[1]);
+      out.push(`agl ${U.alt(Math.max(0, agl()))}  wind ${w.toFixed(1)} m/s  ${tw.lift >= 0 ? 'lift' : 'sink'} ${Math.abs(tw.lift).toFixed(1)} m/s`);
+      if (tw.conf > 0.05 || tw.lee > 0.05) out.push(`channelled ${Math.round(tw.conf * 100)}%   lee ${Math.round(tw.lee * 100)}% of a ${Math.round(tw.crestM)} m crest`);
+    }
     return out;
   }
   function drawEng(v) {
@@ -7759,11 +7926,29 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     }
     return f;
   }
+  const tw = TERRAIN.newWind(); // the terrain's doing: channelling, lift, lee
   function updateWind(dt) {
     const Wm = S.windSpd, dir = S.windDir * D2R, sig = (S.gust / 100) * Wm;
     for (let i = 0; i < 3; i++) gust[i] = ou(gust[i], i < 2 ? 2.2 : 1.0, sig * (i < 2 ? 1 : 0.35), dt);
-    const h = Math.max(0.3, -st.p[2]);
+    /* Height above the GROUND, not above the datum. The log wind profile, the
+       Dryden scale lengths and the ground's damping of vertical gusts are all
+       about how far you are from the surface; on the flat field that was the
+       same as -p[2] and over terrain it is not. In a valley 40 m below the
+       datum the old number went negative and clamped, so the wind in the
+       bottom of a canyon came out at the minimum profile whatever the depth. */
+    const h = Math.max(0.3, agl());
+    const prof = clamp(Math.log(h / 0.03) / Math.log(10 / 0.03), 0.3, 1.3); // log profile, 10 m reference
     lee = leeAt(st.p[0], st.p[1], h, Wm, dir);
+    /* What the ground does to it. The free stream goes in already profiled, so
+       what comes back is the real local flow; its `lee` joins the one from
+       trees and buildings, so terrain and obstacles shelter on one model and
+       feed the same reduced wind, sinking air and mechanical turbulence. */
+    let bN = -Wm * Math.cos(dir) * prof, bE = -Wm * Math.sin(dir) * prof;
+    if (S.terrainWind && mapInfo) {
+      TERRAIN.terrainWind(terrain, st.p[0], st.p[1], h, bN, bE, tw);
+      bN = tw.wN; bE = tw.wE;
+      lee = Math.max(lee, tw.lee);
+    } else { tw.wN = bN; tw.wE = bE; tw.wD = 0; tw.lift = 0; tw.lee = 0; tw.conf = 0; tw.crestM = 0; }
     // Dryden: σw = 0.1·W20 (W20 = wind at 20 ft: 15 kt light, 30 moderate, 45 severe → 100% here = 45 kt),
     // σu = σw / (0.177 + 0.000823·h)^0.4, scale lengths Lw = h, Lu = h / (0.177 + 0.000823·h)^1.2 (feet)
     const hf = Math.max(5, h * 3.2808), kq = 0.177 + 0.000823 * Math.min(hf, 1000);
@@ -7780,12 +7965,12 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       gwV[0] = ou(gwV[0], tp, sp, dt); gwV[1] = ou(gwV[1], tp * 2, sp * 0.5, dt); gwV[2] = ou(gwV[2], tp * 2, sp * 0.4, dt);
     } else gwV[0] = gwV[1] = gwV[2] = 0;
     env.gw = gwV;
-    const prof = clamp(Math.log(h / 0.03) / Math.log(10 / 0.03), 0.3, 1.3); // log wind profile, 10 m reference
     const shelter = 1 - 0.6 * lee;
     env.wind = [
-      (-Wm * Math.cos(dir) * shelter + gust[0]) * prof + turbV[0],
-      (-Wm * Math.sin(dir) * shelter + gust[1]) * prof + turbV[1],
-      gust[2] * Math.min(1, h / 10) + turbV[2] + 0.25 * Wm * lee * gnd, // sinking air in the lee
+      bN * shelter + gust[0] * prof + turbV[0],
+      bE * shelter + gust[1] * prof + turbV[1],
+      // the flow following the ground, plus the sink behind whatever is upwind
+      tw.wD + gust[2] * Math.min(1, h / 10) + turbV[2] + 0.25 * Wm * lee * gnd,
     ];
   }
   function sockMatrix() {
@@ -7793,7 +7978,8 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     const wn = -Wm * Math.cos(dir) + gust[0], we = -Wm * Math.sin(dir) + gust[1];
     const sp = Math.hypot(wn, we);
     const droop = (Math.PI / 2) * 0.92 * (1 - clamp(sp / 7, 0, 1));
-    return M4.chain(M4.trans(SOCK_POS[0], SOCK_POS[1], SOCK_POS[2]), M4.rotY(Math.atan2(wn, we)), M4.rotZ(-droop));
+    const s0 = sockNE(), sg = terrain.heightAt(s0.n, s0.e); // the pole stands on the terrain
+    return M4.chain(M4.trans(s0.e, sg + SOCK_POS[1], -s0.n), M4.rotY(Math.atan2(wn, we)), M4.rotZ(-droop));
   }
   /* ---------- sensors, link and autopilot glue ---------- */
   // what's under a point (NED north, east): top height and how well it reflects the lidar's 905 nm light

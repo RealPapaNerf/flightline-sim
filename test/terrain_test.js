@@ -444,7 +444,147 @@ line('\n== Ground contact on slopes ==');
   }
 }
 
-/* --------------------------------------------- 10. the query's speed
+/* ------------------------------------------ 10. terrain-shaped wind
+   Checked against hand calculations on shapes whose slope is known in closed
+   form, because "the wind feels different over hills" is not a test. */
+
+line('\n== Terrain-shaped wind: ridge lift and lee sink ==');
+{
+  // a Gaussian ridge running east-west: 200 m tall, sigma 150 m, crest at n = 0
+  const H = 200, SG = 150;
+  const T = gridOf(513, 513, 8, (n) => H * Math.exp(-(n * n) / (2 * SG * SG)));
+  const slope = (n) => ((-H * n) / (SG * SG)) * Math.exp(-(n * n) / (2 * SG * SG));
+  const o = TER.newWind();
+  const W = 10; // 10 m/s from the south: the air moves north, so Wn = +10
+
+  line(`  a ${H} m ridge, sigma ${SG} m, crest at n = 0; wind ${W} m/s from the south, flying at 30 m AGL`);
+  line('      n   ground   dh/dn    lift m/s   what the formula says');
+  const rows = [];
+  for (const n of [-400, -300, -150, -50, 0, 50, 150, 300]) {
+    TER.terrainWind(T, n, 0, 30, W, 0, o);
+    const raw = W * slope(n);
+    rows.push({ n, lift: o.lift, raw, lee: o.lee });
+    line(`  ${String(n).padStart(5)}  ${(H * Math.exp(-(n * n) / (2 * SG * SG))).toFixed(0).padStart(6)}  ${slope(n).toFixed(4).padStart(7)}  ${o.lift.toFixed(3).padStart(8)}   V*dh/dn = ${raw.toFixed(3)}`);
+  }
+  ok(rows.filter((r) => r.n < 0).every((r) => r.lift > 0), 'the air goes up the windward face', rows.filter((r) => r.n < 0).map((r) => r.lift.toFixed(2)).join(', '));
+  ok(rows.filter((r) => r.n > 0).every((r) => r.lift < 0), 'and down the lee face', rows.filter((r) => r.n > 0).map((r) => r.lift.toFixed(2)).join(', '));
+  near(rows.find((r) => r.n === 0).lift, 0, 0.05, 'and is level at the crest');
+
+  // antisymmetry: the ridge is symmetric, so lift at -n must mirror sink at +n
+  for (const n of [50, 150, 300]) {
+    const a = rows.find((r) => r.n === -n).lift, b = rows.find((r) => r.n === n).lift;
+    near(a, -b, 0.02, `lift at n=-${n} mirrors the sink at n=+${n}`);
+  }
+
+  /* On gentle slopes the answer must BE V.grad(h); the tanh saturation exists
+     only to stop a cliff handing back 90 m/s. At n = -400 the slope is 0.10. */
+  const gentle = rows.find((r) => r.n === -400);
+  line(`  on the gentle slope at n=-400 (dh/dn = ${slope(-400).toFixed(3)}): ${gentle.lift.toFixed(3)} m/s against V*dh/dn = ${gentle.raw.toFixed(3)}`);
+  ok(Math.abs(gentle.lift - gentle.raw) < 0.25 * Math.abs(gentle.raw), 'on a gentle slope it is just V.grad(h)', `${gentle.lift.toFixed(3)} vs ${gentle.raw.toFixed(3)}`);
+
+  // the saturation: a vertical step cannot produce more updraft than the wind
+  const cliff = gridOf(257, 257, 4, (n) => (n > 0 ? 150 : 0));
+  TER.terrainWind(cliff, -6, 0, 5, W, 0, o);
+  line(`  a vertical 150 m cliff at 5 m AGL in ${W} m/s: ${o.lift.toFixed(2)} m/s, not the ${((W * 150) / 8).toFixed(0)} m/s the raw gradient would give`);
+  ok(o.lift <= W + 1e-6 && o.lift > 0.5 * W, 'a cliff saturates at the wind speed rather than exploding', `${o.lift.toFixed(2)} m/s`);
+
+  line('');
+  line('  decay with height on the windward face (n = -150):');
+  const byH = [];
+  for (const h of [10, 30, 60, 120, 250, 500]) {
+    TER.terrainWind(T, -150, 0, h, W, 0, o);
+    byH.push({ h, lift: o.lift });
+    line(`    ${String(h).padStart(4)} m AGL -> ${o.lift.toFixed(3)} m/s`);
+  }
+  ok(byH.every((r, i) => i === 0 || r.lift <= byH[i - 1].lift + 1e-9), 'lift falls off monotonically with height');
+  ok(byH[byH.length - 1].lift < 0.1 * byH[0].lift, 'and is all but gone 500 m up', `${byH[byH.length - 1].lift.toFixed(3)} vs ${byH[0].lift.toFixed(3)} m/s`);
+
+  line('');
+  line('  the lee of the crest (wind from the south, so the lee is to the north):');
+  for (const n of [-150, -20, 60, 200, 500, 1200]) {
+    TER.terrainWind(T, n, 0, 30, W, 0, o);
+    line(`    n = ${String(n).padStart(5)}  lee ${(o.lee * 100).toFixed(0).padStart(3)}%  (crest ${o.crestM.toFixed(0)} m above this ground)`);
+  }
+  TER.terrainWind(T, -150, 0, 30, W, 0, o);
+  const upwind = o.lee;
+  TER.terrainWind(T, 200, 0, 30, W, 0, o);
+  const downwind = o.lee;
+  ok(upwind === 0, 'nothing upwind of the ridge is in its lee', `${(upwind * 100).toFixed(0)}%`);
+  ok(downwind > 0.5, 'and the ground behind it is', `${(downwind * 100).toFixed(0)}%`);
+  TER.terrainWind(T, 200, 0, 600, W, 0, o);
+  ok(o.lee < 0.05, 'climbing well above the crest gets you out of the wake', `${(o.lee * 100).toFixed(0)}% at 600 m AGL`);
+}
+
+line('\n== Terrain-shaped wind: a canyon channels it ==');
+{
+  // a canyon on a 045 bearing: 300 m of flat floor, walls climbing 250 m
+  const ax = [Math.cos(45 * D2R), Math.sin(45 * D2R)];
+  const T = gridOf(513, 513, 8, (n, e) => {
+    const across = Math.abs(-n * ax[1] + e * ax[0]);
+    return 250 * Math.min(1, Math.max(0, (across - 150) / 350));
+  });
+  const o = TER.newWind();
+  const W = 12;
+  const windToward = (deg) => { const d = (deg - 180) * D2R; return [-W * Math.cos(d), -W * Math.sin(d)]; };
+
+  line('  a canyon on 045, 300 m floor, 250 m walls; free stream 12 m/s');
+  const probe = (towardDeg, aglM) => {
+    const [bN, bE] = windToward(towardDeg);
+    TER.terrainWind(T, 0, 0, aglM, bN, bE, o);
+    return { sp: Math.hypot(o.wN, o.wE), br: (Math.atan2(o.wE, o.wN) * (180 / Math.PI) + 360) % 360, conf: o.conf };
+  };
+
+  const across = probe(315, 15);
+  line(`    toward 315 (straight across) at 15 m AGL: ${across.sp.toFixed(2)} m/s toward ${across.br.toFixed(0)}, channelled ${(across.conf * 100).toFixed(0)}%`);
+  ok(across.sp < 1.5, 'a cross-canyon wind barely reaches the floor', `${across.sp.toFixed(2)} of 12 m/s`);
+
+  const along = probe(45, 15);
+  line(`    toward 045 (straight along) at 15 m AGL: ${along.sp.toFixed(2)} m/s toward ${along.br.toFixed(0)}`);
+  near(along.sp, W, 0.05, 'an along-canyon wind passes through untouched');
+
+  const oblique = probe(0, 15);
+  line(`    toward 000 (45 deg to the canyon) at 15 m AGL: ${oblique.sp.toFixed(2)} m/s toward ${oblique.br.toFixed(0)}`);
+  near(oblique.sp, W * Math.cos(45 * D2R), 0.3, 'an oblique wind keeps only its along-axis part');
+  near(oblique.br, 45, 6, 'and turns onto the canyon axis');
+
+  line('    climbing out of it:');
+  for (const h of [15, 100, 200, 300]) {
+    const r = probe(315, h);
+    line(`      ${String(h).padStart(3)} m AGL: channelled ${(r.conf * 100).toFixed(0).padStart(3)}%, ${r.sp.toFixed(2)} m/s`);
+  }
+  ok(probe(315, 300).conf === 0, 'above the rims there is no channelling left', `${(probe(315, 300).conf * 100).toFixed(0)}% at 300 m`);
+  ok(probe(315, 300).sp > 11.9, 'and the full wind is back', `${probe(315, 300).sp.toFixed(2)} m/s`);
+
+  // a bowl is not a valley: every direction rises, so nothing is channelled
+  const bowl = gridOf(513, 513, 8, (n, e) => 200 * Math.min(1, Math.hypot(n, e) / 600));
+  const [bN, bE] = windToward(315);
+  TER.terrainWind(bowl, 0, 0, 15, bN, bE, o);
+  line(`  in a bowl of the same depth: channelled ${(o.conf * 100).toFixed(0)}%, ${Math.hypot(o.wN, o.wE).toFixed(2)} m/s`);
+  ok(o.conf < 0.05, 'a bowl does not channel — there is no axis that stays level', `${(o.conf * 100).toFixed(0)}%`);
+}
+
+line('\n== Terrain-shaped wind: the flat field is untouched ==');
+{
+  const o = TER.newWind();
+  TER.terrainWind(TER.FLAT, 0, 0, 30, 7, -3, o);
+  near(o.wN, 7, 1e-9, 'north component unchanged');
+  near(o.wE, -3, 1e-9, 'east component unchanged');
+  near(o.wD, 0, 1e-9, 'no vertical component');
+  ok(o.lee === 0 && o.conf === 0, 'no lee and no channelling', `lee ${o.lee}, conf ${o.conf}`);
+  const flatGrid = gridOf(129, 129, 8, () => 0);
+  TER.terrainWind(flatGrid, 0, 0, 30, 7, -3, o);
+  near(o.lift, 0, 1e-6, 'and a zero heightfield gives no lift either');
+
+  // and it must cost little: this runs once a frame
+  const T = gridOf(513, 513, 4, (n, e) => 100 * Math.sin(n / 200) * Math.cos(e / 180));
+  const N = 200000, t0 = process.hrtime.bigint();
+  for (let i = 0; i < N; i++) TER.terrainWind(T, ((i * 7919) % 2000) - 1000, ((i * 104729) % 2000) - 1000, 50, 8, 2, o);
+  const us = Number(process.hrtime.bigint() - t0) / N / 1000;
+  line(`  cost: ${us.toFixed(2)} microseconds a call, and it is called once a frame`);
+  ok(us < 25, 'well under a frame', `${us.toFixed(2)} us`);
+}
+
+/* --------------------------------------------- 11. the query's speed
    Physics runs at 400 Hz with up to ten contact points, so about 4,000 probes
    a second. This says how much of the budget that is. */
 

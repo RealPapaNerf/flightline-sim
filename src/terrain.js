@@ -366,6 +366,153 @@ const TERRAIN = (function () {
     return (a + (b - a) * sx) * (1 - sy) + (c + (d - c) * sx) * sy;
   }
 
+  /* ---------- terrain-shaped wind ----------
+     Three things the ground does to the wind, all of them out of the
+     heightfield and none of them needing a new data file.
+
+     1. ORO­GRAPHIC LIFT AND SINK. At the surface the flow follows the ground,
+        so the vertical wind is the horizontal wind dotted with the slope:
+
+            w = V . grad(h)  =  Wn * dh/dn + We * dh/de
+
+        That is ridge lift on a windward face and sink on a lee face, and it is
+        exact at the surface rather than a fudge. Two refinements:
+
+        - The slope is measured over a stencil that WIDENS WITH HEIGHT. At
+          height z the flow only feels terrain features bigger than about z: a
+          4 m bump does nothing to the air 300 m above it. Widening the stencil
+          gives that for free and gives the decay with height for free with it,
+          instead of multiplying by an invented exponential.
+        - The result is saturated through tanh, scaled by the wind speed. A
+          cliff has an enormous gradient over a short stencil and the linear
+          formula would hand back 90 m/s of updraft; air cannot be deflected
+          faster than it is moving. tanh leaves gentle slopes untouched (a 0.3
+          slope in 10 m/s gives 2.91 m/s rather than 3.00) and bounds the
+          cliff at the wind speed.
+
+     2. THE LEE. Looking upwind along the local flow finds the crest that is
+        sheltering this spot, how far above it is and how far back. The wake
+        reaches about ten crest heights downwind and about 1.6 crest heights
+        up — the same numbers the sim already uses for the wake behind a tree
+        or a barn, so terrain and obstacles shelter on one model. The returned
+        factor goes into the same `lee` the caller already applies, which is
+        what drives reduced wind, sinking air and mechanical turbulence.
+
+     3. CHANNELLING. A valley turns the wind to run along it. Sampling the
+        rise on four axes finds the one that climbs least — the valley's axis —
+        and the rise across it says how confined you are. Fully channelled,
+        only the along-axis component of the wind survives, so a wind blowing
+        straight across a canyon leaves almost nothing in the bottom of it.
+        Confinement fades out as you climb above the rims.
+
+     Everything here is a function of position, so it is the same for every
+     aircraft and nothing has to be stored between frames. About 60 height
+     lookups a call at roughly 50 ns each, once a frame: around 3 microseconds.
+
+     What this is NOT: a flow solver. There is no continuity, no separation
+     bubble with reversed flow in it, and no mountain wave downstream. It is
+     three local rules, each one defensible on its own, tuned to be worth
+     flying rather than to be published. */
+  function terrainWind(T, n, e, agl, Wn, We, out) {
+    out = out || {};
+    out.wN = Wn; out.wE = We; out.wD = 0;
+    out.lift = 0; out.lee = 0; out.conf = 0; out.crestM = 0; out.axisN = 1; out.axisE = 0;
+    const speed = Math.hypot(Wn, We);
+    if (T.isFlat || speed < 0.4) return out;
+
+    const ground = T.heightAt(n, e);
+    const upHere = ground + Math.max(0, agl);
+    let wN = Wn, wE = We;
+
+    /* --- 3. channelling, first: the flow that then follows the ground and
+       runs into the lee is the channelled flow, not the synoptic one.
+
+       Sampled at three radii, keeping whichever is most confining. One radius
+       cannot work: a 300 m-wide canyon is invisible to a 100 m probe and a
+       narrow gully is averaged away by a 700 m one. Confinement is measured
+       as the cross-axis rise relative to the radius, so it is scale-free — a
+       30% grade on both flanks reads the same at 150 m as at 700 m.
+
+       The formula is self-correcting about what is NOT a valley: it needs an
+       axis along which the ground does not climb. On a plain ringed by
+       mountains, or in a bowl, every direction rises, the best axis rises as
+       much as the flanks do, and the difference — and so the channelling —
+       goes to zero. */
+    let conf = 0, aN = 1, aE = 0;
+    for (const R of [150, 350, 700]) {
+      let bestRise = Infinity, bN = 1, bE = 0;
+      for (let k = 0; k < 4; k++) {
+        const th = (k / 4) * Math.PI, cn = Math.cos(th), ce = Math.sin(th);
+        const rise = Math.max(
+          T.heightAt(n + cn * R, e + ce * R) - ground,
+          T.heightAt(n - cn * R, e - ce * R) - ground,
+        );
+        if (rise < bestRise) { bestRise = rise; bN = cn; bE = ce; }
+      }
+      // both flanks must rise, or it is a hillside rather than a valley
+      const cross = Math.min(
+        T.heightAt(n - bE * R, e + bN * R) - ground,
+        T.heightAt(n + bE * R, e - bN * R) - ground,
+      );
+      let c = clamp((cross - Math.max(0, bestRise)) / (0.30 * R), 0, 1);
+      c *= clamp(1 - agl / Math.max(20, cross), 0, 1); // climb above the rims and it stops
+      if (c > conf) { conf = c; aN = bN; aE = bE; }
+    }
+    if (conf > 0.01) {
+      const along = wN * aN + wE * aE;
+      wN += (aN * along - wN) * conf;
+      wE += (aE * along - wE) * conf;
+    }
+    out.conf = conf;
+    out.axisN = aN; out.axisE = aE;
+
+    const flow = Math.hypot(wN, wE);
+    if (flow < 0.2) { out.wN = wN; out.wE = wE; return out; }
+    const ux = wN / flow, uy = wE / flow; // the way the air is going
+
+    /* --- 2. the lee: what upwind is sheltering this spot, and by how much.
+       Every sample along the upwind line is scored, and the best score wins —
+       not the tallest crest. A 30 m knoll 200 m upwind shelters you more than
+       a 400 m mountain 3 km back, and taking the tallest would miss that. It
+       also removes the question of which crest to measure from when there are
+       several.
+
+       The look distance is fixed rather than scaled to the aircraft, because
+       what matters is the terrain's scale, not yours: the wake of a 200 m
+       ridge reaches 2 km downwind whether you are at 20 m or 200 m. Steps are
+       spaced as the square of the fraction, so sampling is tight close in —
+       where a narrow crest would otherwise be stepped over — and loose far
+       out, where only big terrain still matters. */
+    const look = clamp(2000, 300, Math.max(T.widthM, T.heightM));
+    let best = 0, bestH = 0;
+    for (let i = 1; i <= 28; i++) {
+      const f = i / 28, d = look * f * f;
+      const obsH = T.heightAt(n - ux * d, e - uy * d) - ground;
+      if (obsH <= 5) continue;
+      const vert = clamp(1 - agl / (1.6 * obsH), 0, 1); // how deep the wake runs
+      const down = clamp(1 - d / (10 * obsH), 0, 1); // and how far back it reaches
+      const s = vert * down;
+      if (s > best) { best = s; bestH = obsH; }
+    }
+    out.lee = best;
+    out.crestM = bestH;
+
+    /* --- 1. the flow follows the ground */
+    const spread = clamp(1.3 * agl + 2 * T.cell, 2 * T.cell, 600);
+    const dn = (T.heightAt(n + spread, e) - T.heightAt(n - spread, e)) / (2 * spread);
+    const de = (T.heightAt(n, e + spread) - T.heightAt(n, e - spread)) / (2 * spread);
+    const raw = wN * dn + wE * de;
+    const lift = flow * Math.tanh(raw / flow);
+
+    out.wN = wN; out.wE = wE;
+    out.lift = lift;
+    out.wD = -lift; // NED: z is down, so lift is negative
+    void upHere;
+    return out;
+  }
+
+  const newWind = () => ({ wN: 0, wE: 0, wD: 0, lift: 0, lee: 0, conf: 0, crestM: 0, axisN: 1, axisE: 0 });
+
   /* ---------- the flat ground the built-in field flies over ----------
      Same interface, every answer a constant, so nothing downstream needs to
      ask whether a map is loaded. */
@@ -520,6 +667,7 @@ const TERRAIN = (function () {
   return {
     SURFACE, CLASS_OF, CHUNK, LODS,
     fromGrid, loadMap, encodeHeights, checkFormat, newProbe,
+    terrainWind, newWind,
     FLAT,
   };
 })();

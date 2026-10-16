@@ -178,6 +178,65 @@ function serve() {
     ok(fs.statSync(f).size > 20000, `${name} is not a blank frame`, `${kb} KB of PNG`);
   }
 
+  /* The model is tested in terrain_test; what is tested here is the WIRING —
+     that updateWind actually consults the terrain and that env.wind changes
+     when you move from a windward face to a lee one. */
+  console.log('\n== Terrain-shaped wind, in the running sim ==');
+  const wind = await page.evaluate(async () => {
+    const F = window.__flightline, T = F.terrain();
+    F.S.windSpd = 10; F.S.windDir = 180; F.S.gust = 0; F.S.turb = 0; // 10 m/s from the south, still otherwise
+    /* Pin the aircraft every frame. Teleporting it once and then waiting does not
+       work: the physics keeps running, so after a second and a half the wind
+       being reported is the wind wherever it has fallen to. The vertical gust
+       is an Ornstein-Uhlenbeck process with a time constant of seconds, so it
+       does need that long to relax even with turbulence off. */
+    const sample = async (n, e, aglM, on) => {
+      F.S.terrainWind = on;
+      for (let i = 0; i < 90; i++) {
+        F.st.p[0] = n; F.st.p[1] = e; F.st.p[2] = -(T.heightAt(n, e) + aglM);
+        F.st.v[0] = 0; F.st.v[1] = 0; F.st.v[2] = 0;
+        await new Promise(requestAnimationFrame);
+      }
+      return { n, e, w: F.env.wind.slice(), ground: T.heightAt(n, e) };
+    };
+    // the fixture's ridge runs east-west with its crest near n = 300
+    const windward = await sample(150, 0, 40, true);
+    const lee = await sample(460, 0, 40, true);
+    const windwardOff = await sample(150, 0, 40, false);
+    const leeOff = await sample(460, 0, 40, false);
+    F.S.terrainWind = true;
+    return { windward, lee, windwardOff, leeOff };
+  });
+  const vs = (r) => `N ${r.w[0].toFixed(2)}  E ${r.w[1].toFixed(2)}  down ${r.w[2].toFixed(2)} m/s`;
+  const flat2 = (r) => Math.hypot(r.w[0], r.w[1]);
+  console.log(`  windward face (n=150, ground ${wind.windward.ground.toFixed(0)} m)  on:  ${vs(wind.windward)}`);
+  console.log(`                                        off: ${vs(wind.windwardOff)}`);
+  console.log(`  in the lee    (n=460, ground ${wind.lee.ground.toFixed(0)} m)  on:  ${vs(wind.lee)}`);
+  console.log(`                                        off: ${vs(wind.leeOff)}`);
+  ok(wind.windward.w[2] < -1, 'the air is going up over the windward face', `${(-wind.windward.w[2]).toFixed(2)} m/s up`);
+  ok(wind.lee.w[2] > 1, 'and down in the lee', `${wind.lee.w[2].toFixed(2)} m/s down`);
+  ok(Math.abs(wind.windwardOff.w[2]) < 0.2 * Math.abs(wind.windward.w[2]), 'turning the setting off removes it',
+    `${wind.windwardOff.w[2].toFixed(2)} against ${wind.windward.w[2].toFixed(2)} m/s`);
+  ok(flat2(wind.lee) < 0.8 * flat2(wind.leeOff), 'and the lee is sheltered',
+    `${flat2(wind.lee).toFixed(2)} m/s with it on, ${flat2(wind.leeOff).toFixed(2)} with it off`);
+
+  console.log('\n== ...and the flat field still has none of it ==');
+  const flatWind = await page.evaluate(async () => {
+    const F = window.__flightline;
+    F.closeMap();
+    for (let i = 0; i < 90; i++) {
+      F.st.p[0] = 0; F.st.p[1] = 0; F.st.p[2] = -40; F.st.v[0] = 0; F.st.v[1] = 0; F.st.v[2] = 0;
+      await new Promise(requestAnimationFrame);
+    }
+    const w = F.env.wind.slice();
+    const lib = await F.MAPS.fetchLibrary('maps/');
+    F.openMap(await F.MAPS.fetchMap(lib.base, lib.maps[0], () => {}));
+    return w;
+  });
+  console.log(`  built-in field at 40 m: N ${flatWind[0].toFixed(2)}  E ${flatWind[1].toFixed(2)}  down ${flatWind[2].toFixed(2)} m/s`);
+  ok(Math.abs(flatWind[2]) < 0.5, 'no terrain-driven vertical wind on flat ground', `${flatWind[2].toFixed(2)} m/s, against ${wind.windward.w[2].toFixed(2)} over the ridge`);
+  for (let i = 0; i < 40; i++) await page.evaluate(() => new Promise(requestAnimationFrame));
+
   /* The settings panel builds its own DOM, and nothing else here touches it,
      so a typo in the Map tab would ship silently. Open it and look. */
   console.log('\n== The Map tab in Settings ==');

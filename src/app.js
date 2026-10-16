@@ -47,6 +47,7 @@
     sheetTab: 'aircraft', // last settings tab
     // terrain maps: which of the open map's starts a reset uses, and where to list maps from
     mapStart: '', mapLib: '',
+    terrainWind: true, // upslope lift, lee sink and canyon channelling, on a map
     hud: 'hud', // FPV OSD style: 'hud' (pitch ladder and tapes) or 'classic'
     // link and sensors: downward lidar, RC link, video transmitter, interference (%), RTL altitude (m) for planes / rotorcraft
     lidar: 'tf02', rcLink: 'elrs24', vtx: 'a600', rfNoise: 0, rtlAlt: { plane: 50, rotary: 15 },
@@ -210,7 +211,11 @@
     post: [0.5, 0.44, 0.36], rope: [1.0, 0.5, 0.1], orange: [1.0, 0.45, 0.1], white: [0.94, 0.94, 0.95], wall: [0.76, 0.73, 0.67], roof: [0.55, 0.2, 0.18],
     blue: [0.15, 0.5, 0.82], mat: [0.2, 0.21, 0.22],
   };
-  const SOCK_POS = [20, 4.1, -24];
+  const SOCK_POS = [20, 4.1, -24]; // render coords, relative to where you stand
+  // where the windsock stands, in NED metres: beside the pilot, whoever's field it is
+  const sockNE = () => (mapInfo
+    ? { n: mapInfo.pilot.n - SOCK_POS[2], e: mapInfo.pilot.e + SOCK_POS[0] }
+    : { n: -SOCK_POS[2], e: SOCK_POS[0] });
   let world = null; // { ground, runway, decal, scenery, obstacles }
 
   /* ---------------------------------------------------------------- terrain
@@ -523,6 +528,13 @@
 
     const g = new Geo(mulberry32(7717)); g.jit = 0.12;
     const seg = (a, b, r) => obstacles.push({ k: 'seg', a, b, r });
+
+    // the windsock's pole, beside where you stand
+    {
+      const sn = map.pilot.n - SOCK_POS[2], se2 = map.pilot.e + SOCK_POS[0], sb = up(sn, se2);
+      g.cyl(se2, sb, -sn, 0.07, 0.05, SOCK_POS[1], 6, C.white);
+      obstacles.push({ k: 'cyl', x: se2, z: -sn, r: 0.2, y0: sb, y1: sb + SOCK_POS[1] });
+    }
 
     for (const o of map.obstacles) {
       const n = +o.n || 0, e = +o.e || 0;
@@ -2177,6 +2189,8 @@
         seg('autoReset', 'After a crash', [[true, 'Auto reset (3 s)'], [false, 'Wait for me']]),
       ] },
       { tab: 'map', title: 'Map', items: [{ type: 'maps' },
+        seg('terrainWind', 'Terrain-shaped wind', [[true, 'On'], [false, 'Off']],
+          'On a map, the ground shapes the wind: it blows up a windward slope and sinks down a lee one, a valley turns it to run along itself, and the air behind a ridge is sheltered, sinking and rough. Off leaves the wind the same everywhere, as it is on the built-in field. Only does anything with a map loaded.'),
         ...(mapInfo && mapInfo.starts.length > 1 ? [seg('mapStart', 'Reset puts you', mapInfo.starts.map((s) => [s.id, s.name]), '', () => S.mapStart, (v) => { S.mapStart = v; saveS(); doReset(); refreshBar(); })] : []),
       ] },
       { tab: 'controller', title: 'Controller', items: [{ type: 'radio' },
@@ -3286,6 +3300,11 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     const ii = iceInfo(), wxa = env.wx || {};
     const out = [`air ${(wxa.T ?? atmo.Tc).toFixed(1)}°C   pack ${st.bT.toFixed(1)}°C ${Math.round(FL.battR(AC.batt, st.bT) * 1000)} mΩ`];
     if (ii.kc > 0 || st.iceProp > 0 || st.iceLens > 0) out.push(`ice k/c ${(ii.kc * 100).toFixed(2)}%  lift −${Math.round(ii.lift * 100)}%  prop −${Math.round(ii.prop * 100)}%  +${Math.round(ii.mass * 1000)} g`);
+    if (mapInfo && S.terrainWind) {
+      const w = Math.hypot(env.wind[0], env.wind[1]);
+      out.push(`agl ${U.alt(Math.max(0, agl()))}  wind ${w.toFixed(1)} m/s  ${tw.lift >= 0 ? 'lift' : 'sink'} ${Math.abs(tw.lift).toFixed(1)} m/s`);
+      if (tw.conf > 0.05 || tw.lee > 0.05) out.push(`channelled ${Math.round(tw.conf * 100)}%   lee ${Math.round(tw.lee * 100)}% of a ${Math.round(tw.crestM)} m crest`);
+    }
     return out;
   }
   function drawEng(v) {
@@ -3378,11 +3397,29 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     }
     return f;
   }
+  const tw = TERRAIN.newWind(); // the terrain's doing: channelling, lift, lee
   function updateWind(dt) {
     const Wm = S.windSpd, dir = S.windDir * D2R, sig = (S.gust / 100) * Wm;
     for (let i = 0; i < 3; i++) gust[i] = ou(gust[i], i < 2 ? 2.2 : 1.0, sig * (i < 2 ? 1 : 0.35), dt);
-    const h = Math.max(0.3, -st.p[2]);
+    /* Height above the GROUND, not above the datum. The log wind profile, the
+       Dryden scale lengths and the ground's damping of vertical gusts are all
+       about how far you are from the surface; on the flat field that was the
+       same as -p[2] and over terrain it is not. In a valley 40 m below the
+       datum the old number went negative and clamped, so the wind in the
+       bottom of a canyon came out at the minimum profile whatever the depth. */
+    const h = Math.max(0.3, agl());
+    const prof = clamp(Math.log(h / 0.03) / Math.log(10 / 0.03), 0.3, 1.3); // log profile, 10 m reference
     lee = leeAt(st.p[0], st.p[1], h, Wm, dir);
+    /* What the ground does to it. The free stream goes in already profiled, so
+       what comes back is the real local flow; its `lee` joins the one from
+       trees and buildings, so terrain and obstacles shelter on one model and
+       feed the same reduced wind, sinking air and mechanical turbulence. */
+    let bN = -Wm * Math.cos(dir) * prof, bE = -Wm * Math.sin(dir) * prof;
+    if (S.terrainWind && mapInfo) {
+      TERRAIN.terrainWind(terrain, st.p[0], st.p[1], h, bN, bE, tw);
+      bN = tw.wN; bE = tw.wE;
+      lee = Math.max(lee, tw.lee);
+    } else { tw.wN = bN; tw.wE = bE; tw.wD = 0; tw.lift = 0; tw.lee = 0; tw.conf = 0; tw.crestM = 0; }
     // Dryden: σw = 0.1·W20 (W20 = wind at 20 ft: 15 kt light, 30 moderate, 45 severe → 100% here = 45 kt),
     // σu = σw / (0.177 + 0.000823·h)^0.4, scale lengths Lw = h, Lu = h / (0.177 + 0.000823·h)^1.2 (feet)
     const hf = Math.max(5, h * 3.2808), kq = 0.177 + 0.000823 * Math.min(hf, 1000);
@@ -3399,12 +3436,12 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       gwV[0] = ou(gwV[0], tp, sp, dt); gwV[1] = ou(gwV[1], tp * 2, sp * 0.5, dt); gwV[2] = ou(gwV[2], tp * 2, sp * 0.4, dt);
     } else gwV[0] = gwV[1] = gwV[2] = 0;
     env.gw = gwV;
-    const prof = clamp(Math.log(h / 0.03) / Math.log(10 / 0.03), 0.3, 1.3); // log wind profile, 10 m reference
     const shelter = 1 - 0.6 * lee;
     env.wind = [
-      (-Wm * Math.cos(dir) * shelter + gust[0]) * prof + turbV[0],
-      (-Wm * Math.sin(dir) * shelter + gust[1]) * prof + turbV[1],
-      gust[2] * Math.min(1, h / 10) + turbV[2] + 0.25 * Wm * lee * gnd, // sinking air in the lee
+      bN * shelter + gust[0] * prof + turbV[0],
+      bE * shelter + gust[1] * prof + turbV[1],
+      // the flow following the ground, plus the sink behind whatever is upwind
+      tw.wD + gust[2] * Math.min(1, h / 10) + turbV[2] + 0.25 * Wm * lee * gnd,
     ];
   }
   function sockMatrix() {
@@ -3412,7 +3449,8 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     const wn = -Wm * Math.cos(dir) + gust[0], we = -Wm * Math.sin(dir) + gust[1];
     const sp = Math.hypot(wn, we);
     const droop = (Math.PI / 2) * 0.92 * (1 - clamp(sp / 7, 0, 1));
-    return M4.chain(M4.trans(SOCK_POS[0], SOCK_POS[1], SOCK_POS[2]), M4.rotY(Math.atan2(wn, we)), M4.rotZ(-droop));
+    const s0 = sockNE(), sg = terrain.heightAt(s0.n, s0.e); // the pole stands on the terrain
+    return M4.chain(M4.trans(s0.e, sg + SOCK_POS[1], -s0.n), M4.rotY(Math.atan2(wn, we)), M4.rotZ(-droop));
   }
   /* ---------- sensors, link and autopilot glue ---------- */
   // what's under a point (NED north, east): top height and how well it reflects the lidar's 905 nm light
