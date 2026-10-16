@@ -632,6 +632,29 @@ in this model: the record aircraft cruises at Mach 0.53 with its prop tips past
 Mach 1, so treat the top end as optimistic. And the build sheet has no `vtol`
 kind yet — write the definition, or start from the file in `aircraft/`.
 
+**What makes one faster.** A tail-sitter at speed is propeller-limited, not
+drag-limited or thrust-limited. Taking `aircraft/aero-5inch-tailsitter.json`
+— a 5-inch, 1.1 kg machine that tops out at 386 km/h — and changing one thing
+at a time:
+
+| change | top speed | |
+|---|---|---|
+| as drawn | 386 km/h | |
+| pitch speed 150 → 200 m/s | 446 km/h | **+60** |
+| pitch speed 150 → 260 m/s | 499 km/h | **+113** |
+| thrust 1,800 → 2,400 gf per motor | 411 km/h | +25 |
+| head-on drag area 0.0016 → 0.0011 m² | 401 km/h | +15 |
+| arm fairings half as draggy | 391 km/h | +6 |
+| 1,100 → 900 g | 387 km/h | +1 |
+| 1,100 → 1,400 g | 384 km/h | −2 |
+| pitch speed 260, the cleaner shell and the bigger motors together | 579 km/h | +194 |
+
+Weight hardly matters to the top speed at all — it decides the hover time and
+the climb. Pitch speed is worth more than everything else put together, which
+is why the Peregreen team went from 800KV to 900KV and cut their props down:
+a shorter blade off the same high-pitch stock is a higher pitch-to-diameter
+ratio, and that is the number the top end is made of.
+
 `node test/vtol_test.js [file.json]` flies one: off the pad, a hover, the
 transition, the top speed on a full pack and on a draining one, the
 back-transition and the landing.

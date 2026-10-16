@@ -3,6 +3,13 @@
   "name": "Flightline aircraft",
   "aircraft": [
     {
+      "file": "aero-5inch-tailsitter.json",
+      "name": "Aero 5 Inch",
+      "kind": "vtol",
+      "blurb": "Your 5-inch speed design: 263 mm carbon X-frame inside an aero shell, 400 mm body, launched off its tail. 1.1 kg, 6.6:1, and it runs out of pack before it runs out of speed.",
+      "author": "RealPapaNerf"
+    },
+    {
       "file": "camera-platform-2m.json",
       "name": "2 m camera platform",
       "kind": "conventional",

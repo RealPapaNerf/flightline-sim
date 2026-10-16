@@ -13,6 +13,7 @@ installed app, download a `.json` from here and use **Import aircraft file**.
 | `quad-13in-recovery.json` | 13-inch lifter, 12S2P 21700, landing gear and the camera pod, 3.7 kg |
 | `camera-platform-2m.json` | 2 m pod-and-boom camera plane, 3 kg, long flaps and retracts |
 | `speed-tailsitter.json` | tail-sitter in the Peregreen V4's class: hovers on its tail, runs at 653 km/h |
+| `aero-5inch-tailsitter.json` | the 5-inch speed design from `5 Inch Speed Design.step`: 263 mm frame, 386 km/h |
 
 **These are starting points, not measurements.** Each one was built from
 published frame, motor and cell figures plus a weight estimate, and each file

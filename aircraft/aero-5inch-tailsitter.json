@@ -1,0 +1,428 @@
+{
+  "format": "flightline-aircraft/1",
+  "author": "RealPapaNerf",
+  "version": "1",
+  "source": "5 Inch Speed Design.step (Aero 5 Inch V1.1), with weights and thrust assumed",
+  "def": {
+    "id": "aero-5inch",
+    "name": "Aero 5 Inch",
+    "blurb": "Your 5-inch speed design: 263 mm carbon X-frame inside an aero shell, 400 mm body, launched off its tail. 1.1 kg, 6.6:1, and it runs out of pack before it runs out of speed.",
+    "notes": "Read off your 5 Inch Speed Design.step: carbon frame 186.5 mm square, so the motors sit 93 mm out on both axes and the diagonal wheelbase is 263 mm; the rear shell spans 384 mm across the arms and is 92 mm deep; the body parts (Vista mount, camera mounts, servo mount) run about 290 mm, and there is a Launcher part — which is why this is built as a tail-sitter. Assumed, because the file does not say: 1,100 g all-up; 1,800 gf per motor on 6S (a 2207-class motor on a 5-inch prop); 150 m/s pitch speed; 0.0016 m2 of head-on drag area, the same drag coefficient as the Peregreen-class file on an 85 mm body; 6S 1,300 race pack at 3 mOhm per cell. Weigh yours and put a real thrust figure in and the rest will follow.",
+    "mass": 1.1,
+    "I": [
+      0.0075,
+      0.019,
+      0.019
+    ],
+    "body": {
+      "r": [
+        -0.05,
+        0,
+        0
+      ],
+      "CdA": [
+        0.0016,
+        0.011,
+        0.011
+      ]
+    },
+    "batt": {
+      "chem": "lipo",
+      "cells": 6,
+      "mAh": 1300,
+      "R": 0.021,
+      "Imax": 169,
+      "Iidle": 1,
+      "Vref": 22.8,
+      "label": "6S 1,300 LiPo",
+      "cool": [
+        0.15,
+        0.06
+      ]
+    },
+    "wheels": [],
+    "points": [
+      {
+        "p": [
+          0.22,
+          0,
+          0
+        ],
+        "name": "nose",
+        "impact": 4,
+        "slide": 10
+      },
+      {
+        "p": [
+          -0.2,
+          0.05,
+          0.05
+        ],
+        "name": "tail ring",
+        "impact": 4,
+        "slide": 99,
+        "foot": true
+      },
+      {
+        "p": [
+          -0.2,
+          0.05,
+          -0.05
+        ],
+        "name": "tail ring",
+        "impact": 4,
+        "slide": 99,
+        "foot": true
+      },
+      {
+        "p": [
+          -0.2,
+          -0.05,
+          0.05
+        ],
+        "name": "tail ring",
+        "impact": 4,
+        "slide": 99,
+        "foot": true
+      },
+      {
+        "p": [
+          -0.2,
+          -0.05,
+          -0.05
+        ],
+        "name": "tail ring",
+        "impact": 4,
+        "slide": 99,
+        "foot": true
+      },
+      {
+        "p": [
+          0.02,
+          0.113,
+          -0.093
+        ],
+        "name": "upper right motor",
+        "impact": 6,
+        "slide": 99,
+        "prop": true,
+        "motor": 0,
+        "strike": 3
+      },
+      {
+        "p": [
+          0.02,
+          -0.113,
+          -0.093
+        ],
+        "name": "upper left motor",
+        "impact": 6,
+        "slide": 99,
+        "prop": true,
+        "motor": 1,
+        "strike": 3
+      },
+      {
+        "p": [
+          0.02,
+          0.113,
+          0.093
+        ],
+        "name": "lower right motor",
+        "impact": 6,
+        "slide": 99,
+        "prop": true,
+        "motor": 2,
+        "strike": 3
+      },
+      {
+        "p": [
+          0.02,
+          -0.113,
+          0.093
+        ],
+        "name": "lower left motor",
+        "impact": 6,
+        "slide": 99,
+        "prop": true,
+        "motor": 3,
+        "strike": 3
+      },
+      {
+        "p": [
+          0,
+          0,
+          0.045
+        ],
+        "name": "shell",
+        "impact": 5,
+        "slide": 12
+      }
+    ],
+    "contact": {
+      "kW": 0,
+      "cW": 0,
+      "kB": 2900,
+      "cB": 35,
+      "muRoll": 0,
+      "muLat": 0,
+      "muBody": 0.7
+    },
+    "crash": {
+      "wheelImpact": 99
+    },
+    "starts": [
+      "pad",
+      "air"
+    ],
+    "fpvCam": [
+      0.21,
+      0,
+      0
+    ],
+    "camTilt": 0,
+    "colR": 0.22,
+    "pid": {
+      "roll": [
+        22,
+        117,
+        0.3,
+        0.4,
+        0.015
+      ],
+      "pitch": [
+        22,
+        117,
+        0.3,
+        0.4,
+        0.015
+      ],
+      "yaw": [
+        22,
+        117,
+        0.3,
+        0.4,
+        0.015
+      ]
+    },
+    "angle": {
+      "max": 45,
+      "k": 6,
+      "rate": 300
+    },
+    "rates": {
+      "roll": {
+        "c": 60,
+        "m": 320,
+        "e": 0
+      },
+      "pitch": {
+        "c": 60,
+        "m": 320,
+        "e": 0
+      },
+      "yaw": {
+        "c": 60,
+        "m": 320,
+        "e": 0
+      }
+    },
+    "kind": "vtol",
+    "motors": [
+      [
+        0.02,
+        0.093,
+        -0.093,
+        1
+      ],
+      [
+        0.02,
+        -0.093,
+        -0.093,
+        -1
+      ],
+      [
+        0.02,
+        0.093,
+        0.093,
+        -1
+      ],
+      [
+        0.02,
+        -0.093,
+        0.093,
+        1
+      ]
+    ],
+    "motor": {
+      "Tmax": 17.7,
+      "tau": 0.03,
+      "idle": 0.05,
+      "kQ": 0.016,
+      "Vp": 150,
+      "D": 0.127
+    },
+    "staticMargin": 0.08,
+    "surfaces": [
+      {
+        "name": "body",
+        "role": "wing",
+        "mirror": true,
+        "hidden": true,
+        "n": 2,
+        "y0": 0,
+        "y1": 0.0425,
+        "xLE0": 0.2,
+        "xLE1": 0.2,
+        "c0": 0.4,
+        "c1": 0.4,
+        "z0": 0,
+        "dihedral": 0,
+        "inc0": 0,
+        "inc1": 0,
+        "sweepLoad": 0,
+        "foil": {
+          "a": 1.2,
+          "CL0": 0,
+          "CLmax": 0.8,
+          "CLmin": -0.8,
+          "M": 18,
+          "CD0": 0.02,
+          "e": 0.6,
+          "Cm0": 0,
+          "CN90": 1.2
+        },
+        "flaps": []
+      },
+      {
+        "name": "arms upper",
+        "role": "wing",
+        "mirror": true,
+        "n": 2,
+        "y0": 0.04,
+        "y1": 0.1315,
+        "xLE0": 0.05,
+        "xLE1": 0.05,
+        "c0": 0.09,
+        "c1": 0.07,
+        "z0": 0,
+        "dihedral": 45,
+        "inc0": 0,
+        "inc1": 0,
+        "sweepLoad": 0,
+        "foil": {
+          "a": 2.6,
+          "CL0": 0,
+          "CLmax": 1,
+          "CLmin": -1,
+          "M": 40,
+          "CD0": 0.015,
+          "e": 0.7,
+          "Cm0": 0,
+          "CN90": 1.8
+        },
+        "flaps": []
+      },
+      {
+        "name": "arms lower",
+        "role": "wing",
+        "mirror": true,
+        "n": 2,
+        "y0": 0.04,
+        "y1": 0.1315,
+        "xLE0": 0.05,
+        "xLE1": 0.05,
+        "c0": 0.09,
+        "c1": 0.07,
+        "z0": 0,
+        "dihedral": -45,
+        "inc0": 0,
+        "inc1": 0,
+        "sweepLoad": 0,
+        "foil": {
+          "a": 2.6,
+          "CL0": 0,
+          "CLmax": 1,
+          "CLmin": -1,
+          "M": 40,
+          "CD0": 0.015,
+          "e": 0.7,
+          "Cm0": 0,
+          "CN90": 1.8
+        },
+        "flaps": []
+      }
+    ],
+    "defl": {
+      "a": 0,
+      "e": 0,
+      "r": 0,
+      "flapMax": 0
+    },
+    "flexQ": 0,
+    "servoRate": 8,
+    "trans": {
+      "time": 2,
+      "pitch": 0.04363323129985824,
+      "vAir": 50
+    },
+    "shape": {
+      "fuseW": 0.085,
+      "fuseH": 0.085
+    },
+    "rotorDrag": 0.012,
+    "look": {
+      "top": [
+        0.95,
+        0.35,
+        0.05
+      ],
+      "bottom": [
+        0.1,
+        0.1,
+        0.11
+      ],
+      "side": [
+        0.85,
+        0.3,
+        0.05
+      ],
+      "tip": [
+        0.1,
+        0.1,
+        0.11
+      ],
+      "accent": [
+        0.08,
+        0.08,
+        0.09
+      ],
+      "fuse": [
+        0.95,
+        0.35,
+        0.05
+      ],
+      "fuseBottom": [
+        0.12,
+        0.12,
+        0.13
+      ],
+      "canopy": [
+        0.1,
+        0.12,
+        0.16
+      ],
+      "dark": [
+        0.07,
+        0.07,
+        0.08
+      ],
+      "metal": [
+        0.72,
+        0.74,
+        0.78
+      ],
+      "blades": 3
+    }
+  }
+}
