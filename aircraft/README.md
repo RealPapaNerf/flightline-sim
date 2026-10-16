@@ -25,6 +25,11 @@ Settings → Builder, change them, and press *Fly it*.
 
 Each file carries its build sheet, so the builder opens it where it was left.
 
+Loading this folder twice is harmless: an aircraft already in your list loads
+as nothing rather than as a second copy, and the button only offers the files
+you do not have. If an older build did leave copies behind, Settings →
+Aircraft marks them and *Remove duplicates* clears them in one go.
+
 ## Adding one
 
 1. Build it in Settings → Builder, or write a build sheet with
@@ -32,15 +37,16 @@ Each file carries its build sheet, so the builder opens it where it was left.
 2. Export it, drop the file in this folder, and add a line to `index.json`:
 
    ```json
-   { "file": "my-plane.json", "name": "My plane", "kind": "conventional",
+   { "file": "my-plane.json", "id": "my-plane", "name": "My plane", "kind": "conventional",
      "blurb": "One sentence for the list." }
    ```
 
    `file` is the only field the sim needs; the rest is what the list shows
-   before anything is loaded.
+   before anything is loaded. `id` is the `def.id` inside the file, and it is
+   what lets the list mark an aircraft *already here* before fetching it.
 3. `node test/aircraft_test.js` has to pass. It reads every file here, checks
    it validates, prints its bench numbers, and checks that the folder and
-   `index.json` agree in both directions.
+   `index.json` agree in both directions, ids included.
 
 [`docs/aircraft-format.md`](../docs/aircraft-format.md) says what every field
 means.

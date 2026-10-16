@@ -156,6 +156,41 @@ console.log('\n========  flaps and retracts  ========');
   ok(tD.thr > tU.thr, 'gear down costs throttle', `at ${V0} m/s (${mph(V0)} mph): ${Math.round(tU.thr * 100)}% up → ${Math.round(tD.thr * 100)}% down; top speed ${up[up.length - 1].V} m/s up, ${dn[dn.length - 1].V} m/s down`);
 }
 
+console.log('\n========  a library of files: the same aircraft twice  ========');
+console.log('What the sim uses to load only what is new, and to find the copies');
+console.log('an earlier load left behind.\n');
+{
+  const file = ACF.write(FL.DEFS.q7, { author: 'Flightline', version: '1' }).file;
+  const copy = JSON.parse(JSON.stringify(file));
+  copy.def.id = 'q7-2'; // what an importer does with an id already taken
+  ok(ACF.sameFile(file, copy), 'a copy under another id is the same file');
+  ok(ACF.sameFile(file, JSON.stringify(copy)), 'and reads as text as well as an object');
+  // field order is whatever wrote the file, and says nothing about the aircraft
+  const shuffled = Object.fromEntries(Object.keys(copy).reverse().map((k) => [k, copy[k]]));
+  ok(ACF.sameFile(file, shuffled), 'field order does not matter');
+  const heavier = JSON.parse(JSON.stringify(copy));
+  heavier.def.mass += 0.001; // one gram
+  ok(!ACF.sameFile(file, heavier), 'one gram heavier is not the same file');
+  const renamed = JSON.parse(JSON.stringify(copy));
+  renamed.def.name = 'My 7-inch';
+  ok(!ACF.sameFile(file, renamed), 'a different name is not the same file');
+  ok(!ACF.sameFile(file, null) && !ACF.sameFile(file, 'not json'), 'nothing is the same as a non-file');
+
+  // a folder loaded three times, with the first copy since removed, plus one
+  // aircraft that is merely named with a number on the end
+  const lib = { 'q7-2': copy, 'q7-3': JSON.parse(JSON.stringify(copy)), 'q7-4': heavier, 'mark4-10': ACF.write(FL.DEFS.lr4, {}).file };
+  const fileOf = (id) => lib[id] || null;
+  const dm = ACF.dupMap(Object.keys(lib), fileOf);
+  ok(dm.get('q7-3') === 'q7-2', 'the second copy of a file is a copy of the first one in the list');
+  ok(!dm.has('q7-2'), 'and the first one is not, even with the original gone');
+  ok(!dm.has('q7-4'), 'one gram heavier is its own aircraft, not a copy');
+  ok(!dm.has('mark4-10'), 'an id that merely ends in a number is not a copy');
+  ok(dm.size === 1, 'so one of those four is a duplicate', [...dm.keys()].join(', ') || 'none');
+  // the order of the list decides which copy is kept
+  ok(ACF.dupMap(['q7-3', 'q7-2'], fileOf).get('q7-2') === 'q7-3', 'whichever is listed first is the one kept');
+  ok(ACF.dupMap(['q7-2'], (id) => (id === 'q7-2' ? 'not json' : null)).size === 0, 'a file that will not read is never a copy');
+}
+
 console.log('\n========  the aircraft/ folder  ========');
 {
   const dir = path.join(__dirname, '..', 'aircraft');
@@ -179,6 +214,10 @@ console.log('\n========  the aircraft/ folder  ========');
         `${B.VsFlap ? ` (${mph(B.VsFlap)} with flap)` : ''}, hands-off ${mph(B.handsOff)} mph, top ${mph(B.Vmax)} mph`);
     }
     ok(listed.some((x) => x.file === f), `aircraft/${f} is in index.json`);
+    // the list names each id so the sim can say what is already loaded
+    // without fetching every file first
+    const entry = listed.find((x) => x.file === f);
+    if (r.ok && entry) ok(entry.id === r.def.id, `index.json has the right id for aircraft/${f}`, entry.id ? `${entry.id}${entry.id === r.def.id ? '' : ' \u2260 ' + r.def.id}` : 'missing; the file says ' + r.def.id);
   }
   for (const x of listed) ok(onDisk.includes(x.file), `index.json lists a file that exists: ${x.file}`);
 }

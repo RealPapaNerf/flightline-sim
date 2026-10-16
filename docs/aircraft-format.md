@@ -762,17 +762,28 @@ this site's folder* reads `aircraft/index.json`:
 {
   "format": "flightline-aircraft-index/1",
   "aircraft": [
-    { "file": "nano-goblin-ardupilot.json", "name": "Nano Goblin · ArduPilot",
+    { "file": "nano-goblin-ardupilot.json", "id": "goblin-ap", "name": "Nano Goblin · ArduPilot",
       "kind": "wing", "blurb": "580 mm plank, 2S Li-ion, lidar and a GPS mast." }
   ]
 }
 ```
 
 `file` is the only field that has to be there; the rest is what the list
-shows before you load anything. Files load by URL too, so anything on
+shows before you load anything. `id` is the `def.id` inside that file: give it
+and the sim can say which entries are already loaded, and offer only the new
+ones, without fetching every file first. Files load by URL too, so anything on
 `raw.githubusercontent.com` works — that host sends the header a browser needs
 to read it from another site. This only works on the web version: opened as a
 local file there is no folder to read.
+
+Loading the same aircraft twice adds nothing the second time. Every file that
+comes in is written out in canonical form and compared with what is already
+there, ignoring the id: if some aircraft in the library is the same file, the
+import stops and says so, whatever either copy is called. That is what makes
+*Load all* safe to press again after a file is added to the folder — and what
+*Remove duplicates* in Settings → Aircraft uses to find copies an older build
+left behind. Change one gram, or the name, and it is a different aircraft
+again.
 
 ## What version 1 leaves out
 

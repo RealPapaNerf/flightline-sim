@@ -4,6 +4,7 @@
   "aircraft": [
     {
       "file": "aero-5inch-tailsitter.json",
+      "id": "aero-5inch",
       "name": "Aero 5 Inch",
       "kind": "vtol",
       "blurb": "Your 5-inch speed design: 263 mm carbon X-frame inside an aero shell, 400 mm body, launched off its tail. 1.1 kg, 6.6:1, and it runs out of pack before it runs out of speed.",
@@ -11,6 +12,7 @@
     },
     {
       "file": "camera-platform-2m.json",
+      "id": "camera-2m",
       "name": "2 m camera platform",
       "kind": "conventional",
       "blurb": "Two-metre pod-and-boom camera plane, 3 kg, flaps over most of the span and retracts. Slow, steady and happy to be left alone — the Ranger 1980 / Skywalker 1900 idea.",
@@ -18,6 +20,7 @@
     },
     {
       "file": "nano-goblin-ardupilot.json",
+      "id": "goblin-ap",
       "name": "Nano Goblin · ArduPilot",
       "kind": "wing",
       "blurb": "The 580 mm plank with an ArduPilot stack, GPS mast and a downward lidar: 300 g instead of 250, so it stalls a little faster and climbs a little worse. Turn the lidar on under Link & sensors.",
@@ -25,6 +28,7 @@
     },
     {
       "file": "quad-10in-geprc-mark4.json",
+      "id": "mark4-10",
       "name": "10\" GEPRC Mark4",
       "kind": "quad",
       "blurb": "10-inch Mark4 LR on a 6S2P 18650 pack, 1.55 kg, about 5:1. Long range, tilting camera mount, and enough prop to carry something.",
@@ -32,6 +36,7 @@
     },
     {
       "file": "quad-13in-recovery.json",
+      "id": "q13-rec",
       "name": "13\" recovery quad",
       "kind": "quad",
       "blurb": "13-inch lifter on 12S2P 21700 Li-ion with landing gear and the three-camera pod. 3.7 kg, about 4.6:1. Long legs, slow props and a lot of momentum.",
@@ -39,6 +44,7 @@
     },
     {
       "file": "quad-7in-ardupilot.json",
+      "id": "q7-ap",
       "name": "7\" quad · ArduPilot",
       "kind": "quad",
       "blurb": "7-inch long-range quad with an ArduPilot stack on a 6S2P 18650 pack. 1.15 kg, about 6:1 on the motor rating — but the pack cannot feed a full punch, so watch what the voltage does when you pull hard.",
@@ -46,6 +52,7 @@
     },
     {
       "file": "speed-tailsitter.json",
+      "id": "peregreen-class",
       "name": "Speed tail-sitter",
       "kind": "vtol",
       "blurb": "Four motors along the nose, a body that flies like a wing, and nothing else. Stands on its tail, pitches over, and runs.",

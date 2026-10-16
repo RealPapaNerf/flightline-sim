@@ -355,6 +355,39 @@ const ACF = (function (FL) {
   }
   const text = (def, meta, spec) => JSON.stringify(write(def, meta, spec).file, null, 2) + '\n';
 
+  /* ---------------- a library of files ----------------
+     Two files are the same aircraft when everything but the id matches, so a
+     copy of one already in the library is recognised whatever id it ended up
+     under: that is how an import adds only what is new, and how the copies an
+     earlier load left behind are found again. Field order is whatever wrote
+     the file and says nothing about the aircraft, so the key sorts it away. */
+  const sorted = (v) => (Array.isArray(v) ? v.map(sorted)
+    : v && typeof v === 'object' ? Object.keys(v).sort().reduce((o, k) => { o[k] = sorted(v[k]); return o; }, {}) : v);
+  function fileKey(file) {
+    let f = file;
+    if (typeof f === 'string') { try { f = JSON.parse(f); } catch (err) { return null; } }
+    if (!f || typeof f !== 'object' || Array.isArray(f)) return null;
+    const copy = sorted(f);
+    if (copy.def && typeof copy.def === 'object') delete copy.def.id;
+    if (copy.spec && typeof copy.spec === 'object') delete copy.spec.id;
+    return JSON.stringify(copy);
+  }
+  const sameFile = (a, b) => { const k = fileKey(a); return k !== null && k === fileKey(b); };
+  /* Which of these ids hold a file an earlier id in the list already holds:
+     a Map of the copy's id to the id it is a copy of. `fileOf(id)` hands back
+     the file an id holds (anything fileKey reads), or null if there is none.
+     The order of the list decides which copy counts as the original, so the
+     ids to keep go first. */
+  function dupMap(ids, fileOf) {
+    const first = new Map(), out = new Map();
+    for (const id of ids) {
+      const k = fileKey(fileOf(id));
+      if (k === null) continue;
+      if (first.has(k)) out.set(id, first.get(k)); else first.set(k, id);
+    }
+    return out;
+  }
+
   /* ---------------- the build sheet (spec) ----------------
      One row per number you can read off a bench or a product page.
      `dflt` may be a function of the spec resolved so far, so the rows are
@@ -821,7 +854,7 @@ const ACF = (function (FL) {
 
   return {
     FORMAT, MAX_STRIPS, SPEC_FIELDS, SPEC_KINDS, specDefaults, normSpec, wants, RULES: TABLE,
-    read, write, text, validateDef, stripCount,
+    read, write, text, validateDef, stripCount, fileKey, sameFile, dupMap,
     fromSpec, autoTrim, planeBench, quadBench, packAt, fingerprint, slopeOf, thrustOf,
   };
 // node: require the model; browser: FL is the const the bundle declared before this file

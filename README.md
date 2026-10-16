@@ -72,6 +72,15 @@ file*, a list of what you have imported, and a button that reads the
 [`aircraft/`](aircraft/) folder on this site. You can load a file from any URL as well,
 which is how you fly something a friend has put in their own repository.
 
+**Nothing loads twice.** An aircraft already in the list, down to the last number,
+loads as nothing at all rather than as a second copy, so the folder button only ever
+brings in what is new — it says how many that is before you press it, and how many
+were already there afterwards. Each imported aircraft has *Remove* next to it; if a
+duplicate did get in — from an older build, or a file you edited and reloaded — it is
+marked *a copy of* the one it repeats, and *Remove duplicates* clears all of them in
+one go, keeping the first of each. *Remove all imported* empties the list; the
+built-in aircraft always stay.
+
 **Settings → Builder** is a build sheet as a form: type, span, weight, CG, motor and
 prop, battery chemistry and cell layout, surfaces and throws. A field you have not
 touched follows its default and is marked *auto*, so changing the span moves the chord,

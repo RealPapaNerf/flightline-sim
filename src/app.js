@@ -2045,10 +2045,30 @@
      is no network. Nothing from a file is ever executed — see src/aircraft.js. */
   let impMsg = null; // the result of the last import, shown in Settings → Aircraft
   const uniqueId = (id) => { let x = id, k = 2; while (ACS[x]) x = `${id}-${k++}`; return x; };
+  // the file an id holds, written out the way an export would write it, so
+  // that two aircraft are compared as the sim reads them and not as whatever
+  // wrote the file happened to lay it out
+  const fileOf = (id) => {
+    const s = SRC[id];
+    if (!s) return null;
+    try { return ACF.write(s.def, s.meta, s.spec).file; } catch (e) { return userFiles[id] || null; }
+  };
+  // the id already holding this exact aircraft, whatever it is called here
+  const alreadyHere = (file) => {
+    const k = ACF.fileKey(file);
+    return k === null ? null : Object.keys(SRC).find((id) => ACF.fileKey(fileOf(id)) === k) || null;
+  };
   function addAircraftFile(file, select) {
     let r;
     try { r = ACF.read(file); } catch (e) { return { ok: false, errors: ['could not read that file: ' + e.message], warnings: [] }; }
     if (!r.ok) return r;
+    // the same aircraft twice is almost always a second trip through the same
+    // folder, so it loads as nothing at all rather than as another copy
+    const twin = alreadyHere(ACF.write(r.def, r.meta, r.spec).file);
+    if (twin) {
+      if (select) setAircraft(twin);
+      return { ok: true, same: true, id: twin, def: SRC[twin].def, errors: [], warnings: [] };
+    }
     const was = r.def.id, id = uniqueId(was);
     if (id !== was) { r.def.id = id; r.warnings.push(`another aircraft is already called “${was}”, so this one is “${id}”`); }
     try {
@@ -2063,12 +2083,24 @@
     if (select) setAircraft(id);
     return { ok: true, id, def: r.def, errors: [], warnings: r.warnings };
   }
-  function removeAircraft(id) {
-    if (!SRC[id] || SRC[id].builtin) return;
-    delete userFiles[id]; saveAircraft();
-    delete ACS[id]; delete SRC[id]; delete MODELS[id];
-    if (S.aircraft === id) setAircraft('goblin'); else buildSheet();
+  /* Removing several at once touches storage and the aircraft being flown
+     once, so clearing out a folder loaded twice is one step, not thirty. If
+     the one being flown goes, `instead` is what to fly — the copy that was
+     kept, when a duplicate is what went. */
+  function removeAircraft(ids, instead) {
+    const gone = (Array.isArray(ids) ? ids : [ids]).filter((id) => SRC[id] && !SRC[id].builtin);
+    if (!gone.length) return 0;
+    const flying = gone.indexOf(S.aircraft) >= 0;
+    for (const id of gone) { delete userFiles[id]; delete ACS[id]; delete SRC[id]; delete MODELS[id]; }
+    saveAircraft();
+    if (flying) setAircraft(ACS[instead] ? instead : 'goblin'); else buildSheet();
+    return gone.length;
   }
+  /* Which aircraft here are second copies of another one. Built-in first and
+     then in the order they were imported, so the copy that is kept is the one
+     that was here first. */
+  const dupes = () => ACF.dupMap(Object.keys(SRC).sort((a, b) => (SRC[b].builtin ? 1 : 0) - (SRC[a].builtin ? 1 : 0)), fileOf);
+  const dupIds = (dm) => [...(dm || dupes()).keys()].filter((id) => !SRC[id].builtin);
   function exportAircraft(id) {
     const s = SRC[id];
     if (!s) return;
@@ -2124,20 +2156,30 @@
       .catch((e) => { impMsg = { from: url, ok: false, errors: ['could not fetch that: ' + e.message], warnings: [] }; })
       .then(() => syncSheet());
   }
-  // everything in the folder, one after another, skipping what is already here
+  // an entry in the folder list this library already holds: by the id the
+  // list names, if it names one, so the row can say so before anything loads
+  const folderHas = (x) => (x.id && ACS[x.id] ? x.id : null);
+  // everything in the folder, one after another. What is already here loads as
+  // nothing, so pressing this a second time adds nothing a second time.
   function loadFolderAll() {
     if (!folder || !folder.items) return;
     const todo = folder.items.map((x) => 'aircraft/' + x.file);
-    const added = [], failed = [];
+    const added = [], same = [], failed = [];
     impMsg = { from: `${todo.length} aircraft`, loading: true }; syncSheet();
     const next = (i) => {
       if (i >= todo.length) {
-        impMsg = { from: `the folder`, ok: added.length > 0, id: added.join(', '),
-          errors: failed, warnings: [], all: `${added.length} loaded${failed.length ? `, ${failed.length} skipped` : ''}` };
+        const parts = [`${added.length} loaded`];
+        if (same.length) parts.push(`${same.length} already here`);
+        if (failed.length) parts.push(`${failed.length} skipped`);
+        impMsg = { from: `the folder`, ok: added.length > 0 || same.length > 0, id: added.join(', '),
+          errors: failed, warnings: [], all: parts.join(', ') };
         return syncSheet();
       }
       fetchJson(todo[i])
-        .then((txt) => { const r = addAircraftFile(txt, false); if (r.ok) added.push(r.id); else failed.push(todo[i] + ': ' + r.errors.join('; ')); })
+        .then((txt) => {
+          const r = addAircraftFile(txt, false);
+          if (r.same) same.push(r.id); else if (r.ok) added.push(r.id); else failed.push(todo[i] + ': ' + r.errors.join('; '));
+        })
         .catch((e) => failed.push(todo[i] + ': ' + e.message))
         .then(() => next(i + 1));
     };
@@ -2593,6 +2635,7 @@
   function msgHtml(m) {
     if (!m) return '';
     if (m.loading) return `<div class="help">Loading ${esc(m.from)}…</div>`;
+    if (m.same) return `<div class="help">${esc(m.from)} is already here as “${esc(m.id)}” — nothing was added.</div>`;
     const bad = (m.errors || []).length ? `<div class="help" style="color:var(--bad)"><b>${esc(m.from)} did not load.</b> ${m.errors.map(esc).join(' · ')}</div>` : '';
     const good = m.ok ? `<div class="help" style="color:var(--good)"><b>${m.all ? esc(m.all) : `${esc(m.from)} loaded as “${esc(m.id)}”`}.</b>${m.all ? ` ${esc(m.id)}` : ''}</div>` : '';
     const warn = (m.warnings || []).length ? `<div class="help" style="color:var(--warn)">${m.warnings.length} thing${m.warnings.length > 1 ? 's were' : ' was'} changed to keep the numbers sane: ${m.warnings.map(esc).join(' · ')}</div>` : '';
@@ -2607,9 +2650,16 @@
       <button class="btn small" id="acBld">${s.spec ? 'Edit in the builder' : 'Open the builder'}</button></div>
       ${s.def && s.def.notes ? `<div class="help"><b>Notes in the file:</b> ${esc(s.def.notes)}</div>` : ''}
       <div class="help">An aircraft file is JSON: a few hundred numbers, nothing that can run. Every number is checked and clamped on the way in, and anything that gets changed is listed here. The format is in <b>docs/aircraft-format.md</b>.</div>${msgHtml(impMsg)}</div>`;
-    if (mine.length) h += `<div class="laps" style="margin-top:10px">${mine.map((id) => `<div class="lap${id === AC.id ? ' on' : ''}"><b>${KIND_TAG[ACS[id].kind] || 'PLANE'}</b><span>${esc(ACS[id].name)}<br><span class="help">${esc(id)}${SRC[id].meta.author ? ' · by ' + esc(SRC[id].meta.author) : ''}</span></span><div class="acts">
-      <button class="btn small" data-fly="${esc(id)}">Fly</button><button class="btn small" data-exp="${esc(id)}">Export</button><button class="btn small" data-del="${esc(id)}">Remove</button></div></div>`).join('')}</div>`;
-    else h += '<div class="help" style="margin-top:8px">No imported aircraft yet. Import a file, load one from the aircraft folder, or build one in the builder.</div>';
+    if (mine.length) {
+      const dm = dupes(), dups = dupIds(dm);
+      h += `<div class="laps" style="margin-top:10px">${mine.map((id) => {
+        const base = dm.get(id);
+        return `<div class="lap${id === AC.id ? ' on' : ''}"><b>${KIND_TAG[ACS[id].kind] || 'PLANE'}</b><span>${esc(ACS[id].name)}<br><span class="help">${esc(id)}${SRC[id].meta.author ? ' · by ' + esc(SRC[id].meta.author) : ''}${base ? ` · <b style="color:var(--warn)">a copy of “${esc(base)}”</b>` : ''}</span></span><div class="acts">
+        <button class="btn small" data-fly="${esc(id)}">Fly</button><button class="btn small" data-exp="${esc(id)}">Export</button><button class="btn small" data-del="${esc(id)}">Remove</button></div></div>`;
+      }).join('')}</div>`;
+      h += `<div class="setrow" style="margin-top:8px">${dups.length ? `<button class="btn small primary" id="acDelDup">Remove ${dups.length} duplicate${dups.length > 1 ? 's' : ''}</button>` : ''}<button class="btn small" id="acDelAll">Remove all ${mine.length} imported</button></div>`;
+      if (dups.length) h += `<div class="help">${dups.length === 1 ? 'One imported aircraft is' : `${dups.length} imported aircraft are`} the same file as another one here, down to the last number — that is a folder or a file loaded twice. Removing ${dups.length === 1 ? 'it' : 'them'} keeps the first copy of each.</div>`;
+    } else h += '<div class="help" style="margin-top:8px">No imported aircraft yet. Import a file, load one from the aircraft folder, or build one in the builder.</div>';
     // the aircraft/ folder beside the page, and any URL
     if (canFetch()) {
       h += `<div class="setrow" style="margin-top:12px"><button class="btn small" id="acDir">Aircraft from this site’s folder</button></div>`;
@@ -2617,8 +2667,11 @@
         if (folder.loading) h += '<div class="help">Loading aircraft/index.json…</div>';
         else if (folder.error) h += `<div class="help" style="color:var(--warn)">aircraft/index.json: ${esc(folder.error)}. There may not be one yet.</div>`;
         else if (!folder.items.length) h += '<div class="help">The folder list is empty.</div>';
-        else h += `<div class="setrow" style="margin:6px 0"><button class="btn small primary" id="acDirAll">Load all ${folder.items.length}</button></div>`
-          + `<div class="laps">${folder.items.map((x) => `<div class="lap"><b>${KIND_TAG[x.kind] || '·'}</b><span>${esc(x.name || x.file)}<br><span class="help">${esc(x.blurb || x.file)}</span></span><div class="acts"><button class="btn small" data-url="aircraft/${esc(x.file)}">Load</button></div></div>`).join('')}</div>`;
+        else {
+          const fresh = folder.items.filter((x) => !folderHas(x)).length;
+          h += `<div class="setrow" style="margin:6px 0"><button class="btn small primary" id="acDirAll"${fresh ? '' : ' disabled'}>${!fresh ? `All ${folder.items.length} are already here` : fresh < folder.items.length ? `Load the ${fresh} new one${fresh > 1 ? 's' : ''}` : `Load all ${folder.items.length}`}</button></div>`
+            + `<div class="laps">${folder.items.map((x) => `<div class="lap"><b>${KIND_TAG[x.kind] || '·'}</b><span>${esc(x.name || x.file)}<br><span class="help">${esc(x.blurb || x.file)}${folderHas(x) ? ' · <b>already here</b>' : ''}</span></span><div class="acts"><button class="btn small" data-url="aircraft/${esc(x.file)}">Load</button></div></div>`).join('')}</div>`;
+        }
       }
       h += `<div class="setrow" style="margin-top:8px"><input class="txt" id="acUrl" type="text" placeholder="https://… a raw aircraft .json URL" style="flex:1 1 200px"><button class="btn small" id="acUrlGo">Load</button></div>
         <div class="help">A URL only works if the other site allows cross-origin reads; GitHub’s <b>raw.githubusercontent.com</b> does.</div>`;
@@ -2636,6 +2689,17 @@
     box.querySelectorAll('[data-fly]').forEach((b0) => b0.addEventListener('click', () => setAircraft(b0.dataset.fly)));
     box.querySelectorAll('[data-exp]').forEach((b0) => b0.addEventListener('click', () => exportAircraft(b0.dataset.exp)));
     box.querySelectorAll('[data-del]').forEach((b0) => b0.addEventListener('click', () => { const id = b0.dataset.del; if (confirm(`Remove ${ACS[id].name}? Export it first if you want to keep it.`)) removeAircraft(id); }));
+    const dd = box.querySelector('#acDelDup');
+    if (dd) dd.addEventListener('click', () => {
+      const dm = dupes(), ids = dupIds(dm);
+      // flying a duplicate? carry on in the copy that stays
+      if (ids.length && confirm(`Remove ${ids.length} duplicate aircraft? The first copy of each one stays.`)) toast(`${removeAircraft(ids, dm.get(S.aircraft))} duplicates removed`);
+    });
+    const da = box.querySelector('#acDelAll');
+    if (da) da.addEventListener('click', () => {
+      const ids = Object.keys(SRC).filter((id) => !SRC[id].builtin);
+      if (ids.length && confirm(`Remove all ${ids.length} imported aircraft? The built-in ones stay. Export anything you want to keep first.`)) toast(`${removeAircraft(ids)} aircraft removed`);
+    });
     box.querySelectorAll('[data-url]').forEach((b0) => b0.addEventListener('click', () => loadAircraftUrl(b0.dataset.url, true)));
   }
 
