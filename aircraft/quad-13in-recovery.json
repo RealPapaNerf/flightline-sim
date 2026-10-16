@@ -1,0 +1,318 @@
+{
+  "format": "flightline-aircraft/1",
+  "author": "RealPapaNerf",
+  "version": "1",
+  "source": "13-inch lifter frame, 4008-class 380KV on 13x4.4, 12S2P Molicel P50B",
+  "spec": {
+    "kind": "quad",
+    "name": "13\" recovery quad",
+    "id": "q13-rec",
+    "blurb": "13-inch lifter on 12S2P 21700 Li-ion with landing gear and the three-camera pod. 3.7 kg, about 4.6:1. Long legs, slow props and a lot of momentum.",
+    "gimbal": true,
+    "quadGear": true,
+    "mass": 3700,
+    "propD": 13,
+    "wheelbase": 580,
+    "thrustPerMotor": 4250,
+    "camTilt": 0,
+    "rateMax": 260,
+    "propPitch": 4.4,
+    "blades": 2,
+    "cellChem": "liion",
+    "cellsS": 12,
+    "cellsP": 2,
+    "cellmAh": 5000,
+    "cellR": 13,
+    "watts": 5340,
+    "motorKV": 380,
+    "pitchSpeed": 0
+  },
+  "def": {
+    "id": "q13-rec",
+    "name": "13\" recovery quad",
+    "blurb": "13-inch lifter on 12S2P 21700 Li-ion with landing gear and the three-camera pod. 3.7 kg, about 4.6:1. Long legs, slow props and a lot of momentum.",
+    "notes": "Assumed: 3.7 kg all-up with the gimbal pod and the pack. 4,250 g of thrust per motor, from published 4008 380KV charts at 12S on a 13x4.4 two-blade. 580 mm wheelbase. Cell resistance 13 mOhm (P50B 21700). Landing gear and a three-camera pod are drawn because the recovery mission needs both. The big props spool slowly — 83 ms here — so plan your stops.",
+    "mass": 3.7,
+    "I": [
+      0.084048,
+      0.091612,
+      0.151286
+    ],
+    "body": {
+      "r": [
+        0,
+        0,
+        0
+      ],
+      "CdA": [
+        0.04361,
+        0.05125,
+        0.10903
+      ]
+    },
+    "batt": {
+      "chem": "liion",
+      "cells": 12,
+      "mAh": 10000,
+      "R": 0.081,
+      "Imax": 120.3,
+      "Iidle": 1.04,
+      "Vref": 44.4,
+      "label": "12S2P 10,000 Li-ion",
+      "cool": [
+        0.213,
+        0.085
+      ],
+      "cell": {
+        "d": 0.021,
+        "l": 0.07
+      },
+      "series": 12,
+      "parallel": 2
+    },
+    "wheels": [],
+    "points": [
+      {
+        "p": [
+          0.119,
+          0.0861,
+          0.16
+        ],
+        "name": "landing leg",
+        "impact": 3.5,
+        "slide": 99,
+        "foot": true
+      },
+      {
+        "p": [
+          0.119,
+          -0.0861,
+          0.16
+        ],
+        "name": "landing leg",
+        "impact": 3.5,
+        "slide": 99,
+        "foot": true
+      },
+      {
+        "p": [
+          -0.119,
+          0.0861,
+          0.16
+        ],
+        "name": "landing leg",
+        "impact": 3.5,
+        "slide": 99,
+        "foot": true
+      },
+      {
+        "p": [
+          -0.119,
+          -0.0861,
+          0.16
+        ],
+        "name": "landing leg",
+        "impact": 3.5,
+        "slide": 99,
+        "foot": true
+      },
+      {
+        "p": [
+          0.2051,
+          0.2051,
+          0.064
+        ],
+        "name": "front right motor",
+        "impact": 6,
+        "slide": 99,
+        "prop": true,
+        "motor": 0,
+        "strike": 3
+      },
+      {
+        "p": [
+          0.2051,
+          -0.2051,
+          0.064
+        ],
+        "name": "front left motor",
+        "impact": 6,
+        "slide": 99,
+        "prop": true,
+        "motor": 1,
+        "strike": 3
+      },
+      {
+        "p": [
+          -0.2051,
+          0.2051,
+          0.064
+        ],
+        "name": "rear right motor",
+        "impact": 6,
+        "slide": 99,
+        "prop": true,
+        "motor": 2,
+        "strike": 3
+      },
+      {
+        "p": [
+          -0.2051,
+          -0.2051,
+          0.064
+        ],
+        "name": "rear left motor",
+        "impact": 6,
+        "slide": 99,
+        "prop": true,
+        "motor": 3,
+        "strike": 3
+      },
+      {
+        "p": [
+          0,
+          0,
+          -0.088
+        ],
+        "name": "battery",
+        "impact": 5,
+        "slide": 10
+      },
+      {
+        "p": [
+          0.1497,
+          0,
+          0.1005
+        ],
+        "name": "gimbal",
+        "impact": 4,
+        "slide": 8
+      }
+    ],
+    "contact": {
+      "kW": 0,
+      "cW": 0,
+      "kB": 8538.461538461539,
+      "cB": 42.94540362259613,
+      "muRoll": 0,
+      "muLat": 0,
+      "muBody": 0.7
+    },
+    "crash": {
+      "wheelImpact": 99
+    },
+    "starts": [
+      "pad",
+      "air"
+    ],
+    "fpvCam": [
+      0.1538,
+      0,
+      0.1026
+    ],
+    "camTilt": 0,
+    "colR": 0.394,
+    "pid": {
+      "roll": [
+        15.4,
+        82,
+        0.3,
+        0.35,
+        0.0122
+      ],
+      "pitch": [
+        15.4,
+        82,
+        0.3,
+        0.35,
+        0.0122
+      ],
+      "yaw": [
+        10.8,
+        37,
+        0.3,
+        0.5,
+        0
+      ]
+    },
+    "angle": {
+      "max": 40,
+      "k": 4,
+      "rate": 200
+    },
+    "rates": {
+      "roll": {
+        "c": 70,
+        "m": 260,
+        "e": 0
+      },
+      "pitch": {
+        "c": 70,
+        "m": 260,
+        "e": 0
+      },
+      "yaw": {
+        "c": 70,
+        "m": 208,
+        "e": 0
+      }
+    },
+    "kind": "quad",
+    "motors": [
+      [
+        0.2051,
+        0.2051,
+        1
+      ],
+      [
+        0.2051,
+        -0.2051,
+        -1
+      ],
+      [
+        -0.2051,
+        0.2051,
+        -1
+      ],
+      [
+        -0.2051,
+        -0.2051,
+        1
+      ]
+    ],
+    "motor": {
+      "Tmax": 41.68,
+      "tau": 0.083,
+      "idle": 0.05,
+      "kQ": 0.0413,
+      "Vp": 35.1,
+      "D": 0.3302
+    },
+    "rotorDrag": 0.012,
+    "gear": true,
+    "gimbal": true,
+    "look": {
+      "front": [
+        1,
+        0.45,
+        0.1
+      ],
+      "rear": [
+        0.86,
+        0.88,
+        0.91
+      ],
+      "frame": [
+        0.14,
+        0.14,
+        0.15
+      ],
+      "wrap": [
+        0.2,
+        0.5,
+        0.8
+      ],
+      "blades": 2
+    }
+  }
+}

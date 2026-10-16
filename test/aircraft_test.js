@@ -169,10 +169,14 @@ console.log('\n========  the aircraft/ folder  ========');
   for (const f of onDisk) {
     const r = ACF.read(fs.readFileSync(path.join(dir, f), 'utf8'));
     ok(r.ok, `aircraft/${f}`, r.ok ? `${r.def.name} · ${r.warnings.length} warnings` : r.errors.join('; '));
-    if (r.ok && r.def.kind !== 'quad' && r.def.kind !== 'heli') {
-      const B = ACF.planeBench(FL.build(r.def));
-      console.log(`      ${Math.round(r.def.mass * 1000)} g, ${Math.round(B.b * 1000)} mm, ${B.wl.toFixed(0)} g/dm², ${B.strips} strips, stall ${mph(B.Vs)} mph` +
-        `${B.VsFlap ? ` (${mph(B.VsFlap)} with flap)` : ''}, top ${mph(B.Vmax)} mph`);
+    if (r.ok && r.def.kind === 'quad') {
+      const ac = FL.build(r.def), B = ACF.quadBench(ac);
+      console.log(`      ${Math.round(ac.mass * 1000)} g, ${ac.batt.label}, ${B.twFull.toFixed(1)}:1 rated (${B.twSag.toFixed(1)} after sag), hover ${Math.round(B.hoverThr * 100)}% / ${B.hoverI.toFixed(1)} A / ${B.hoverMin.toFixed(0)} min, ` +
+        `punch ${B.punchI.toFixed(0)} A at ${B.punchVcell.toFixed(2)} V/cell, cruise ${mph(B.cruiseV)} mph for ${B.cruiseMin.toFixed(0)} min`);
+    } else if (r.ok && r.def.kind !== 'heli') {
+      const ac = FL.build(r.def), B = ACF.planeBench(ac);
+      console.log(`      ${Math.round(ac.mass * 1000)} g, ${Math.round(B.b * 1000)} mm, ${B.wl.toFixed(0)} g/dm², ${B.strips} strips, stall ${mph(B.Vs)} mph` +
+        `${B.VsFlap ? ` (${mph(B.VsFlap)} with flap)` : ''}, hands-off ${mph(B.handsOff)} mph, top ${mph(B.Vmax)} mph`);
     }
     ok(listed.some((x) => x.file === f), `aircraft/${f} is in index.json`);
   }

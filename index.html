@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<!-- built by tools/build.py from src/ (7f4dbabf); edit the sources, not this file -->
+<!-- built by tools/build.py from src/ (26e4d035); edit the sources, not this file -->
 <title>Flightline RC Sim</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Browser RC flight trainer: Nano Goblin and trainer flight models, line of sight, FPV and split view, USB transmitter support.">
@@ -2070,7 +2070,7 @@ const ACF = (function (FL) {
     fe('gear', FIXED, 'Fuselage', 'Landing gear', [['none', 'None (hand launch)'], ['tricycle', 'Fixed tricycle'], ['taildragger', 'Fixed taildragger'], ['retract', 'Retractable tricycle']], (p) => (p.kind === 'wing' ? 'none' : 'tricycle')),
     // ---- control surfaces ----
     f('ailSpan', FIXED, 'Controls', 'Aileron span', '% of half span', 10, 100, 1, (p) => (p.kind === 'wing' ? 80 : 50), 'Measured inward from the tip.'),
-    f('ailChord', FIXED, 'Controls', 'Aileron chord', '% of chord', 8, 40, 1, (p) => (p.kind === 'wing' ? 15 : 22)),
+    f('ailChord', FIXED, 'Controls', 'Aileron chord', '% of chord', 8, 50, 1, (p) => (p.kind === 'wing' ? 15 : 22)),
     f('flapSpan', 'plane', 'Controls', 'Flap span', '% of half span', 0, 90, 1, 0, '0 = no flaps. Measured outward from the root; it stops short of the ailerons.'),
     f('flapChord', 'plane', 'Controls', 'Flap chord', '% of chord', 10, 40, 1, 25),
     f('elevChord', 'plane', 'Controls', 'Elevator chord', '% of stab chord', 15, 60, 1, 38),
@@ -6808,6 +6808,7 @@ if (typeof module !== 'undefined') module.exports = NET;
       <div class="setrow"><button class="btn small" id="acExp">Export this aircraft</button>
       <button class="btn small" id="acImp">Import aircraft file</button>
       <button class="btn small" id="acBld">${s.spec ? 'Edit in the builder' : 'Open the builder'}</button></div>
+      ${s.def && s.def.notes ? `<div class="help"><b>Notes in the file:</b> ${esc(s.def.notes)}</div>` : ''}
       <div class="help">An aircraft file is JSON: a few hundred numbers, nothing that can run. Every number is checked and clamped on the way in, and anything that gets changed is listed here. The format is in <b>docs/aircraft-format.md</b>.</div>${msgHtml(impMsg)}</div>`;
     if (mine.length) h += `<div class="laps" style="margin-top:10px">${mine.map((id) => `<div class="lap${id === AC.id ? ' on' : ''}"><b>${KIND_TAG[ACS[id].kind] || 'PLANE'}</b><span>${esc(ACS[id].name)}<br><span class="help">${esc(id)}${SRC[id].meta.author ? ' · by ' + esc(SRC[id].meta.author) : ''}</span></span><div class="acts">
       <button class="btn small" data-fly="${esc(id)}">Fly</button><button class="btn small" data-exp="${esc(id)}">Export</button><button class="btn small" data-del="${esc(id)}">Remove</button></div></div>`).join('')}</div>`;

@@ -334,7 +334,7 @@ const ACF = (function (FL) {
     fe('gear', FIXED, 'Fuselage', 'Landing gear', [['none', 'None (hand launch)'], ['tricycle', 'Fixed tricycle'], ['taildragger', 'Fixed taildragger'], ['retract', 'Retractable tricycle']], (p) => (p.kind === 'wing' ? 'none' : 'tricycle')),
     // ---- control surfaces ----
     f('ailSpan', FIXED, 'Controls', 'Aileron span', '% of half span', 10, 100, 1, (p) => (p.kind === 'wing' ? 80 : 50), 'Measured inward from the tip.'),
-    f('ailChord', FIXED, 'Controls', 'Aileron chord', '% of chord', 8, 40, 1, (p) => (p.kind === 'wing' ? 15 : 22)),
+    f('ailChord', FIXED, 'Controls', 'Aileron chord', '% of chord', 8, 50, 1, (p) => (p.kind === 'wing' ? 15 : 22)),
     f('flapSpan', 'plane', 'Controls', 'Flap span', '% of half span', 0, 90, 1, 0, '0 = no flaps. Measured outward from the root; it stops short of the ailerons.'),
     f('flapChord', 'plane', 'Controls', 'Flap chord', '% of chord', 10, 40, 1, 25),
     f('elevChord', 'plane', 'Controls', 'Elevator chord', '% of stab chord', 15, 60, 1, 38),

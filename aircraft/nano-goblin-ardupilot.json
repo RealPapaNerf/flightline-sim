@@ -1,0 +1,368 @@
+{
+  "format": "flightline-aircraft/1",
+  "author": "RealPapaNerf",
+  "version": "1",
+  "source": "Strix Nano Goblin published span, area and weight; ArduPilot, GPS mast and TF-Luna added",
+  "spec": {
+    "kind": "wing",
+    "name": "Nano Goblin · ArduPilot",
+    "id": "goblin-ap",
+    "blurb": "The 580 mm plank with an ArduPilot stack, GPS mast and a downward lidar: 300 g instead of 250, so it stalls a little faster and climbs a little worse. Turn the lidar on under Link & sensors.",
+    "mass": 300,
+    "span": 580,
+    "rootChord": 230,
+    "tipChord": 80,
+    "sweep": 27.3,
+    "dihedral": 0,
+    "washout": 1.5,
+    "wingZ": 0,
+    "airfoil": "reflex",
+    "build": "foam",
+    "staticMargin": 7,
+    "finHeight": 75,
+    "finChord": 80,
+    "fuseW": 50,
+    "fuseH": 42,
+    "gear": "none",
+    "ailSpan": 81,
+    "ailChord": 44,
+    "rudChord": 20,
+    "throwA": 9,
+    "throwE": 12,
+    "throwR": 0,
+    "propD": 3,
+    "propPitch": 3,
+    "blades": 3,
+    "cellChem": "liion",
+    "cellsS": 2,
+    "cellsP": 1,
+    "cellmAh": 3200,
+    "cellR": 35,
+    "watts": 110,
+    "thrustStatic": 0,
+    "motorKV": 4700,
+    "pitchSpeed": 45
+  },
+  "def": {
+    "id": "goblin-ap",
+    "name": "Nano Goblin · ArduPilot",
+    "blurb": "The 580 mm plank with an ArduPilot stack, GPS mast and a downward lidar: 300 g instead of 250, so it stalls a little faster and climbs a little worse. Turn the lidar on under Link & sensors.",
+    "notes": "Assumed: 300 g all-up (245 g airframe as published, plus about 35 g of Matek F405-WING, GPS on a mast, TF-Luna and wiring, plus a slightly heavier pack). 110 W at full throttle on 2S, which is 15 A — the built-in Goblin assumes 13 A. Cell resistance 35 mOhm, a P26A-class 18650. Pitch speed set to 45 m/s to match the built-in Goblin rather than worked out from KV. Reweigh it and change mass; that is the number the stall speed rides on.",
+    "mass": 0.3,
+    "I": [
+      0.004289,
+      0.008253,
+      0.011288
+    ],
+    "body": {
+      "r": [
+        0.0116,
+        0,
+        0.0058
+      ],
+      "CdA": [
+        0.00063,
+        0.00617,
+        0.00892
+      ]
+    },
+    "batt": {
+      "chem": "liion",
+      "cells": 2,
+      "mAh": 3200,
+      "R": 0.073,
+      "Imax": 14.9,
+      "Iidle": 0.34,
+      "Vref": 7.4,
+      "label": "2S 3,200 Li-ion",
+      "cool": [
+        0.117,
+        0.047
+      ],
+      "cell": {
+        "d": 0.0185,
+        "l": 0.065
+      },
+      "series": 2,
+      "parallel": 1
+    },
+    "wheels": [],
+    "points": [
+      {
+        "p": [
+          -0.3802,
+          0,
+          0
+        ],
+        "name": "prop",
+        "impact": 2.5,
+        "slide": 7,
+        "prop": true
+      },
+      {
+        "p": [
+          -0.2853,
+          -0.29,
+          0
+        ],
+        "name": "left wingtip",
+        "impact": 2.5,
+        "slide": 7
+      },
+      {
+        "p": [
+          -0.2853,
+          0.29,
+          0
+        ],
+        "name": "right wingtip",
+        "impact": 2.5,
+        "slide": 7
+      },
+      {
+        "p": [
+          -0.3357,
+          0,
+          0.021
+        ],
+        "name": "trailing edge",
+        "impact": 3,
+        "slide": 99
+      },
+      {
+        "p": [
+          -0.1587,
+          0,
+          -0.075
+        ],
+        "name": "fin",
+        "impact": 1.5,
+        "slide": 2
+      },
+      {
+        "p": [
+          -0.1762,
+          0,
+          0.021
+        ],
+        "name": "belly",
+        "impact": 3.5,
+        "slide": 25
+      },
+      {
+        "p": [
+          -0.0612,
+          0,
+          -0.02
+        ],
+        "name": "wing",
+        "impact": 1.5,
+        "slide": 2
+      },
+      {
+        "p": [
+          -0.1157,
+          -0.145,
+          0.012
+        ],
+        "name": "left elevon",
+        "impact": 3.5,
+        "slide": 25
+      },
+      {
+        "p": [
+          -0.1157,
+          0.145,
+          0.012
+        ],
+        "name": "right elevon",
+        "impact": 3.5,
+        "slide": 25
+      }
+    ],
+    "contact": {
+      "kW": 570,
+      "cW": 8.1,
+      "kB": 1020,
+      "cB": 9.6,
+      "muRoll": 0.05,
+      "muLat": 0.9,
+      "muBody": 0.45
+    },
+    "crash": {
+      "wheelImpact": 99
+    },
+    "starts": [
+      "launch",
+      "air"
+    ],
+    "fpvCam": [
+      -0.0566,
+      0,
+      -0.005
+    ],
+    "camTilt": 0,
+    "colR": 0.215,
+    "kind": "wing",
+    "staticMargin": 0.07,
+    "surfaces": [
+      {
+        "name": "wing",
+        "role": "wing",
+        "mirror": true,
+        "n": 6,
+        "y0": 0,
+        "y1": 0.29,
+        "xLE0": 0,
+        "xLE1": -0.1497,
+        "c0": 0.23,
+        "c1": 0.08,
+        "z0": 0,
+        "dihedral": 0,
+        "inc0": 0,
+        "inc1": -1.5,
+        "sweepLoad": 0.25,
+        "foil": {
+          "a": 3.86,
+          "CL0": 0.03,
+          "CLmax": 0.95,
+          "CLmin": -0.65,
+          "M": 30,
+          "CD0": 0.0161,
+          "e": 0.85,
+          "Cm0": 0.012,
+          "CN90": 1.6
+        },
+        "flaps": [
+          {
+            "y0": 0.0493,
+            "y1": 0.2842,
+            "chord": 0.0352,
+            "a": -1,
+            "e": -1,
+            "side": "mirror"
+          }
+        ]
+      },
+      {
+        "name": "fin",
+        "role": "fin",
+        "vertical": true,
+        "n": 1,
+        "y0": 0,
+        "y1": 0.075,
+        "xLE0": -0.023,
+        "xLE1": -0.043,
+        "c0": 0.08,
+        "c1": 0.052,
+        "z0": -0.01,
+        "foil": {
+          "a": 2.545,
+          "CL0": 0,
+          "CLmax": 1.1,
+          "CLmin": -1.1,
+          "M": 30,
+          "CD0": 0.0161,
+          "e": 0.85,
+          "Cm0": 0,
+          "CN90": 1.6
+        },
+        "flaps": []
+      }
+    ],
+    "defl": {
+      "a": 0.1571,
+      "e": 0.2094,
+      "r": 0,
+      "flapMax": 0.3665
+    },
+    "flexQ": 1200,
+    "servoRate": 8,
+    "prop": {
+      "r": [
+        -0.2645,
+        0,
+        0
+      ],
+      "T0": 2.65,
+      "Vp": 45,
+      "D": 0.0762,
+      "tau": 0.039,
+      "Tmin": -0.106,
+      "torque": -0.06,
+      "wash": false,
+      "eta": 0.5
+    },
+    "steerMax": 0,
+    "shape": {
+      "fuseW": 0.05,
+      "fuseH": 0.042,
+      "wheelR": 0.0164
+    },
+    "trim": {
+      "a": 0.0042,
+      "e": -0.0102,
+      "r": 0
+    },
+    "stab": {
+      "kRoll": 1.32,
+      "dRoll": 0.046,
+      "kPitch": 1.16,
+      "dPitch": 0.039,
+      "turn": 0.42
+    },
+    "look": {
+      "top": [
+        1,
+        0.52,
+        0.12
+      ],
+      "bottom": [
+        0.16,
+        0.17,
+        0.2
+      ],
+      "side": [
+        0.85,
+        0.42,
+        0.1
+      ],
+      "tip": [
+        0.55,
+        0.95,
+        0.25
+      ],
+      "accent": [
+        0.05,
+        0.05,
+        0.06
+      ],
+      "fuse": [
+        0.93,
+        0.93,
+        0.91
+      ],
+      "fuseBottom": [
+        0.12,
+        0.3,
+        0.68
+      ],
+      "canopy": [
+        0.1,
+        0.16,
+        0.24
+      ],
+      "dark": [
+        0.09,
+        0.09,
+        0.11
+      ],
+      "metal": [
+        0.72,
+        0.74,
+        0.78
+      ],
+      "blades": 3
+    }
+  }
+}
