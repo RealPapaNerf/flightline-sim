@@ -206,6 +206,46 @@ A lap file is JSON, about 20 KB a minute, so you can e-mail a lap to a friend an
 race it. Laps are kept per course and aircraft; nothing leaves the browser unless you
 export it.
 
+### Racing other people
+
+Everyone in a room flies their own aircraft on their own machine — no input lag — and sends
+where it is twenty times a second, about **1.4 KB/s a pilot**. The others are drawn from
+those messages, a tenth of a second in the past so there is always a message either side of
+them, with a short extrapolation when one goes missing. Clocks are lined up with ping/pong,
+gates are timed on your own machine, and lap times are told to the room.
+
+Settings → Racing → *Race other people*:
+
+| | |
+|---|---|
+| **Relay** | where the messages go: *This browser*, *Supabase* or a *WebSocket relay* |
+| **Room code** | everyone who types the same code is in the same room |
+| **Your colour** | how your aircraft is painted for everyone else |
+| **Spectate** | send nothing and ride the view of whichever pilot you pick |
+| **Aircraft touching** | fly through each other, or bump |
+| **Laps, state messages, smoothing buffer** | race length, how often you send, how far behind others are drawn |
+
+The panel over the view shows who is in the room, their ping and their best lap, with
+**Ready**. When everyone is ready there is a shared countdown, then everyone's course resets
+together and the lap timer starts.
+
+**Relays.**
+- *This browser* needs nothing at all: two tabs or two windows of the same browser race each
+  other over a BroadcastChannel. They share one set of settings, so it is for trying it out
+  and for two people at one Chromebook.
+- *Supabase* is the easiest way to race over the internet: make a free project, then paste the
+  project URL and the anon key from Project Settings → API. They are kept in your browser,
+  not in the page. supabase-js is loaded from a CDN at a pinned version the first time you
+  connect; Realtime broadcast needs no table and no sign-in.
+- *WebSocket relay* is any relay that echoes a room's frames to the room. `node tools/relay.js`
+  runs one on your own machine for a club night on the field wi-fi (then put
+  `ws://<that machine>:8787` in Relay address); the same few lines fit in a Cloudflare Worker
+  for racing over the internet.
+
+**Live racing needs the page served over the internet** —
+<https://realpapanerf.github.io/flightline-sim/> — because the claude.ai artifact build cannot
+open connections of its own. Everything else, ghosts included, works offline exactly as before.
+
 ## Ideas
 
 Planned features, with their order and dependencies, live in [`ideas/`](ideas/README.md):
@@ -223,12 +263,15 @@ src/physics.js   flight models: strip-theory wings, quads, heli, weather, icing,
 src/nav.js       sensors, link budget, autopilot (no DOM)
 src/render.js    small WebGL 1 renderer
 src/ghost.js     lap recording, quantisation, playback and storage (no DOM)
+src/net.js       live racing: transports, room protocol, clock sync, interpolation (no DOM)
 src/app.js       world, aircraft meshes, cameras, HUD/OSD, controllers, settings, loop
 src/shell.html   page markup and styles
 src/sw.js        offline cache for the installed app
 tools/build.py   assembles index.html (and dist/artifact.html) from src/
+tools/relay.js   a dependency-free WebSocket relay for live racing: node tools/relay.js
 test/*.js        bench tests: fm_test (planes), perf (trim table), quad_test <id>, heli_test,
-                 modes_test, weather_test, nav_test, ghost_test
+                 modes_test, weather_test, nav_test, ghost_test, net_test;
+                 race_test drives two pages through a relay in headless Chromium (needs playwright)
 ```
 
 Edit `src/`, then run `python3 tools/build.py`. `index.html` is generated; commit it with

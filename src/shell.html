@@ -162,6 +162,24 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; heigh
 .bench { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--panel-2); }
 .bench .kv { margin-bottom: 0; }
 .bench .kv + .tbl { margin-top: 10px; }
+/* ---------- the race panel over the view ---------- */
+#race {
+  position: absolute; top: calc(env(safe-area-inset-top, 0px) + 62px); left: max(10px, env(safe-area-inset-left, 0px));
+  width: 232px; max-width: calc(100vw - 20px); z-index: 4; display: grid; gap: 6px; padding: 8px 10px 9px;
+  background: var(--glass); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  border: 1px solid var(--line); border-radius: 7px;
+}
+.rc-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.rc-head b { font: 600 12px/1 var(--f-display); letter-spacing: 0.12em; color: var(--accent); }
+.rc-head span { font: 10px/1.2 var(--f-mono); color: var(--muted); text-align: right; }
+.rc-list { display: grid; gap: 2px; max-height: 38vh; overflow-y: auto; }
+.rc-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: baseline; font: 11px/1.5 var(--f-mono); color: var(--muted); }
+.rc-row b { font: 600 12px/1.4 var(--f-display); letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-row.me { border-bottom: 1px solid var(--line); padding-bottom: 3px; margin-bottom: 2px; }
+.rc-acts { display: flex; gap: 4px; }
+.rc-acts .btn { flex: 1 1 auto; min-height: 28px; padding: 0 6px; font-size: 11px; }
+@media (max-height: 520px) { .rc-list { max-height: 26vh; } }
+
 /* ---------- racing: saved laps, rooms ---------- */
 .set input.txt { min-height: 34px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font: 13px var(--f-body); width: 100%; box-sizing: border-box; }
 .set input.txt::placeholder { color: var(--muted); opacity: 0.8; }
@@ -270,6 +288,16 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; heigh
   </nav>
 
   <div id="banner" hidden><strong id="banTitle">Crashed</strong><span id="banText"></span></div>
+
+  <section id="race" aria-label="Race room" hidden>
+    <div class="rc-head"><b id="rcRoom">ROOM</b><span id="rcNet"></span></div>
+    <div id="rcList" class="rc-list"></div>
+    <div class="rc-acts">
+      <button type="button" class="btn small" id="rcReady">Ready</button>
+      <button type="button" class="btn small" id="rcSpec">Spectate</button>
+      <button type="button" class="btn small" id="rcLeave">Leave</button>
+    </div>
+  </section>
 
   <section id="welcome" class="card" role="dialog" aria-labelledby="wTitle">
     <span class="eyebrow">RC flight trainer</span>

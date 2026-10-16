@@ -40,6 +40,9 @@
     // racing: ghost source ('off' | 'best' = your best lap with this aircraft | 'pick' = the lap chosen in
     // Settings → Racing), which lap is picked, and the name put on laps you export and on your aircraft online
     ghost: 'best', ghostPick: null, pilot: '',
+    // live racing: relay and its address, room code, your colour, spectating, how often state
+    // goes out (Hz), how far behind other pilots are drawn (ms), and whether aircraft bump
+    net: { relay: 'off', room: '', url: '', key: '', ws: '', cdn: '', col: 0, spec: false, rate: 20, delay: 120, coll: 'off', laps: 3 },
     curve: 'normal', // helicopter pitch curve: 'normal' or '3d' (idle up)
     sheetTab: 'aircraft', // last settings tab
     hud: 'hud', // FPV OSD style: 'hud' (pitch ladder and tapes) or 'classic'
@@ -815,6 +818,10 @@
   function doReset() {
     const where = startOf(AC.id);
     FL.reset(st, AC, where, packStartC());
+    if (race.r && race.phase !== 'off') { // line up abreast so a room doesn't start in a heap
+      const ids = [...race.r.peers.keys()].concat([myId]).sort();
+      st.p[1] += ids.indexOf(myId) * 4;
+    }
     NAV.reset(nav, st); fsActive = false;
     armed = where === 'air';
     if (where === 'air') kb.thr = AC.kind === 'quad' ? AC.hoverThr : AC.kind === 'heli' ? AC.hoverThrCurve[S.curve] : AC.kind === 'wing' ? 0.55 : 0.6;
@@ -1561,7 +1568,10 @@
   }
   function cycleMode() { setMode(MODES[(MODES.indexOf(S.mode) + 1) % MODES.length]); }
   function setCurve(c) { c = c === '3d' ? '3d' : 'normal'; if (c !== S.curve && AC.kind === 'heli') flash(c === '3d' ? '3D CURVE' : 'NORMAL CURVE'); S.curve = c; saveS(); syncSheet(); }
-  function setAircraft(id) { S.aircraft = id; AC = ACS[id]; saveS(); doReset(); ghostLoad(); refreshBar(); buildSheet(); }
+  function setAircraft(id) {
+    S.aircraft = id; AC = ACS[id]; saveS(); doReset(); ghostLoad(); refreshBar(); buildSheet();
+    if (race.r) { race.r.me.ac = id; race.r.me.best = S.best[id] || null; race.r.hello(); refreshRace(); }
+  }
   function cycleAircraft() { const ids = Object.keys(ACS); setAircraft(ids[(ids.indexOf(S.aircraft) + 1) % ids.length]); }
   /* ---------------------------------------------------------------- aircraft files
      Import, export and browser storage. Every read and write of storage, of a
@@ -1769,6 +1779,15 @@
   $('#wFly').addEventListener('click', fly);
   $('#wSetup').addEventListener('click', openWizard);
 
+  $('#rcReady').addEventListener('click', () => { if (race.r) raceReady(!race.r.me.ready); });
+  $('#rcLeave').addEventListener('click', () => { S.net.relay = 'off'; saveS(); raceLeave(); syncSheet(); });
+  $('#rcSpec').addEventListener('click', () => {
+    if (!race.r) return;
+    if (!S.net.spec) { S.net.spec = true; saveS(); race.r.me.spec = true; race.r.hello(); raceWatchNext(); }
+    else raceWatchNext();
+    refreshRace(); syncSheet();
+  });
+
   /* ---------------------------------------------------------------- settings sheet */
   const sheetOpen = () => $('#sheet').classList.contains('open');
   function openSheet(tab) { if (ctl.open) closeCtl(); if (tab) S.sheetTab = tab; buildSheet(); $('#sheet').classList.add('open'); syncPause(); }
@@ -1842,6 +1861,24 @@
           () => S.ghost, (v) => { S.ghost = v; saveS(); ghostLoad(); buildSheet(); }),
         { type: 'pilot' },
         { type: 'laps' },
+      ] },
+      { tab: 'racing', title: 'Race other people', items: [
+        seg('relay', 'Relay', [['off', 'Off']].concat(Object.entries(NET.TRANSPORTS).map(([k, t]) => [k, t.name])),
+          () => (NET.TRANSPORTS[S.net.relay] ? NET.TRANSPORTS[S.net.relay].help : 'Everyone in the same room flies their own aircraft and sends where it is about twenty times a second. Gates are timed on your own machine.'),
+          () => S.net.relay, (v) => { S.net.relay = v; saveS(); if (v === 'off') raceLeave(); else raceJoin(); buildSheet(); }),
+        { type: 'room' },
+        ...(S.net.relay === 'supabase' ? [{ type: 'supabase' }] : []),
+        ...(S.net.relay === 'ws' ? [{ type: 'wsurl' }] : []),
+        seg('col', 'Your colour', COLS.map((c, i) => [i, c[1]]), 'How your aircraft is painted for everyone else.',
+          () => S.net.col, (v) => { S.net.col = Number(v); saveS(); if (race.r) { race.r.me.col = Number(v); race.r.hello(); } refreshRace(); }),
+        seg('spec', 'Spectate', [[false, 'Fly'], [true, 'Watch only']], 'A spectator sends nothing and rides the view of whichever pilot they pick.',
+          () => S.net.spec, (v) => { S.net.spec = v; saveS(); if (race.r) { race.r.me.spec = v; race.r.hello(); } if (!v) race.watch = null; refreshRace(); }),
+        seg('coll', 'Aircraft touching', [['off', 'Fly through'], ['bump', 'Bump']], 'Worked out on each machine for itself: a knock off line, not a crash. The pilot who starts the countdown sets it for the race.',
+          () => S.net.coll, (v) => { S.net.coll = v; saveS(); if (race.phase === 'off' || race.phase === 'lobby') race.coll = v; }),
+        rng('laps', 'Laps in a race', 1, 10, 1, (v) => `${v}`, 'Set by whoever starts the countdown.', () => S.net.laps, (v) => { S.net.laps = v; if (race.phase === 'off' || race.phase === 'lobby') race.target = v; }),
+        rng('rate', 'State messages', 5, 30, 5, (v) => `${v} a second`, 'How often your aircraft\u2019s position goes out. Lower it on a weak connection or to use less of a relay\u2019s quota.', () => S.net.rate, (v) => { S.net.rate = v; if (race.r) race.r.set('rate', v); }),
+        rng('delay', 'Smoothing buffer', 60, 250, 10, (v) => `${v} ms`, 'Other pilots are drawn this far in the past, so there is always a message either side of them. Raise it if they stutter; lower it to see them closer to live.', () => S.net.delay, (v) => { S.net.delay = v; if (race.r) race.r.set('delay', v); }),
+        { type: 'netinfo' },
       ] },
       { tab: 'weather', title: 'Weather', items: [
         { type: 'wxpresets' },
@@ -2022,6 +2059,27 @@
           renderFiles(box);
         } else if (it.type === 'builder') {
           renderBuilder(box);
+        } else if (it.type === 'room') {
+          box.innerHTML = `<label for="setRoom"><span>Room code</span></label><div class="setrow"><input class="txt" type="text" id="setRoom" maxlength="12" placeholder="e.g. ${NET.roomCode()}" value="${esc(S.net.room)}" style="flex:1 1 120px"><button type="button" class="btn small" id="roomNew">New code</button><button type="button" class="btn small" id="roomJoin">${race.r ? 'Rejoin' : 'Join'}</button></div><div class="help">Everyone who types the same code is in the same room. Tell your friends the code, not the key.</div>`;
+          const e = box.querySelector('#setRoom');
+          e.addEventListener('input', () => { S.net.room = NET.cleanCode(e.value); saveS(); });
+          box.querySelector('#roomNew').addEventListener('click', () => { S.net.room = NET.roomCode(); e.value = S.net.room; saveS(); });
+          box.querySelector('#roomJoin').addEventListener('click', () => { if (S.net.relay === 'off') { toast('Pick a relay first.'); return; } raceJoin(); buildSheet(); });
+        } else if (it.type === 'supabase') {
+          box.innerHTML = `<label for="setSbUrl"><span>Supabase project URL</span></label><input class="txt" type="text" id="setSbUrl" placeholder="https://xxxx.supabase.co" value="${esc(S.net.url)}">
+            <label for="setSbKey"><span>Anon key</span></label><input class="txt" type="text" id="setSbKey" placeholder="eyJ…" value="${esc(S.net.key)}">
+            <div class="help">Kept in this browser only, never in the page. Make a free project, then Project Settings → API for both. The anon key is the public one; it is in every Supabase web app. supabase-js is loaded from <code>${esc(NET.SUPABASE_CDN)}</code> the first time you connect.</div>`;
+          box.querySelector('#setSbUrl').addEventListener('input', (ev) => { S.net.url = ev.target.value.trim(); saveS(); });
+          box.querySelector('#setSbKey').addEventListener('input', (ev) => { S.net.key = ev.target.value.trim(); saveS(); });
+        } else if (it.type === 'wsurl') {
+          box.innerHTML = `<label for="setWs"><span>Relay address</span></label><input class="txt" type="text" id="setWs" placeholder="wss://your-worker.workers.dev" value="${esc(S.net.ws)}"><div class="help">Any relay that sends a room\u2019s frames back to the rest of the room. The room code goes on as <code>?room=</code>.</div>`;
+          box.querySelector('input').addEventListener('input', (ev) => { S.net.ws = ev.target.value.trim(); saveS(); });
+        } else if (it.type === 'netinfo') {
+          const R = race.r;
+          const st2 = R ? (R.status === 'open' ? `in room ${R.room}` : race.note || R.status) : 'not connected';
+          const bw = R ? `${(R.stats.upBps / 1024).toFixed(2)} KB/s up \u00b7 ${(R.stats.downBps / 1024).toFixed(2)} KB/s down` : '\u2014';
+          box.innerHTML = `<div class="kv"><span>Status</span><span>${esc(st2)}</span><span>Pilots</span><span>${R ? R.peers.size + 1 : 0}</span><span>Bandwidth</span><span>${bw}</span><span>A state message</span><span>${NET.STATE_BYTES} B + framing, ${S.net.rate} a second</span></div>`
+            + '<div class="help">Live racing needs the page served over the internet \u2014 <b>realpapanerf.github.io/flightline-sim</b>. The claude.ai artifact build cannot open connections of its own, so only <i>This browser</i> works there. Everything else in the sim works offline exactly as before.</div>';
         } else if (it.type === 'notes') {
           box.innerHTML = notesHtml() + weatherNotesHtml() + navNotesHtml();
         }
@@ -2335,8 +2393,9 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     const vf = vfovFor(losFov, aspect);
     return { view: M4.lookAt(EYE, d < 0.3 ? [0, 1.7, -1] : p, [0, 1, 0]), pos: EYE, fovy: Math.min(vf, 100 * D2R), near: 0.25, dist: d };
   }
+  let viewAc = null; // the aircraft the view rides: yours, or the pilot you are watching
   function fpvCam(v, planeM) {
-    const m = MODELS[AC.id];
+    const m = MODELS[viewAc] || MODELS[AC.id];
     const camW = M4.chain(planeM, M4.trans(m.cam[0], m.cam[1], m.cam[2]), M4.rotX(tiltOf() * D2R));
     const aspect = v.w / v.h;
     const hf = S.fpvFov * D2R;
@@ -2421,6 +2480,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   function drawAvatars(v) {
     gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     for (const av of avatars) {
+      if (av.self && v.kind === 'fpv') continue; // you are sitting in this one
       const model = MODELS[av.ac] || MODELS[AC.id], mat = planeMatrix(av.st);
       const o = { alpha: av.alpha, mix: av.mix, tint: av.tint };
       if (av.alpha < 1) gl.depthMask(false);
@@ -2772,6 +2832,14 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       const wy = topY + fs * (v.kind === 'fpv' && S.osd === 'full' && S.hud === 'hud' ? 2.9 : 1.6); // clear of the HUD heading tape
       W.forEach(([t, c], i) => osdText(t, cx, wy + i * fs * 1.35, 'center', fs, c));
       if (osdFlash.t > 0) osdText(osdFlash.text, cx, cy - fs * 3, 'center', fs, '#cfe9f3');
+      if (race.phase === 'count') {
+        const left = (race.startAt - NET.nowMs()) / 1000;
+        osdText(left > 0.4 ? String(Math.ceil(left)) : 'GO', cx, cy - fs * 4.6, 'center', fs * 2.6, left > 0.4 ? '#ffd36a' : '#6ad49a');
+      }
+      if (S.net.spec && race.r) {
+        const w = race.watch && race.r.peers.get(race.watch);
+        osdText(w ? `WATCHING ${(w.name || 'PILOT').toUpperCase()}` : 'SPECTATING · PICK A PILOT', cx, v.y + v.h - m - fs * 4.6 - lift, 'center', Math.max(11, fs * 0.8), '#9fe8ff');
+      }
       if (avatars.length) drawTags(v, fs);
       const ct = courseText();
       if (ct) {
@@ -3145,6 +3213,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     const gs = ghost.play ? fmtSplit(lapTime - ghost.play.lap.time) : '';
     if (gs) ghost.split = { t: 3, text: gs, ahead: lapTime < ghost.play.lap.time };
     flash(`LAP ${fmtLap(lapTime)}${better ? ' · NEW BEST' : ''}${gs ? ' · ' + gs : ''}`);
+    raceLap(lapTime);
   }
   // which lap the ghost flies: your best with this aircraft, or the one picked in Settings → Racing
   function ghostLoad() {
@@ -3196,6 +3265,163 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       toast(`Loaded ${lap.pilot || 'a'} lap: ${fmtLap(lap.time)} on ${lap.course} with the ${ACS[lap.aircraft] ? ACS[lap.aircraft].name : lap.aircraft}${lap.course === world.courseId ? '' : ' (another course)'}`);
     };
     try { fr.readAsText(file); } catch (e) { toast('Could not read that file.'); }
+  }
+
+  /* ---------------------------------------------------------------- live racing
+     Each sim flies its own aircraft locally and broadcasts its state 20 times a
+     second through whichever relay is set (src/net.js). The others are drawn from
+     those messages, a tenth of a second in the past so there is always a sample
+     either side of them. Gates are timed locally and the lap time is broadcast. */
+  const COLS = [
+    ['#f5c242', 'Yellow', [1.25, 1.05, 0.5]], ['#ff6157', 'Red', [1.35, 0.6, 0.55]],
+    ['#6ad49a', 'Green', [0.6, 1.3, 0.85]], ['#7ccbe6', 'Blue', [0.6, 1.05, 1.35]],
+    ['#c08cff', 'Violet', [1.05, 0.7, 1.35]], ['#ffffff', 'White', [1.3, 1.3, 1.3]],
+  ];
+  const colOf = (i) => COLS[((i | 0) % COLS.length + COLS.length) % COLS.length];
+  const race = { r: null, phase: 'off', startAt: 0, target: 3, coll: 'off', laps: 0, watch: null, bumpT: 0, note: '' };
+  const raceOn = () => !!race.r && race.r.status === 'open';
+  const myId = (() => { const k = 'flightline.id.v1'; let v = null;
+    try { v = localStorage.getItem(k); if (!v) { v = Math.random().toString(36).slice(2, 8); localStorage.setItem(k, v); } } catch (e) { v = Math.random().toString(36).slice(2, 8); }
+    return v; })();
+  const myName = () => (S.pilot || 'Pilot ' + myId.slice(0, 3)).slice(0, 16);
+  const flyers = () => [{ id: myId, spec: S.net.spec }].concat([...race.r.peers.values()].map((p) => ({ id: p.id, spec: p.spec })));
+  const raceHost = () => flyers().filter((f) => !f.spec).map((f) => f.id).sort()[0];
+
+  function raceJoin() {
+    raceLeave();
+    const N = S.net;
+    if (N.relay === 'off') return;
+    const code = NET.cleanCode(N.room) || NET.roomCode();
+    N.room = code; saveS();
+    const R = NET.room({ transport: N.relay, room: code, id: myId, name: myName(), aircraft: AC.id, col: N.col,
+      url: N.relay === 'ws' ? N.ws : N.url, key: N.key, cdn: N.cdn || '', spectate: N.spec,
+      rate: N.rate, delay: N.delay });
+    R.me.name = myName(); R.me.ac = AC.id; R.me.col = N.col; R.me.spec = N.spec; R.me.best = S.best[AC.id] || null;
+    R.on.status = (stt, detail) => {
+      race.note = stt === 'open' ? '' : detail || stt;
+      if (stt === 'open' && race.phase === 'off') race.phase = 'lobby';
+      if (stt === 'closed' || stt === 'error') race.phase = 'off';
+      refreshRace(); syncSheet();
+    };
+    R.on.peer = (p, how) => { flash(`${(p.name || 'A pilot').toUpperCase()} ${how === 'in' ? 'JOINED' : 'LEFT'}`); refreshRace(); };
+    R.on.go = (g) => raceCountdown(g);
+    R.on.lap = (p, v) => { flash(`${(p.name || 'PILOT').toUpperCase()} ${fmtLap(v)}`); refreshRace(); };
+    race.r = R; race.phase = 'lobby'; race.note = 'connecting'; race.target = S.net.laps; race.coll = S.net.coll;
+    refreshRace();
+    R.connect().catch((e) => {
+      race.note = (e && e.message) || 'could not connect';
+      toast(`Could not join the room: ${race.note}`);
+      try { R.leave(); } catch (e2) { /* never opened */ }
+      race.r = null; race.phase = 'off'; refreshRace(); syncSheet();
+    });
+  }
+  function raceLeave() {
+    if (race.r) { try { race.r.leave(); } catch (e) { /* going anyway */ } }
+    race.r = null; race.phase = 'off'; race.laps = 0; race.watch = null; race.note = '';
+    refreshRace();
+  }
+  function raceReady(v) {
+    if (!race.r) return;
+    if (v && race.phase === 'done') race.phase = 'lobby';
+    race.r.me.ready = v; race.r.hello(); refreshRace();
+  }
+  // the pilot whose id sorts first starts the countdown, once everyone flying is ready
+  function raceStartCheck() {
+    if (race.phase !== 'lobby' || S.net.spec || !race.r.me.ready || raceHost() !== myId) return;
+    const others = [...race.r.peers.values()].filter((p) => !p.spec);
+    if (!others.length || !others.every((p) => p.ready)) return;
+    const at = race.r.go(5000, S.net.laps, S.net.coll);
+    raceCountdown({ at, laps: S.net.laps, coll: S.net.coll, from: myId });
+  }
+  function raceCountdown(g) {
+    race.startAt = g.at; race.target = g.laps || race.target; race.coll = g.coll || 'off';
+    race.phase = 'count'; race.laps = 0;
+    refreshRace();
+  }
+  function raceStart() {
+    race.phase = 'race'; race.laps = 0;
+    if (!S.course) { S.course = true; saveS(); }
+    doReset();
+    flash('GO');
+    refreshRace();
+  }
+  // a lap of the course, timed locally and told to the room
+  function raceLap(lapTime) {
+    if (!race.r || race.phase !== 'race') return;
+    race.laps++;
+    race.r.me.best = S.best[AC.id] || lapTime;
+    race.r.lap(lapTime, race.r.me.best, race.laps);
+    if (race.laps >= race.target) { race.phase = 'done'; race.r.me.ready = false; race.r.hello(); flash(`FINISHED · ${race.laps} LAPS`); }
+    refreshRace();
+  }
+  // bumps are worked out on each sim for itself: enough to knock you off line, no more
+  function raceBump(dt) {
+    race.bumpT = Math.max(0, race.bumpT - dt);
+    if (race.coll !== 'bump' || st.crashed || st.held || race.phase === 'off') return;
+    const r0 = Math.max(0.4, AC.b / 2); // prop tip to prop tip, with room for the network's own error
+    for (const av of avatars) {
+      if (!av.remote) continue;
+      const d = [av.st.p[0] - st.p[0], av.st.p[1] - st.p[1], av.st.p[2] - st.p[2]];
+      const L = Math.hypot(d[0], d[1], d[2]);
+      const rad = r0 + Math.max(0.4, ((ACS[av.ac] || AC).b || 0.6) / 2);
+      if (L > rad || L < 1e-4) continue;
+      const n = [d[0] / L, d[1] / L, d[2] / L];
+      const closing = st.v[0] * n[0] + st.v[1] * n[1] + st.v[2] * n[2];
+      // take most of the closing speed out and shove them apart, capped so a fast
+      // pass is a knock off line rather than a bounce off a wall
+      const push = Math.min(8, (closing > 0 ? closing : 0) * 0.9 + 1.5);
+      for (let i = 0; i < 3; i++) st.v[i] -= n[i] * push;
+      st.w[0] += (Math.random() - 0.5) * 4; st.w[1] += (Math.random() - 0.5) * 2;
+      if (!race.bumpT) { flash('BUMP'); race.bumpT = 0.6; }
+    }
+  }
+  function raceTick(dt) {
+    const R = race.r;
+    if (!R) return;
+    R.tick(dt, S.net.spec ? null : { p: st.p, q: st.q, v: st.v, thr: inp.thr, flags: (st.crashed ? 1 : 0) | (st.held ? 2 : 0) });
+    if (race.phase === 'count' && NET.nowMs() >= race.startAt) raceStart();
+    for (const p of R.peers.values()) {
+      if (p.spec || !p.view) continue;
+      const acId = MODELS[p.ac] ? p.ac : 'quad';
+      p.ang = (p.ang || 0) + p.view.thr * dt * 60;
+      const col = colOf(p.col);
+      avatars.push({ ac: acId, st: avatarState(acId, p.view.p, p.view.q, p.view.thr), ang: p.ang, remote: true, id: p.id,
+        alpha: p.stale ? 0.45 : 1, tint: col[2], label: (p.name || 'PILOT').toUpperCase(), col: col[0],
+        self: race.watch === p.id });
+    }
+    raceBump(dt);
+    raceStartCheck();
+    if (race.watch && !R.peers.has(race.watch)) race.watch = null;
+  }
+  // spectating: the view rides whoever you are watching
+  function raceWatched() { return race.watch ? avatars.find((a) => a.id === race.watch) : null; }
+  function raceWatchNext() {
+    const ids = avatars.filter((a) => a.remote).map((a) => a.id);
+    if (!ids.length) { race.watch = null; return; }
+    const i = ids.indexOf(race.watch);
+    race.watch = ids[(i + 1) % ids.length];
+    flash(`WATCHING ${(race.r.peers.get(race.watch).name || 'PILOT').toUpperCase()}`);
+  }
+  // the panel over the view: who is in the room, who is ready, and the lap times
+  function refreshRace() {
+    const el = $('#race');
+    if (!el) return;
+    if (!race.r) { hide(el); return; }
+    show(el);
+    const R = race.r, peers = [...R.peers.values()];
+    const ping = (p) => (p.rtt == null ? '—' : `${p.rtt} ms`);
+    const mark = (p) => (p.spec ? 'watching' : p.ready ? 'ready' : p.lap != null ? fmtLap(p.best != null ? p.best : p.lap) : 'waiting');
+    const rows = [`<div class="rc-row me"><b style="color:${colOf(S.net.col)[0]}">${esc(myName())}</b><span>${S.net.spec ? 'watching' : S.best[AC.id] ? fmtLap(S.best[AC.id]) : race.phase === 'race' ? 'racing' : R.me.ready ? 'ready' : 'waiting'}</span><span>you</span></div>`]
+      .concat(peers.map((p) => `<div class="rc-row"><b style="color:${colOf(p.col)[0]}">${esc(p.name || 'Pilot')}</b><span>${mark(p)}</span><span>${ping(p)}</span></div>`));
+    const st2 = R.status === 'open' ? `${peers.length + 1} in the room` : race.note || R.status;
+    const bw = `${(R.stats.upBps / 1024).toFixed(1)}/${(R.stats.downBps / 1024).toFixed(1)} KB/s`;
+    $('#rcRoom').textContent = `ROOM ${R.room}`;
+    $('#rcNet').textContent = `${st2} · ${bw}`;
+    $('#rcList').innerHTML = rows.join('');
+    const rb = $('#rcReady');
+    rb.textContent = race.phase === 'race' ? `Lap ${Math.min(race.laps + 1, race.target)}/${race.target}` : race.phase === 'count' ? 'Get set' : R.me.ready ? 'Not ready' : 'Ready';
+    rb.disabled = S.net.spec || race.phase === 'count' || race.phase === 'race';
+    $('#rcSpec').textContent = S.net.spec ? (race.watch ? 'Next pilot' : 'Watch') : 'Spectate';
   }
 
   let last = performance.now(), fpsN = 0, fpsT = 0, fpsVal = 0, barT = 0;
@@ -3254,7 +3480,11 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     }
     avatars.length = 0;
     ghostTick(paused ? 0 : dt);
-    const planeM = planeMatrix(st);
+    raceTick(raw > 0.5 ? 0.5 : raw); // the room runs on real time, even paused
+    // spectating rides the pilot you are watching; otherwise the view is your own aircraft
+    const watched = S.net.spec ? raceWatched() : null;
+    viewAc = watched ? watched.ac : AC.id;
+    const planeM = watched ? planeMatrix(watched.st) : planeMatrix(st);
     const views = layout();
     const losD = Math.hypot(planeM[12] - EYE[0], planeM[13] - EYE[1], planeM[14] - EYE[2]);
     // LOS zoom: keep the wingspan at a set share of the view height (mild 4%, strong 8%)
@@ -3266,7 +3496,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     osdDt = paused ? 0 : dt; wxClock += osdDt;
     drawOSD(views);
     updateAudio(losD);
-    barT += dt; if (barT > 0.25) { barT = 0; refreshBar(); refreshTouch(); }
+    barT += dt; if (barT > 0.25) { barT = 0; refreshBar(); refreshTouch(); if (race.r) refreshRace(); }
   }
 
   /* ---------------------------------------------------------------- boot */
@@ -3276,6 +3506,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   ghostLoad();
   refreshBar(); refreshTouch(); refreshCtlStatus();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { gl.bindTexture(gl.TEXTURE_2D, runwayTex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, runwayTexture()); gl.generateMipmap(gl.TEXTURE_2D); });
+  if (S.net.relay !== 'off' && S.net.room) raceJoin(); // you were in a room when you closed the page
   requestAnimationFrame((t) => { last = t; frame(t); });
-  window.__flightline = { st, S, env, nav: () => nav, setAp: (m) => setAp(m), AC: () => AC, doReset, FL, IN: () => IN, prof, ctl, world: () => world, course, ghost, avatars, laps: LAPS, rec: () => rec }; // debugging and tests
+  window.__flightline = { st, S, env, nav: () => nav, setAp: (m) => setAp(m), AC: () => AC, doReset, FL, IN: () => IN, prof, ctl, world: () => world, course, ghost, avatars, laps: LAPS, rec: () => rec, race, raceJoin, raceReady, NET, myId }; // debugging and tests
 })();
