@@ -508,7 +508,7 @@ const FL = (function () {
             aSn: (f.CL0 - f.CLmin / L) / f.a,
             dAS: f.CLmax / L / f.a, dASn: -f.CLmin / L / f.a, // stall-angle change per unit fraction of CLmax / CLmin lost
             M: f.M, CD0: f.CD0, k: 1 / (Math.PI * f.e * AR), Cm0: f.Cm0, CN90: f.CN90,
-            AR, ka: 0, ke: 0, kr: 0, tau: 0, cmd: 0, cf: 0,
+            AR, ka: 0, ke: 0, kr: 0, kf: 0, tau: 0, cmd: 0, cf: 0,
             wash: false,
           };
           for (const fl of sf.flaps || []) {
@@ -520,6 +520,7 @@ const FL = (function () {
               st.ka = (fl.a || 0) * sgn;
               st.ke = fl.e || 0;
               st.kr = fl.r || 0;
+              st.kf = fl.f || 0;
             }
           }
           if (ac.prop.wash) {
@@ -532,6 +533,7 @@ const FL = (function () {
     }
     ac.S = wingArea; ac.b = wingSpan;
     const wingStrips = ac.strips.filter((s) => s.role === 'wing');
+    ac.flapArea = wingStrips.reduce((t, x) => t + (x.kf ? x.area : 0), 0) / (wingStrips.reduce((t, x) => t + x.area, 0) || 1);
     const ws = wingStrips.reduce((s, x) => s + x.area, 0);
     ac.mac = wingStrips.reduce((s, x) => s + x.area * x.chord, 0) / ws;
     ac.ARw = (wingSpan * wingSpan) / wingArea;
@@ -596,7 +598,7 @@ const FL = (function () {
   function makeState() {
     return {
       p: [0, 0, 0], v: [0, 0, 0], q: [1, 0, 0, 0], w: [0, 0, 0],
-      n: 0, sa: 0, se: 0, sr: 0, soc: 1, mAh: 0, vb: 0, I: 0,
+      n: 0, sa: 0, se: 0, sr: 0, sf: 0, gear: 1, soc: 1, mAh: 0, vb: 0, I: 0,
       crashed: false, crashMsg: '', wow: false, held: false, t: 0, clw: 0,
       mot: [0, 0, 0, 0], pidI: [0, 0, 0], spPrev: [0, 0, 0], ff: [0, 0, 0], buf: [0, 0], wPrev: [0, 0, 0], dF: [0, 0, 0], // flight controller
       om: 0, coll: 0, gov: 0, tailI: 0, vi: 0, tilt: [0, 0], tt: 0, // helicopter rotor
@@ -607,7 +609,7 @@ const FL = (function () {
 
   function reset(s, ac, where, packC = 20) {
     s.bT = packC; s.ice = null; s.iceProp = 0; s.iceLens = 0; s.iceMass = 0; s.iceGl = 0; s.shed = 0;
-    s.w = [0, 0, 0]; s.n = 0; s.sa = s.se = s.sr = 0;
+    s.w = [0, 0, 0]; s.n = 0; s.sa = s.se = s.sr = s.sf = 0; s.gear = 1;
     s.crashed = false; s.crashMsg = ''; s.mAh = 0; s.soc = 1; s.t = 0; s.held = false; s.clw = 0;
     s.mot = [0, 0, 0, 0]; s.pidI = [0, 0, 0]; s.spPrev = [0, 0, 0]; s.ff = [0, 0, 0]; s.buf = [0, 0]; s.wPrev = [0, 0, 0]; s.dF = [0, 0, 0]; s.om = 0; s.coll = 0; s.gov = 0; s.tailI = 0; s.vi = 0; s.tilt = [0, 0]; s.tt = 0;
     if (ac.kind === 'quad' || ac.kind === 'heli') {
@@ -658,8 +660,15 @@ const FL = (function () {
      sigmoid around the strip's own stall angles (Beard & McLain 2012). */
   function foilCoeffs(st, ae, d, dCL = 0, dCD = 0, slope = 1) {
     // dCL: fraction of CLmax lost (ice, rain), dCD: added profile drag, slope: lift-slope factor
-    const e1 = Math.exp(-st.M * (ae - (st.aS - dCL * st.dAS)));
-    const e2 = Math.exp(st.M * (ae + (st.aSn - dCL * st.dASn)));
+    /* A deflected flap adds camber, so the section carries more lift before it
+       separates. Plain-flap measurements (NACA 23012 with a 20% flap at 30°:
+       CLmax +0.5 and the stall 4° earlier) put the extra lift at about 55% of
+       what the deflection adds, so the stall angle in geometric terms falls by
+       the other 45%. Without this, a landing flap setting would read as a wing
+       that is already stalled. */
+    const ds = clamp(0.55 * st.tau * d, -0.9 * st.aSn, 0.9 * st.aS);
+    const e1 = Math.exp(-st.M * (ae - (st.aS - dCL * st.dAS + ds)));
+    const e2 = Math.exp(st.M * (ae + (st.aSn - dCL * st.dASn - ds)));
     const sig = (1 + e1 + e2) / ((1 + e1) * (1 + e2)); // 0 attached … 1 stalled
     const sn = Math.sin(ae), cs = Math.cos(ae);
     const CLlin = st.load * (st.CL0 + st.a * slope * ae);
@@ -728,7 +737,7 @@ const FL = (function () {
         else if (impact > pt.impact || slide > pt.slide) crash = 'Crashed — ' + pt.name + ' hit the ground';
       }
     };
-    for (const wh of ac.wheels) contactPt(wh, true);
+    if (!ac.retract || s.gear > 0.5) for (const wh of ac.wheels) contactPt(wh, true);
     for (const b of ac.points) contactPt(b, false);
     s.wow = wow;
     if (crash && env.crashes && !s.crashed) { s.crashed = true; s.crashMsg = crash; }
@@ -781,6 +790,9 @@ const FL = (function () {
     s.sa = approach(s.sa, sat(ctl.a) * ac.defl.a, ac.servoRate * dt);
     s.se = approach(s.se, sat(ctl.e) * ac.defl.e, ac.servoRate * dt);
     s.sr = approach(s.sr, sat(ctl.r) * ac.defl.r, ac.servoRate * dt);
+    // flaps: a slow separate channel (0 = up, 1 = full), and retractable gear in transit
+    s.sf = approach(s.sf, clamp(ctl.f || 0, 0, 1) * (ac.defl.f || 0), ((ac.defl.f || 0) / 2) * dt);
+    if (ac.retract) s.gear = approach(s.gear, ctl.gear === undefined || ctl.gear ? 1 : 0, dt / ac.retract.time);
 
     if (s.held) { // in the pilot's hand: motor spins, nothing moves
       const rpm0 = s.n * clamp(s.vb / B.Vref, 0, 1.15);
@@ -834,9 +846,20 @@ const FL = (function () {
       const Vin = Math.sqrt(V2);
       let alpha = Math.atan2(-un, uc);
       if (st.role === 'tail') alpha -= eps;
-      const d = clamp(st.ka * s.sa + st.ke * s.se + st.kr * s.sr, -ac.defl.flapMax, ac.defl.flapMax);
+      const d = clamp(st.ka * s.sa + st.ke * s.se + st.kr * s.sr + st.kf * s.sf, -ac.defl.flapMax, ac.defl.flapMax);
       const flex = ac.flexQ ? 1 / (1 + (0.5 * rho * V2) / ac.flexQ) : 1;
-      let ae = alpha + st.tau * d * flex;
+      /* Thin-airfoil flap theory holds to about 12°; past that the flow starts
+         to leave the flap and the extra lift tails off — a plain flap at 30°
+         measures about 65% of theory, and at 45° it has almost given up. */
+      let dEff = d * flex * (1 - 0.65 * clamp((Math.abs(d) - 0.21) / 0.58, 0, 1));
+      /* A flap over part of the span dumps a bump of lift inboard, and that bump
+         induces downwash on itself: lifting-line solutions put the extra induced
+         angle at roughly 45% of the flap's α shift for a short flap, fading to
+         nothing when the flap runs the whole span. It costs some of the flap's
+         lift and it is what stops the flapped span from stalling far ahead of
+         the rest of the wing. Flaps up (kf = 0 everywhere) this does nothing. */
+      if (st.kf) dEff *= 1 - 0.45 * (1 - (ac.flapArea || 0));
+      let ae = alpha + st.tau * dEff;
       if (ae > Math.PI) ae -= 2 * Math.PI; else if (ae < -Math.PI) ae += 2 * Math.PI;
       let dCL = 0.12 * rainP, dCD = 0.01 * rainP, slope = 1;
       if (s.ice) {
@@ -846,7 +869,7 @@ const FL = (function () {
         s.ice[i] = k;
         if (k > 0) { const pn = icePenalty(k / st.chord, s.iceGl); dCL += pn.dCL; dCD += pn.dCD; slope = pn.slope; iceM += 80 * k * st.area; }
       }
-      const cf = foilCoeffs(st, ae, d * flex, dCL, dCD, slope);
+      const cf = foilCoeffs(st, ae, dEff, dCL, dCD, slope);
       // induced drag, reduced in ground effect (McCormick)
       const hz = hCG - (R[6] * st.r[0] + R[7] * st.r[1] + R[8] * st.r[2]);
       const g16 = (16 * Math.max(0.02, hz)) / (ac.b || 1);
@@ -877,7 +900,9 @@ const FL = (function () {
     // --- fuselage / pod drag ---
     if (V > 0.1) {
       const Bd = ac.body, k = 0.5 * rho * V;
-      const fb = [-k * Bd.CdA[0] * vb[0], -k * Bd.CdA[1] * vb[1], -k * Bd.CdA[2] * vb[2]];
+      // CdA[0] is the clean aircraft; extended gear adds retract.drag of frontal area
+      const CdAx = Bd.CdA[0] + (ac.retract ? ac.retract.drag * s.gear : 0);
+      const fb = [-k * CdAx * vb[0], -k * Bd.CdA[1] * vb[1], -k * Bd.CdA[2] * vb[2]];
       F[0] += fb[0]; F[1] += fb[1]; F[2] += fb[2];
       const mb = cross(Bd.r, fb);
       Mo[0] += mb[0]; Mo[1] += mb[1]; Mo[2] += mb[2];
@@ -1185,7 +1210,8 @@ const FL = (function () {
   /* ---------------- Trim and performance (used by tests and the model notes) ----------------
      Accelerations for straight, wings-level flight at airspeed V, angle of attack alpha,
      elevator e and aileron a (stick units) and throttle thr, from one tiny step. */
-  // wing: optional { ice: per-strip ice (m), iceMass, iceGl, rain } to evaluate an iced or wet wing
+  /* wing: optional { ice: per-strip ice (m), iceMass, iceGl, rain } to evaluate an iced or wet wing,
+     plus { flap: 0..1, gear: 0 up / 1 down } to evaluate a flapped or gear-down configuration */
   function accelAt(ac, V, alpha, e, thr, a, rho, wing) {
     const env = { rho, wind: [0, 0, 0], battery: false, crashes: false, wx: wing && wing.rain ? { T: 10, lwc: 0, mvd: 0, rain: wing.rain } : null };
     const mk = () => {
@@ -1193,14 +1219,17 @@ const FL = (function () {
       if (wing && wing.ice) { s.ice = Float64Array.from(wing.ice); s.iceMass = wing.iceMass || 0; s.iceGl = wing.iceGl || 0; }
       s.p = [0, 0, -200]; s.q = quatFromEuler(0, alpha, 0); s.v = [V, 0, 0];
       s.n = thr; s.sa = sat(a) * ac.defl.a; s.se = sat(e) * ac.defl.e;
+      s.sf = cf * (ac.defl.f || 0); s.gear = cg;
       return s;
     };
+    const cf = clamp((wing && wing.flap) || 0, 0, 1), cg = wing && wing.gear !== undefined ? wing.gear : 1;
+    const ctl = { thr, a, e, r: 0, f: cf, gear: cg };
     const dt = 1e-5;
     let s = mk();
-    step(s, ac, { thr, a, e, r: 0 }, env, dt); // first pass sets wing CL for tail downwash
+    step(s, ac, ctl, env, dt); // first pass sets wing CL for tail downwash
     const clw = s.clw;
     s = mk(); s.clw = clw;
-    step(s, ac, { thr, a, e, r: 0 }, env, dt);
+    step(s, ac, ctl, env, dt);
     return [(s.v[2]) / dt, (s.v[0] - V) / dt, s.w[1] / dt, s.w[0] / dt, clw, (s.tele.stallL + s.tele.stallR) / 2];
   }
   function solve4(A, b) {
@@ -1214,16 +1243,16 @@ const FL = (function () {
     }
     return M.map((r, i) => r[n] / r[i]);
   }
-  function trim(ac, V, rho = RHO0, x0) {
+  function trim(ac, V, rho = RHO0, x0, wing) {
     let x = x0 ? [x0.alpha, x0.e, x0.thr, x0.a] : [0.05, 0, 0.5, 0];
     const H = [1e-4, 1e-3, 1e-3, 1e-3];
     for (let it = 0; it < 40; it++) {
-      const f = accelAt(ac, V, x[0], x[1], x[2], x[3], rho).slice(0, 4);
+      const f = accelAt(ac, V, x[0], x[1], x[2], x[3], rho, wing).slice(0, 4);
       if (Math.abs(f[0]) + Math.abs(f[1]) < 1e-4 && Math.abs(f[2]) + Math.abs(f[3]) < 1e-3) break;
       const J = [[], [], [], []];
       for (let j = 0; j < 4; j++) {
         const xp = x.slice(); xp[j] += H[j];
-        const fp = accelAt(ac, V, xp[0], xp[1], xp[2], xp[3], rho);
+        const fp = accelAt(ac, V, xp[0], xp[1], xp[2], xp[3], rho, wing);
         for (let i = 0; i < 4; i++) J[i][j] = (fp[i] - f[i]) / H[j];
       }
       const dx = solve4(J, f.map((v) => -v));
@@ -1231,7 +1260,7 @@ const FL = (function () {
       for (let j = 0; j < 4; j++) x[j] += clamp(dx[j], -0.2, 0.2);
       x[2] = clamp(x[2], 0, 1.5);
     }
-    const f = accelAt(ac, V, x[0], x[1], x[2], x[3], rho);
+    const f = accelAt(ac, V, x[0], x[1], x[2], x[3], rho, wing);
     const ok = x[2] <= 1.0001 && Math.abs(f[0]) < 0.05 && Math.abs(f[1]) < 0.05 && Math.abs(x[1]) <= 1.0001;
     return { V, alpha: x[0], e: x[1], thr: x[2], a: x[3], CL: f[4], ok };
   }
@@ -1239,21 +1268,24 @@ const FL = (function () {
   function stallSpeed(ac, rho = RHO0, wing) {
     let best = 0, bestA = 0;
     const m = ac.mass + ((wing && wing.iceMass) || 0);
+    // a third of the wing has let go: that's the stall, not the post-stall plateau beyond it.
+    // With flaps down the flapped span is meant to let go first, so allow for its area.
+    const sLim = 0.3 + 0.7 * (ac.flapArea || 0) * clamp((wing && wing.flap) || 0, 0, 1);
     for (let a = 0; a <= 0.45; a += 0.005) {
       const f = accelAt(ac, 15, a, 0, 0, 0, rho, wing);
       const Lz = m * (G - f[0]); // vertical force supporting the aircraft
       const CL = Lz / (0.5 * rho * 225 * ac.S);
-      if (f[5] > 0.3) break; // a third of the wing has let go: that's the stall, not the post-stall plateau beyond it
+      if (f[5] > sLim) break;
       if (CL > best) { best = CL; bestA = a; }
     }
     return { CLmax: best, alpha: bestA, Vs: Math.sqrt((2 * m * G) / (rho * ac.S * best)) };
   }
-  function performance(ac, rho = RHO0) {
-    const st = stallSpeed(ac, rho);
+  function performance(ac, rho = RHO0, wing) {
+    const st = stallSpeed(ac, rho, wing);
     const rows = [];
     let prev = null;
     for (let V = Math.ceil(st.Vs * 1.1); V <= 70; V += 1) {
-      const t = trim(ac, V, rho, prev);
+      const t = trim(ac, V, rho, prev, wing);
       if (!t.ok) { if (rows.length) break; else continue; }
       rows.push(t); prev = t;
     }
@@ -1262,6 +1294,6 @@ const FL = (function () {
     return { stall: st, rows, Vmax: rows.length ? rows[rows.length - 1].V : null, handsOff };
   }
 
-  return { G, D2R, DEFS, build, actualRate, planeAssist, rotarySetpoints, makeState, reset, launch, step, atmosphere, PRECIP, weatherAt, iceRate, icePenalty, propIce, battR, capF, quatToMat, mulMV, mulMtV, eulerFromMat, quatFromEuler, clamp, sat, flapTheory, trim, stallSpeed, performance };
+  return { G, D2R, RHO0, DEFS, quadDef, cellOCV, build, actualRate, planeAssist, rotarySetpoints, makeState, reset, launch, step, atmosphere, PRECIP, weatherAt, iceRate, icePenalty, propIce, battR, capF, quatToMat, mulMV, mulMtV, eulerFromMat, quatFromEuler, clamp, sat, flapTheory, trim, stallSpeed, performance };
 })();
 if (typeof module !== 'undefined') module.exports = FL;
