@@ -27,6 +27,7 @@
     windSpd: 2, windDir: 90, gust: 30, elevFt: 0, tempF: 59,
     battery: true, crashes: true, autoReset: true,
     quality: 1, scenery: 'med', aa: false, fps: false, eng: false, sound: true, units: 'imp',
+    trim: {}, // user trims per aircraft, stick units, set from controller trim buttons
   };
   const load = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
   const store = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage blocked */ } };
@@ -37,7 +38,6 @@
       for (const k of Object.keys(DEF)) if (k in sv) S[k] = DEF[k] && typeof DEF[k] === 'object' ? Object.assign({}, DEF[k], sv[k]) : sv[k];
   }
   if (!FL.DEFS[S.aircraft]) S.aircraft = 'goblin';
-  let radioMap = load(RKEY);
   const saveS = () => store(SKEY, S);
 
   const U = {
@@ -357,70 +357,246 @@
     hideBanner();
   }
 
-  /* ---------------------------------------------------------------- input */
+  /* ---------------------------------------------------------------- controllers (radios, HOTAS, gamepads) */
+  // Every connected game controller is a "device", keyed by its id string (#2, #3 … for identical twins).
+  // A HOTAS often appears as two devices (stick + throttle); a radio in USB joystick mode as one.
+  // Flight axes (throttle, roll, pitch, yaw) each map to one axis on any device.
+  // Every button gets a "channel" automatically; hats and switches that report as axes become channels
+  // when recorded. Each channel has a user-given name and an optional action.
+  const IKEY = 'flightline.inputs.v3';
+  const ACTIONS = [
+    ['', 'No action'],
+    ['reset', 'Reset'],
+    ['pause', 'Pause / resume'],
+    ['view-cycle', 'View: cycle'], ['view-los', 'View: line of sight'], ['view-fpv', 'View: FPV'], ['view-split', 'View: split'],
+    ['stab-toggle', 'Stabilised mode: toggle'], ['stab-hold', 'Stabilised mode: while held / switch on'],
+    ['cut-toggle', 'Throttle cut: toggle'], ['cut-hold', 'Throttle cut: while held'],
+    ['launch', 'Hand launch: throw now'],
+    ['trim-e-up', 'Trim: nose up'], ['trim-e-down', 'Trim: nose down'],
+    ['trim-a-left', 'Trim: roll left'], ['trim-a-right', 'Trim: roll right'],
+    ['trim-r-left', 'Trim: yaw left'], ['trim-r-right', 'Trim: yaw right'],
+    ['trim-reset', 'Trim: reset to zero'],
+    ['tilt-up', 'FPV camera: tilt up'], ['tilt-down', 'FPV camera: tilt down'],
+    ['zoom-cycle', 'LOS zoom: cycle'],
+    ['osd-cycle', 'FPV OSD: full / minimal / off'],
+    ['stallcue-toggle', 'Stall indicator: on / off'], ['eng-toggle', 'Engineering readout: on / off'],
+    ['aircraft-cycle', 'Switch aircraft'], ['start-cycle', 'Start position: cycle'],
+  ];
+  const REPEATS = new Set(['trim-e-up', 'trim-e-down', 'trim-a-left', 'trim-a-right', 'trim-r-left', 'trim-r-right', 'tilt-up', 'tilt-down']);
+  const AXES = [['thr', 'Throttle'], ['a', 'Roll'], ['e', 'Pitch'], ['r', 'Yaw']];
+  let uidN = 0;
+  const uid = () => 'c' + Date.now().toString(36) + (uidN++).toString(36);
+  const shortName = (id) => (id || '').replace(/\s*\(.*?\)\s*/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40) || 'Controller';
+  const devName = (dev) => { const m = /#(\d+)$/.exec(dev); return shortName(m ? dev.slice(0, m.index) : dev) + (m ? ` #${m[1]}` : ''); };
+  function migrateV1(m) { // v1 stored one radio: { id, thr, a, e, r, sw: { reset, view, mode } }
+    const out = { axes: {}, channels: [] };
+    if (!m || !m.id) return out;
+    for (const [k] of AXES) if (m[k]) out.axes[k] = Object.assign({ dev: m.id }, m[k]);
+    for (const [k, sw] of Object.entries(m.sw || {})) {
+      if (!sw) continue;
+      const action = k === 'mode' ? (sw.type === 'axis' ? 'stab-hold' : 'stab-toggle') : k === 'view' ? 'view-cycle' : 'reset';
+      out.channels.push(sw.type === 'button'
+        ? { id: uid(), dev: m.id, kind: 'button', i: sw.i, name: '', action }
+        : { id: uid(), dev: m.id, kind: 'axisDir', i: sw.i, dir: sw.dir, th: sw.th, name: '', action });
+    }
+    return out;
+  }
+  // Profiles: one per controller (a HOTAS, a transmitter …). Each holds that controller's axis
+  // mapping, named buttons and actions, and its own rates & expo. A device belongs to one profile;
+  // plugging a device in makes its profile active.
+  function newProfile(name, devs) { return { id: uid(), name, devs: devs || [], axes: {}, channels: [], rates: null, expo: null }; }
+  let IN = load(IKEY);
+  if (!IN || !Array.isArray(IN.profiles)) {
+    IN = { profiles: [], last: null };
+    const old = migrateV1(load(RKEY)); // keep a setup made with the first release
+    const devs = [...new Set([...old.channels.map((c) => c.dev), ...Object.values(old.axes).map((r) => r.dev)])];
+    if (devs.length) { const p = newProfile(shortName(devs[0]), devs); p.axes = old.axes; p.channels = old.channels; IN.profiles.push(p); IN.last = p.id; }
+    store(IKEY, IN);
+  }
+  const saveIN = () => store(IKEY, IN);
+  const EMPTY = { id: '', name: 'No controller', devs: [], axes: {}, channels: [], rates: null, expo: null };
+  let activePid = IN.last;
+  const prof = () => IN.profiles.find((p) => p.id === activePid) || EMPTY;
+  const profileOf = (dev) => IN.profiles.find((p) => p.devs.includes(dev));
+  function setActive(pid) {
+    if (pid === activePid) return;
+    activePid = pid; IN.last = pid; saveIN(); chPrev.clear();
+    const p = prof();
+    if (p !== EMPTY && !wiz.open) flash(`PROFILE ${p.name.toUpperCase()}`);
+    refreshCtlStatus(); syncSheet();
+    if (ctl.open) renderCtl();
+  }
+
   const K = new Set();
   const kb = { thr: 0, a: 0, e: 0, r: 0 };
   const tch = { L: { x: 0, y: 1, id: null }, R: { x: 0, y: 0, id: null } };
   const inp = { thr: 0, a: 0, e: 0, r: 0 };
-  let src = 'keys', padBlocked = false, padAxesPrev = null, swPrev = null, lastPadId = '';
+  let src = 'keys';
   const coarse = matchMedia('(pointer: coarse)').matches;
   let sticksShown = false;
+  let pads = new Map(), padBlocked = false, padSig = null;
+  const axesPrev = new Map();
 
-  function readPad() {
-    let pads;
-    try { pads = navigator.getGamepads ? navigator.getGamepads() : []; } catch (e) { padBlocked = true; return null; }
-    let best = null;
-    for (const p of pads || []) {
-      if (!p || !p.connected || p.axes.length < 4) continue;
-      if (radioMap && p.id === radioMap.id) return p;
-      if (!best) best = p;
+  const devKey = (dev, i) => `${dev}|${i}`;
+  const btnOn = (b) => !!(b && (b.pressed || b.value > 0.5));
+  const isFlightAxis = (dev, i) => AXES.some(([k]) => prof().axes[k] && prof().axes[k].dev === dev && prof().axes[k].i === i);
+  const hasAxes = () => AXES.some(([k]) => prof().axes[k] && pads.has(prof().axes[k].dev));
+  const profPads = () => [...pads].filter(([dev]) => prof().devs.includes(dev));
+
+  function scanPads() {
+    let list = [];
+    try { list = navigator.getGamepads ? Array.from(navigator.getGamepads()) : []; } catch (e) { padBlocked = true; }
+    const m = new Map(), seen = {};
+    for (const p of list) {
+      if (!p || !p.connected) continue;
+      seen[p.id] = (seen[p.id] || 0) + 1;
+      m.set(seen[p.id] > 1 ? `${p.id}#${seen[p.id]}` : p.id, p);
     }
-    return best;
+    const before = pads;
+    pads = m;
+    const sig = [...m.keys()].join('\n');
+    if (sig === padSig) return;
+    if (padSig !== null) {
+      const added = [...m.keys()].filter((k) => !before.has(k)), gone = [...before.keys()].filter((k) => !m.has(k));
+      if (added.length && !wiz.open) toast(`Connected: ${added.map(devName).join(', ')}${hasAxes() ? '' : '. Open Controls & buttons to map the sticks.'}`);
+      if (gone.length) toast(`Disconnected: ${gone.map(devName).join(', ')}`);
+      if (!m.size && src === 'radio') src = 'keys';
+    }
+    padSig = sig;
+    // every connected device belongs to a profile; a newly plugged-in device makes its profile active
+    const fresh = [...m.keys()].filter((k) => !before.has(k));
+    for (const dev of m.keys()) if (!profileOf(dev)) { const p = newProfile(devName(dev), [dev]); IN.profiles.push(p); saveIN(); }
+    const cur = IN.profiles.find((p) => p.id === activePid);
+    const curLive = cur && cur.devs.some((d) => m.has(d));
+    if (fresh.length) setActive(profileOf(fresh[fresh.length - 1]).id);
+    else if (!curLive && m.size) setActive(profileOf([...m.keys()][0]).id);
+    ensureChannels();
+    refreshCtlStatus();
+    if (ctl.open) renderCtl();
   }
-  const mapped = (p) => !!(p && radioMap && radioMap.id === p.id);
-  function padSticks(p) {
-    const ax = p.axes;
-    if (mapped(p)) {
-      const m = radioMap;
-      const stick = (c) => { if (!c) return 0; let v = ((ax[c.i] - c.c) * c.s) / c.k; if (Math.abs(v) < 0.01) v = 0; return clamp(v, -1, 1); };
-      const t = m.thr;
-      return { thr: t ? clamp((ax[t.i] - t.lo) / (t.hi - t.lo), 0, 1) : 0, a: stick(m.a), e: stick(m.e), r: stick(m.r) };
+  // one channel per physical button on every connected device
+  function ensureChannels() {
+    let added = false;
+    for (const [dev, p] of pads) {
+      const P = profileOf(dev);
+      if (!P) continue;
+      for (let i = 0; i < p.buttons.length; i++)
+        if (!P.channels.some((c) => c.dev === dev && c.kind === 'button' && c.i === i)) { P.channels.push({ id: uid(), dev, kind: 'button', i, name: '', action: '' }); added = true; }
+      if (added) P.channels.sort((a, b) => (a.dev === b.dev ? (a.kind === b.kind ? a.i - b.i || (a.v || 0) - (b.v || 0) : a.kind === 'button' ? -1 : 1) : 0));
     }
+    if (added) saveIN();
+  }
+  function chActive(ch) {
+    const p = pads.get(ch.dev);
+    if (!p) return false;
+    if (ch.kind === 'button') return btnOn(p.buttons[ch.i]);
+    const v = p.axes[ch.i];
+    if (v === undefined) return false;
+    if (ch.kind === 'axisDir') return ch.dir > 0 ? v > ch.th : v < ch.th;
+    return Math.abs(v - ch.v) < 0.12; // hat position or other discrete axis value
+  }
+  const POV = { '-7': '↑', '-5': '↗', '-3': '→', '-1': '↘', 1: '↓', 3: '↙', 5: '←', 7: '↖' };
+  function chLabel(ch) {
+    if (ch.kind === 'button') return `Button ${ch.i + 1}`;
+    if (ch.kind === 'axisDir') return `Axis ${ch.i} ${ch.dir > 0 ? '+' : '−'}`;
+    const r = Math.round(ch.v * 7), arrow = POV[r] || '';
+    return `Axis ${ch.i} = ${ch.v.toFixed(2)}${arrow ? ' (hat ' + arrow + ')' : ''}`;
+  }
+  const chTitle = (ch) => ch.name || chLabel(ch);
+
+  // flight axes, calibrated
+  function sticksFrom(axes) {
+    const val = (ref) => { const p = ref && pads.get(ref.dev); return p ? p.axes[ref.i] : undefined; };
+    const stick = (ref) => { const v0 = val(ref); if (v0 === undefined) return 0; let v = ((v0 - ref.c) * ref.s) / ref.k; if (Math.abs(v) < 0.01) v = 0; return clamp(v, -1, 1); };
+    const t = axes.thr, tv = val(t);
+    return { thr: tv === undefined ? 0 : clamp((tv - t.lo) / (t.hi - t.lo), 0, 1), a: stick(axes.a), e: stick(axes.e), r: stick(axes.r) };
+  }
+  function readSticks() {
+    if (hasAxes()) return sticksFrom(prof().axes);
+    const first = profPads()[0] || [...pads][0];
+    const p = first && first[1];
+    if (!p || p.axes.length < 2) return null;
+    const ax = p.axes;
     if (p.mapping === 'standard') return { thr: p.buttons[7] ? p.buttons[7].value : 0, a: ax[2] || 0, e: ax[3] || 0, r: ax[0] || 0 };
-    // uncalibrated transmitter: guess AETR channel order
+    // not mapped yet: guess AETR (typical transmitter channel order)
     return { thr: clamp(((ax[2] || 0) + 1) / 2, 0, 1), a: ax[0] || 0, e: -(ax[1] || 0), r: ax[3] || 0 };
   }
-  function swState(sw, p) {
-    if (!sw) return null;
-    if (sw.type === 'button') { const b = p.buttons[sw.i]; return !!(b && (b.pressed || b.value > 0.5)); }
-    const v = p.axes[sw.i];
-    return sw.dir > 0 ? v > sw.th : v < sw.th;
+
+  /* ---------- actions ---------- */
+  let cutOn = false, cutHeld = false;
+  let osdFlash = { text: '', t: 0 };
+  const flash = (text) => { osdFlash = { text, t: 1.6 }; };
+  if (!S.trim || typeof S.trim !== 'object') S.trim = {};
+  const userTrim = () => (S.trim[AC.id] = Object.assign({ a: 0, e: 0, r: 0 }, S.trim[AC.id]));
+  function trimStep(ax, dir) {
+    const t = userTrim();
+    t[ax] = clamp(Math.round((t[ax] + dir * 0.01) * 1000) / 1000, -0.25, 0.25);
+    saveS();
+    flash(`TRIM ${{ a: 'AIL', e: 'ELE', r: 'RUD' }[ax]} ${t[ax] > 0 ? '+' : ''}${Math.round(t[ax] * 100)}`);
   }
-  function handleSwitches(p) {
-    if (!mapped(p) || !radioMap.sw) return;
-    const now = { reset: swState(radioMap.sw.reset, p), view: swState(radioMap.sw.view, p), mode: swState(radioMap.sw.mode, p) };
-    if (swPrev) {
-      if (now.reset && !swPrev.reset) doReset();
-      if (now.view !== null && now.view !== swPrev.view && (radioMap.sw.view.type === 'axis' || now.view)) cycleView();
-      if (now.mode !== null && now.mode !== swPrev.mode) {
-        if (radioMap.sw.mode.type === 'axis') setMode(now.mode ? 'stab' : 'manual');
-        else if (now.mode) setMode(S.mode === 'stab' ? 'manual' : 'stab');
+  function fire(a) {
+    switch (a) {
+      case 'reset': doReset(); break;
+      case 'pause': togglePause(); break;
+      case 'view-cycle': cycleView(); break;
+      case 'view-los': setView('los'); break;
+      case 'view-fpv': setView('fpv'); break;
+      case 'view-split': setView('split'); break;
+      case 'stab-toggle': setMode(S.mode === 'stab' ? 'manual' : 'stab'); break;
+      case 'cut-toggle': cutOn = !cutOn; flash(cutOn ? 'THROTTLE CUT ON' : 'THROTTLE CUT OFF'); break;
+      case 'launch': if (st.held && armed) { FL.launch(st); timerOn = true; } break;
+      case 'trim-e-up': trimStep('e', 1); break;
+      case 'trim-e-down': trimStep('e', -1); break;
+      case 'trim-a-left': trimStep('a', -1); break;
+      case 'trim-a-right': trimStep('a', 1); break;
+      case 'trim-r-left': trimStep('r', -1); break;
+      case 'trim-r-right': trimStep('r', 1); break;
+      case 'trim-reset': S.trim[AC.id] = { a: 0, e: 0, r: 0 }; saveS(); flash('TRIMS RESET'); break;
+      case 'tilt-up': S.fpvTilt = clamp(S.fpvTilt + 2, -20, 35); saveS(); flash(`CAM TILT ${S.fpvTilt}°`); break;
+      case 'tilt-down': S.fpvTilt = clamp(S.fpvTilt - 2, -20, 35); saveS(); flash(`CAM TILT ${S.fpvTilt}°`); break;
+      case 'zoom-cycle': S.losZoom = { off: 'mild', mild: 'strong', strong: 'off' }[S.losZoom] || 'mild'; saveS(); flash(`LOS ZOOM ${S.losZoom.toUpperCase()}`); break;
+      case 'osd-cycle': S.osd = { full: 'min', min: 'off', off: 'full' }[S.osd] || 'full'; saveS(); break;
+      case 'stallcue-toggle': S.stallCue = !S.stallCue; saveS(); flash(`STALL INDICATOR ${S.stallCue ? 'ON' : 'OFF'}`); break;
+      case 'eng-toggle': S.eng = !S.eng; saveS(); break;
+      case 'aircraft-cycle': setAircraft(S.aircraft === 'goblin' ? 'trainer' : 'goblin'); break;
+      case 'start-cycle': cycleStart(); break;
+    }
+    syncSheet();
+  }
+  const chPrev = new Map(), repeatT = new Map();
+  function processChannels(dt) {
+    let cut = false;
+    for (const ch of prof().channels) {
+      if (!ch.action || !pads.has(ch.dev)) continue;
+      const on = chActive(ch), was = chPrev.get(ch.id);
+      chPrev.set(ch.id, on);
+      if (ch.action === 'cut-hold') { cut = cut || on; continue; }
+      if (ch.action === 'stab-hold') { if (was === undefined ? on : on !== was) setMode(on ? 'stab' : 'manual'); continue; }
+      if (was === undefined) continue; // no edge on first sight
+      if (on && !was) { fire(ch.action); repeatT.set(ch.id, 0.45); }
+      else if (on && REPEATS.has(ch.action)) {
+        let t = (repeatT.get(ch.id) || 0) - dt;
+        if (t <= 0) { fire(ch.action); t = 0.12; }
+        repeatT.set(ch.id, t);
       }
-    } else if (now.mode !== null && radioMap.sw.mode.type === 'axis') setMode(now.mode ? 'stab' : 'manual');
-    swPrev = now;
+    }
+    cutHeld = cut;
   }
 
   function pollInput(dt) {
-    const p = readPad();
-    if (p) {
-      if (p.id !== lastPadId) { lastPadId = p.id; padAxesPrev = null; swPrev = null; if (!wiz.open) toast(mapped(p) ? `Radio connected: ${shortName(p.id)}` : `Controller found: ${shortName(p.id)}. Run radio setup to calibrate.`); refreshRadioBox(); }
-      let moved = false;
-      if (padAxesPrev) for (let i = 0; i < p.axes.length; i++) if (Math.abs(p.axes[i] - padAxesPrev[i]) > 0.03) moved = true;
-      padAxesPrev = Array.from(p.axes);
-      if (moved || (mapped(p) && src !== 'touch' && src !== 'keys')) src = 'radio';
-      if (mapped(p) && src === 'keys' && !K.size && moved) src = 'radio';
-      if (!wiz.open) handleSwitches(p);
-    } else if (lastPadId) { lastPadId = ''; if (src === 'radio') src = 'keys'; toast('Radio disconnected'); refreshRadioBox(); }
+    scanPads();
+    let moved = false;
+    for (const [dev, p] of pads) {
+      const prev = axesPrev.get(dev), own = profileOf(dev), mine = own && own.id === activePid;
+      const mappedOnly = own && AXES.some(([k]) => own.axes[k] && own.axes[k].dev === dev);
+      let mv = false;
+      if (prev) for (let i = 0; i < p.axes.length; i++) if ((!mappedOnly || AXES.some(([k]) => own.axes[k] && own.axes[k].dev === dev && own.axes[k].i === i)) && Math.abs(p.axes[i] - prev[i]) > 0.03) mv = true;
+      axesPrev.set(dev, Array.from(p.axes));
+      if (mv && !mine && own && !wiz.open && !ctl.open) setActive(own.id); // grabbed the other controller
+      moved = moved || mv;
+    }
+    if (moved && !wiz.open && !ctl.open) src = 'radio';
+    if (!wiz.open && !ctl.open) processChannels(dt); else chPrev.clear();
 
     // keyboard (mode 2: WASD = throttle/yaw, arrows = pitch/roll; mode 1 swaps throttle and pitch)
     const m2 = S.stickMode === '2';
@@ -433,16 +609,14 @@
     kb.e = slew(kb.e, (K.has(pBack) ? 1 : 0) - (K.has(pFwd) ? 1 : 0));
     kb.r = slew(kb.r, (K.has('KeyD') ? 1 : 0) - (K.has('KeyA') ? 1 : 0));
 
-    let v;
-    if (src === 'radio' && p) v = padSticks(p);
-    else if (src === 'touch') {
+    let v = src === 'radio' ? readSticks() : null;
+    if (!v && src === 'touch') {
       const thrSide = m2 ? tch.L : tch.R, pitchSide = m2 ? tch.R : tch.L;
       v = { thr: clamp((1 - thrSide.y) / 2, 0, 1), a: tch.R.x, e: pitchSide.y, r: tch.L.x };
-    } else v = kb;
+    }
+    if (!v) v = kb;
     inp.thr = v.thr; inp.a = v.a; inp.e = v.e; inp.r = v.r;
-    return p;
   }
-  const shortName = (id) => (id || '').replace(/\s*\(.*?\)\s*/g, ' ').trim().slice(0, 40) || 'controller';
 
   addEventListener('keydown', (e) => {
     if (e.target && e.target.closest && e.target.closest('input, select, textarea')) return;
@@ -450,8 +624,8 @@
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(c)) e.preventDefault();
     if (!K.has(c)) {
       if (!$('#welcome').hidden) { if (c === 'Enter' || c === 'Space') { fly(); return; } }
-      if (c === 'Escape') { if (sheetOpen()) closeSheet(); else if (wiz.open) closeWizard(); }
-      if (!wiz.open && !sheetOpen()) {
+      if (c === 'Escape') { if (ctl.open) closeCtl(); else if (sheetOpen()) closeSheet(); else if (wiz.open) closeWizard(); }
+      if (!wiz.open && !sheetOpen() && !ctl.open) {
         if (c === 'KeyR') doReset();
         else if (c === 'KeyV') cycleView();
         else if (c === 'KeyM') setMode(S.mode === 'stab' ? 'manual' : 'stab');
@@ -467,7 +641,6 @@
   });
   addEventListener('keyup', (e) => K.delete(e.code));
   addEventListener('blur', () => K.clear());
-  addEventListener('gamepadconnected', () => refreshRadioBox());
 
   // touch sticks
   function setupStick(el, side) {
@@ -496,106 +669,366 @@
     $('#stickR').dataset.label = m2 ? 'Pitch · Roll' : 'Throttle · Roll';
   }
 
-  /* ---------------------------------------------------------------- radio setup wizard */
-  const wiz = { open: false, step: 0, base: null, baseBtn: null, map: null, hold: 0, phase: 'detect', cand: -1, ext: 0, stableT: 0, last: null, used: new Set() };
+  /* ---------- detection helpers shared by the guided setup and the controls panel ---------- */
+  function snapshot() {
+    const s = new Map();
+    for (const [dev, p] of pads) s.set(dev, { axes: Array.from(p.axes), btn: p.buttons.map(btnOn) });
+    return s;
+  }
+  // true once every axis on every device has stayed within `tol` for `need` seconds
+  function stillness(state, dt, need, tol = 0.03) {
+    const now = snapshot();
+    let still = !!state.last && now.size === state.last.size;
+    if (still) for (const [dev, s] of now) { const l = state.last.get(dev); if (!l || s.axes.some((v, i) => Math.abs(v - l.axes[i]) > tol)) { still = false; break; } }
+    state.t = still ? state.t + dt : 0;
+    state.last = now;
+    return { done: state.t >= need, progress: Math.min(1, state.t / need), snap: now };
+  }
+  // the axis (on any device) that has moved more than 0.5 from `base` and been held there for `need` s
+  function detectAxis(d, dt, need) {
+    let best = null, dmax = 0;
+    for (const [dev, p] of pads) {
+      const b = d.base.get(dev);
+      if (!b) continue;
+      for (let i = 0; i < p.axes.length; i++) {
+        if (d.skip && d.skip(dev, i)) continue;
+        const dv = Math.abs(p.axes[i] - b.axes[i]);
+        if (dv > dmax) { dmax = dv; best = devKey(dev, i); }
+      }
+    }
+    if (dmax > 0.5 && best === d.cand) d.hold += dt; else { d.hold = 0; d.cand = dmax > 0.5 ? best : null; d.ext = 0; }
+    if (!d.cand) return { progress: 0 };
+    const j = d.cand.lastIndexOf('|'), dev = d.cand.slice(0, j), i = +d.cand.slice(j + 1);
+    const base = d.base.get(dev).axes[i], val = pads.get(dev).axes[i];
+    d.ext = Math.max(d.ext, Math.abs(val - base));
+    return d.hold >= need ? { done: true, dev, i, base, val, ext: d.ext } : { progress: d.hold / need };
+  }
+  function detectButton(base) {
+    for (const [dev, p] of pads) {
+      const b = base.get(dev);
+      if (!b) continue;
+      for (let i = 0; i < p.buttons.length; i++) if (btnOn(p.buttons[i]) && !b.btn[i]) return { dev, i };
+    }
+    return null;
+  }
+  function axisRef(key, hit) {
+    if (key === 'thr') return { dev: hit.dev, i: hit.i, lo: hit.base, hi: hit.val };
+    return { dev: hit.dev, i: hit.i, c: hit.base, s: Math.sign(hit.val - hit.base), k: Math.max(0.3, hit.ext) };
+  }
+  function findOrMakeChannel(m) {
+    const P = profileOf(m.dev) || prof();
+    let ch = P.channels.find((c) => c.dev === m.dev && c.kind === m.kind && c.i === m.i && (m.kind !== 'axisVal' || Math.abs(c.v - m.v) < 0.05) && (m.kind !== 'axisDir' || c.dir === m.dir));
+    if (!ch) { ch = Object.assign({ id: uid(), name: '', action: '' }, m); P.channels.push(ch); saveIN(); }
+    return ch;
+  }
+
+  /* ---------------------------------------------------------------- guided setup */
+  const wiz = { open: false, step: 0, base: null, det: null, phase: 'detect', rel: null, still: {}, draft: null };
   const WSTEPS = [
-    { id: 'connect', title: 'Connect your radio', text: 'Plug the transmitter into the Chromebook by USB and choose <b>Joystick (HID)</b> on the radio’s USB prompt. Then move a stick so Chrome sees it.' },
-    { id: 'center', title: 'Centre the sticks', text: 'Let the self-centring sticks rest in the middle and pull the <b>throttle all the way down</b>. Keep everything still for a moment.' },
-    { id: 'thr', title: 'Throttle', text: 'Push the <b>throttle stick all the way up</b> and hold it there.', back: 'Now bring the throttle back down.' },
-    { id: 'a', title: 'Roll (aileron)', text: 'Push the <b>roll stick fully right</b> and hold.', back: 'Let it return to centre.' },
-    { id: 'e', title: 'Pitch (elevator)', text: 'Pull the <b>pitch stick fully back</b> toward you (nose up) and hold.', back: 'Let it return to centre.' },
-    { id: 'r', title: 'Yaw (rudder)', text: 'Push the <b>yaw stick fully right</b> and hold. On a wing with no rudder, set it up anyway: it steers nothing but costs nothing.', back: 'Let it return to centre.' },
-    { id: 'reset', sw: true, title: 'Reset switch', text: 'Flip the switch or press the button you want to use for <b>reset</b>, or skip.', back: 'Flip it back.' },
-    { id: 'view', sw: true, title: 'View switch', text: 'Flip a switch for <b>changing view</b> (LOS → split → FPV), or skip.', back: 'Flip it back.' },
-    { id: 'mode', sw: true, title: 'Flight-mode switch', text: 'Flip the switch you want for <b>stabilised mode</b>. Its flipped position will mean stabilised, the other manual. Or skip.', back: 'Flip it back.' },
-    { id: 'done', title: 'Check and save', text: 'Move the sticks. The bars should follow: throttle up = right, roll right = right, pitch back = right, yaw right = right.' },
+    { id: 'connect', title: 'Connect your controller', text: 'Plug in by USB. A transmitter needs <b>Joystick (HID)</b> chosen on its USB prompt; a HOTAS or gamepad just works. If the stick and throttle are separate USB devices, plug in both. Then move a stick so Chrome sees it.' },
+    { id: 'center', title: 'Centre the sticks', text: 'Let self-centring sticks rest in the middle and pull the <b>throttle all the way back</b> (idle). Keep everything still for a moment.' },
+    { id: 'thr', title: 'Throttle', text: 'Push the <b>throttle all the way up / forward</b> and hold it there.', back: 'Now bring the throttle back to idle.' },
+    { id: 'a', title: 'Roll', text: 'Push the stick <b>fully right</b> and hold.', back: 'Let it return to centre.' },
+    { id: 'e', title: 'Pitch', text: 'Pull the stick <b>fully back</b> toward you (nose up) and hold.', back: 'Let it return to centre.' },
+    { id: 'r', title: 'Yaw', text: 'Yaw <b>fully right</b> and hold: twist the stick, push the rudder rocker, or the radio’s rudder stick. On a wing with no rudder it steers nothing but costs nothing.', back: 'Let it return to centre.' },
+    { id: 'reset', sw: true, action: 'reset', title: 'Reset button', text: 'Press the button (or flip the switch) you want for <b>reset</b>, or skip.', back: 'Let go.' },
+    { id: 'view', sw: true, action: 'view-cycle', title: 'View button', text: 'Press a button for <b>changing view</b> (LOS → split → FPV), or skip.', back: 'Let go.' },
+    { id: 'mode', sw: true, action: 'stab', title: 'Stabilised-mode switch', text: 'Press a button to <b>toggle stabilised mode</b>, or flip a switch whose flipped position should mean stabilised. Or skip.', back: 'Let go.' },
+    { id: 'done', title: 'Check and save', text: 'Move the sticks. The bars should follow: throttle up = right, roll right = right, pitch back = right, yaw right = right. Every other button can be named and given a job in <b>Controls &amp; buttons</b>.' },
   ];
   function openWizard() {
-    hide($('#welcome'));
-    wiz.open = true; wiz.step = 0; wiz.map = { sw: {} }; wiz.used = new Set(); wiz.phase = 'detect';
-    show($('#wizard')); renderWizStep(); setPaused(true);
+    hide($('#welcome')); if (ctl.open) closeCtl(); if (sheetOpen()) closeSheet();
+    wiz.open = true; wiz.step = 0; wiz.draft = { axes: {}, assign: [] };
+    show($('#wizard')); renderWizStep(); syncPause();
   }
-  function closeWizard() { wiz.open = false; hide($('#wizard')); setPaused(userPaused); }
+  function closeWizard() { wiz.open = false; hide($('#wizard')); syncPause(); }
   function renderWizStep() {
     const s = WSTEPS[wiz.step];
-    $('#wzStep').textContent = `Radio setup · ${wiz.step + 1} of ${WSTEPS.length}`;
+    $('#wzStep').textContent = `Controller setup · ${wiz.step + 1} of ${WSTEPS.length}`;
     $('#wzTitle').textContent = s.title;
     $('#wzText').innerHTML = s.text;
     $('#wzSkip').hidden = !s.sw;
     $('#wzNext').hidden = !(s.id === 'connect' || s.id === 'done');
     $('#wzNext').textContent = s.id === 'done' ? 'Save' : 'Start';
-    wiz.hold = 0; wiz.cand = -1; wiz.phase = 'detect'; wiz.stableT = 0;
+    wiz.phase = 'detect'; wiz.still = {}; wiz.rel = null;
+    if (wiz.base) {
+      const used = new Set(Object.values(wiz.draft.axes).map((r) => devKey(r.dev, r.i)));
+      wiz.det = { base: wiz.base, skip: (dev, i) => used.has(devKey(dev, i)), cand: null, hold: 0, ext: 0 };
+    }
     $('#wzBar').style.width = '0%';
   }
   function nextWiz() { wiz.step++; if (wiz.step >= WSTEPS.length) return saveWizard(); renderWizStep(); }
   function saveWizard() {
-    radioMap = wiz.map; store(RKEY, radioMap); swPrev = null; src = 'radio';
-    closeWizard(); toast('Radio saved'); refreshRadioBox();
+    const used = Object.values(wiz.draft.axes).map((r) => r.dev).concat(wiz.draft.assign.map((a) => a.match.dev));
+    const owner = used.length ? profileOf(used[0]) : null;
+    if (owner) { setActive(owner.id); for (const d of used) if (!owner.devs.includes(d)) { const o = profileOf(d); if (o) o.devs = o.devs.filter((x) => x !== d); owner.devs.push(d); } }
+    prof().axes = Object.assign({}, wiz.draft.axes);
+    for (const a of wiz.draft.assign) findOrMakeChannel(a.match).action = a.action;
+    saveIN(); src = 'radio'; chPrev.clear();
+    closeWizard(); toast('Controller saved'); refreshCtlStatus();
   }
-  function wizTick(p, dt) {
-    const s = WSTEPS[wiz.step];
-    const mon = $('#wzMon');
-    // live monitor of raw axes
-    if (p) {
-      let html = '';
-      const roleOf = (i) => { const m = wiz.map; for (const k of ['thr', 'a', 'e', 'r']) if (m[k] && m[k].i === i) return { thr: 'THR', a: 'AIL', e: 'ELE', r: 'RUD' }[k]; for (const k of ['reset', 'view', 'mode']) if (m.sw[k] && m.sw[k].type === 'axis' && m.sw[k].i === i) return k.toUpperCase(); return ''; };
-      if (s.id === 'done') {
-        const v = { thr: 0, a: 0, e: 0, r: 0 }; const save = radioMap; radioMap = Object.assign({ id: p.id }, wiz.map); Object.assign(v, padSticks(p)); radioMap = save;
-        for (const [k, lab] of [['thr', 'THR'], ['a', 'AIL'], ['e', 'ELE'], ['r', 'RUD']]) {
-          const x = k === 'thr' ? v.thr : (v[k] + 1) / 2;
-          html += `<div class="row on"><b>${lab}</b><div class="bar ${k === 'thr' ? 'thr' : ''}"><span style="left:${k === 'thr' ? 0 : Math.min(50, x * 100)}%;width:${k === 'thr' ? x * 100 : Math.abs(x - 0.5) * 100}%"></span></div><span>${(k === 'thr' ? v.thr * 100 : v[k] * 100).toFixed(0)}%</span></div>`;
-        }
-      } else {
-        for (let i = 0; i < p.axes.length; i++) {
-          const x = (p.axes[i] + 1) / 2, role = roleOf(i);
-          html += `<div class="row ${role ? 'on' : ''}"><span>A${i} <b>${role}</b></span><div class="bar"><span style="left:${Math.min(50, x * 100)}%;width:${Math.abs(x - 0.5) * 100}%"></span></div><span>${p.axes[i].toFixed(2)}</span></div>`;
-        }
-        const pressed = p.buttons.map((b, i) => (b.pressed ? i : -1)).filter((i) => i >= 0);
-        html += `<div class="row"><span>Btns</span><span style="grid-column: span 2">${pressed.length ? 'pressed: ' + pressed.join(', ') : 'none pressed'} (${p.buttons.length} total)</span></div>`;
+  function monitorHtml(roleOf) {
+    if (!pads.size) return `<div class="row"><span>—</span><span style="grid-column: span 2">${padBlocked ? 'This view blocks game controllers. Open the page in its own Chrome tab.' : 'No controller seen yet. Plug in and move a stick.'}</span></div>`;
+    let html = '';
+    for (const [dev, p] of pads) {
+      html += `<div class="row dev"><span style="grid-column: 1 / -1">${devName(dev)}</span></div>`;
+      for (let i = 0; i < p.axes.length; i++) {
+        const x = (p.axes[i] + 1) / 2, role = roleOf(dev, i);
+        html += `<div class="row ${role ? 'on' : ''}"><span>A${i} <b>${role}</b></span><div class="bar"><span style="left:${Math.min(50, x * 100)}%;width:${Math.abs(x - 0.5) * 100}%"></span></div><span>${p.axes[i].toFixed(2)}</span></div>`;
       }
-      mon.innerHTML = html;
-    } else mon.innerHTML = `<div class="row"><span>—</span><span style="grid-column: span 2">${padBlocked ? 'This view blocks game controllers. Open the page in its own Chrome tab.' : 'No controller seen yet. Plug in, pick Joystick on the radio, move a stick.'}</span></div>`;
-
-    if (s.id === 'connect') { $('#wzNext').disabled = !p; return; }
-    if (!p) return;
-    const ax = p.axes;
-    if (s.id === 'center') {
-      if (wiz.last && ax.every((v, i) => Math.abs(v - wiz.last[i]) < 0.015)) wiz.stableT += dt; else wiz.stableT = 0;
-      wiz.last = Array.from(ax);
-      $('#wzBar').style.width = `${Math.min(100, (wiz.stableT / 1.2) * 100)}%`;
-      if (wiz.stableT > 1.2) { wiz.base = Array.from(ax); wiz.baseBtn = p.buttons.map((b) => b.pressed); wiz.map.id = p.id; nextWiz(); }
+      const pressed = p.buttons.map((b, i) => (btnOn(b) ? i + 1 : 0)).filter(Boolean);
+      html += `<div class="row"><span>Btns</span><span style="grid-column: span 2">${pressed.length ? 'pressed: ' + pressed.join(', ') : 'none pressed'} (${p.buttons.length} total)</span></div>`;
+    }
+    return html;
+  }
+  function wizTick(dt) {
+    const s = WSTEPS[wiz.step];
+    const roleOf = (dev, i) => { for (const [k, lab] of AXES) { const r = wiz.draft.axes[k]; if (r && r.dev === dev && r.i === i) return lab.toUpperCase(); } return ''; };
+    if (s.id === 'done') {
+      const v = sticksFrom(wiz.draft.axes);
+      $('#wzMon').innerHTML = AXES.map(([k, lab]) => {
+        const x = k === 'thr' ? v.thr : (v[k] + 1) / 2;
+        return `<div class="row on"><b>${lab.toUpperCase()}</b><div class="bar ${k === 'thr' ? 'thr' : ''}"><span style="left:${k === 'thr' ? 0 : Math.min(50, x * 100)}%;width:${k === 'thr' ? x * 100 : Math.abs(x - 0.5) * 100}%"></span></div><span>${Math.round((k === 'thr' ? v.thr : v[k]) * 100)}%</span></div>`;
+      }).join('');
       return;
     }
-    if (s.id === 'done') return;
-    const base = wiz.base;
+    $('#wzMon').innerHTML = monitorHtml(roleOf);
+    if (s.id === 'connect') { $('#wzNext').disabled = !pads.size; return; }
+    if (!pads.size) return;
+    if (s.id === 'center') {
+      const r = stillness(wiz.still, dt, 1.2);
+      $('#wzBar').style.width = `${r.progress * 100}%`;
+      if (r.done) { wiz.base = r.snap; nextWiz(); }
+      return;
+    }
     if (wiz.phase === 'detect') {
-      let best = -1, dev = 0;
-      for (let i = 0; i < ax.length; i++) { if (wiz.used.has(i)) continue; const d = Math.abs(ax[i] - base[i]); if (d > dev) { dev = d; best = i; } }
-      let btn = -1;
-      if (s.sw) p.buttons.forEach((b, i) => { if (b.pressed && !wiz.baseBtn[i] && btn < 0) btn = i; });
-      if (s.sw && btn >= 0) { wiz.map.sw[s.id] = { type: 'button', i: btn }; wiz.phase = 'release'; wiz.relBtn = btn; return; }
-      if (dev > 0.5 && best === wiz.cand) wiz.hold += dt; else { wiz.hold = 0; wiz.cand = dev > 0.5 ? best : -1; wiz.ext = 0; }
-      if (wiz.cand >= 0) wiz.ext = Math.max(wiz.ext, Math.abs(ax[wiz.cand] - base[wiz.cand]));
-      const need = s.sw ? 0.25 : 0.45;
-      $('#wzBar').style.width = `${Math.min(100, (wiz.hold / need) * 100)}%`;
-      if (wiz.hold > need) {
-        const i = wiz.cand, d = ax[i] - base[i];
-        if (s.sw) wiz.map.sw[s.id] = { type: 'axis', i, dir: Math.sign(d), th: base[i] + d / 2 };
-        else if (s.id === 'thr') wiz.map.thr = { i, lo: base[i], hi: ax[i] };
-        else wiz.map[s.id] = { i, c: base[i], s: Math.sign(d), k: Math.max(0.3, wiz.ext) };
-        wiz.used.add(i); wiz.phase = 'release'; wiz.relAxis = i;
-        $('#wzText').innerHTML = s.back || 'Release.';
+      if (s.sw) {
+        const b = detectButton(wiz.base);
+        if (b) {
+          wiz.draft.assign.push({ match: { dev: b.dev, kind: 'button', i: b.i }, action: s.action === 'stab' ? 'stab-toggle' : s.action });
+          wiz.phase = 'release'; wiz.rel = { btn: b }; $('#wzText').innerHTML = s.back; return;
+        }
       }
+      const hit = detectAxis(wiz.det, dt, s.sw ? 0.25 : 0.45);
+      $('#wzBar').style.width = `${(hit.progress || (hit.done ? 1 : 0)) * 100}%`;
+      if (!hit.done) return;
+      if (s.sw) {
+        const d = hit.val - hit.base;
+        wiz.draft.assign.push({ match: { dev: hit.dev, kind: 'axisDir', i: hit.i, dir: Math.sign(d), th: hit.base + d / 2 }, action: s.action === 'stab' ? 'stab-hold' : s.action });
+      } else wiz.draft.axes[s.id] = axisRef(s.id, hit);
+      wiz.phase = 'release'; wiz.rel = { dev: hit.dev, i: hit.i, base: hit.base };
+      $('#wzText').innerHTML = s.back || 'Let go.';
     } else if (wiz.phase === 'release') {
-      const done = wiz.relBtn != null && WSTEPS[wiz.step].sw && wiz.map.sw[s.id] && wiz.map.sw[s.id].type === 'button'
-        ? !p.buttons[wiz.relBtn].pressed
-        : Math.abs(ax[wiz.relAxis] - base[wiz.relAxis]) < 0.2;
-      if (done) { wiz.relBtn = null; nextWiz(); }
+      const r = wiz.rel;
+      const p = pads.get(r.btn ? r.btn.dev : r.dev);
+      const done = !p || (r.btn ? !btnOn(p.buttons[r.btn.i]) : Math.abs(p.axes[r.i] - r.base) < 0.2);
+      if (done) nextWiz();
     }
   }
   $('#wzNext').addEventListener('click', () => { const s = WSTEPS[wiz.step]; if (s.id === 'done') saveWizard(); else if (s.id === 'connect') nextWiz(); });
   $('#wzSkip').addEventListener('click', () => nextWiz());
   $('#wzCancel').addEventListener('click', closeWizard);
+
+  /* ---------------------------------------------------------------- controls & buttons panel */
+  const ctl = { open: false, rec: false, learn: null, sel: null, rows: new Map(), axisRows: new Map(), prevBtn: new Map(), axState: new Map(), recent: [] };
+  const LEARN_TEXT = { thr: ['Pull the throttle to idle and hold still…', 'Now push the throttle to full and hold.'], a: ['Let the stick centre…', 'Push the stick fully right and hold.'], e: ['Let the stick centre…', 'Pull the stick fully back and hold.'], r: ['Let the stick centre…', 'Yaw fully right and hold.'] };
+  function openCtl() {
+    hide($('#welcome')); if (sheetOpen()) closeSheet();
+    ctl.open = true; ctl.rec = false; ctl.learn = null; ctl.sel = null; ctl.recent = [];
+    show($('#ctl')); renderCtl(); syncPause();
+  }
+  function closeCtl() { ctl.open = false; ctl.rec = false; ctl.learn = null; hide($('#ctl')); syncPause(); refreshCtlStatus(); }
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const actionOptions = (cur) => ACTIONS.map(([v, l]) => `<option value="${v}"${v === (cur || '') ? ' selected' : ''}>${esc(l)}</option>`).join('');
+  const knownDevices = () => prof().devs.slice();
+  function moveDevice(dev, to) {
+    const from = profileOf(dev);
+    if (from === to) return;
+    if (from) {
+      from.devs = from.devs.filter((d) => d !== dev);
+      to.channels.push(...from.channels.filter((c) => c.dev === dev));
+      from.channels = from.channels.filter((c) => c.dev !== dev);
+      for (const [k] of AXES) if (from.axes[k] && from.axes[k].dev === dev) { to.axes[k] = from.axes[k]; delete from.axes[k]; }
+      if (!from.devs.length) IN.profiles = IN.profiles.filter((p) => p !== from);
+    }
+    to.devs.push(dev);
+    saveIN();
+  }
+  function renderCtl() {
+    const P = prof();
+    // profile bar
+    $('#ctlProfile').innerHTML = IN.profiles.length
+      ? `<label for="profSel">Profile</label><select id="profSel">${IN.profiles.map((p) => `<option value="${p.id}"${p.id === activePid ? ' selected' : ''}>${esc(p.name)}${p.devs.some((d) => pads.has(d)) ? '' : ' (not connected)'}</option>`).join('')}</select>` +
+        `<input type="text" id="profName" value="${esc(P.name)}" maxlength="32" aria-label="Profile name"><button class="btn small" id="profDel"${P === EMPTY ? ' disabled' : ''}>${ctl.delArm ? 'Confirm delete' : 'Delete profile'}</button>`
+      : '';
+    if (IN.profiles.length) {
+      $('#profSel').addEventListener('change', (e) => { ctl.sel = null; setActive(e.target.value); renderCtl(); });
+      $('#profName').addEventListener('input', (e) => { P.name = e.target.value.trim() || devName(P.devs[0] || 'Controller'); saveIN(); refreshCtlStatus(); });
+      $('#profDel').addEventListener('click', () => {
+        if (!ctl.delArm) { ctl.delArm = true; renderCtl(); setTimeout(() => { if (ctl.delArm) { ctl.delArm = false; if (ctl.open) renderCtl(); } }, 3000); return; }
+        ctl.delArm = false;
+        IN.profiles = IN.profiles.filter((p) => p !== P);
+        const live = IN.profiles.find((p) => p.devs.some((d) => pads.has(d)));
+        activePid = live ? live.id : IN.profiles[0] ? IN.profiles[0].id : null; IN.last = activePid;
+        saveIN(); ensureChannels(); renderCtl(); toast(`Deleted profile ${P.name}`);
+      });
+    }
+    // devices in this profile, plus other connected devices that could join it
+    const devs = knownDevices();
+    const others = [...pads.keys()].filter((d) => !devs.includes(d));
+    let dh = devs.map((d, n) => { const p = pads.get(d); return `<div class="devchip ${p ? 'on' : ''}"><i></i><span><b>${esc(devName(d))}</b><small>${p ? `${p.axes.length} axes · ${p.buttons.length} buttons` : 'not connected'}</small></span><button class="btn small" data-forget="${n}">Forget</button></div>`; }).join('');
+    dh += others.map((d, n) => `<div class="devchip other"><i></i><span><b>${esc(devName(d))}</b><small>connected · in profile ${esc((profileOf(d) || EMPTY).name)}</small></span><button class="btn small" data-adopt="${n}"${P === EMPTY ? ' disabled' : ''}>Add to this profile</button></div>`).join('');
+    $('#ctlDevices').innerHTML = dh || `<p class="note">${padBlocked ? 'This view blocks game controllers. Open the page in its own Chrome tab.' : 'No controller detected yet. Plug in by USB and move a stick or press a button.'}</p>`;
+    $('#ctlDevices').querySelectorAll('[data-forget]').forEach((b) => b.addEventListener('click', () => {
+      const d = devs[+b.dataset.forget];
+      P.devs = P.devs.filter((x) => x !== d);
+      P.channels = P.channels.filter((c) => c.dev !== d);
+      for (const [k] of AXES) if (P.axes[k] && P.axes[k].dev === d) delete P.axes[k];
+      if (!P.devs.length) { IN.profiles = IN.profiles.filter((p) => p !== P); activePid = null; }
+      saveIN(); padSig = null; scanPads(); renderCtl(); toast(`Forgot ${devName(d)}`);
+    }));
+    $('#ctlDevices').querySelectorAll('[data-adopt]').forEach((b) => b.addEventListener('click', () => { moveDevice(others[+b.dataset.adopt], P); ensureChannels(); renderCtl(); }));
+    // flight axes
+    ctl.axisRows.clear();
+    $('#ctlAxes').innerHTML = AXES.map(([k, lab]) => {
+      const r = prof().axes[k];
+      const srcTxt = r ? `${esc(devName(r.dev))} · axis ${r.i}${(k === 'thr' ? r.hi < r.lo : r.s < 0) ? ' · reversed' : ''}` : 'Not set';
+      const learning = ctl.learn && ctl.learn.key === k;
+      return `<div class="axrow" data-k="${k}"><b>${lab}</b><span class="src">${learning ? `<em>${LEARN_TEXT[k][ctl.learn.phase === 'still' ? 0 : 1]}</em>` : srcTxt}</span><div class="bar ${k === 'thr' ? 'thr' : ''}"><span></span></div><span class="ax-btns"><button class="btn small" data-learn="${k}">${learning ? 'Cancel' : 'Learn'}</button><button class="btn small" data-clear="${k}"${r ? '' : ' disabled'}>Clear</button></span></div>`;
+    }).join('');
+    $('#ctlAxes').querySelectorAll('.axrow').forEach((row) => ctl.axisRows.set(row.dataset.k, row.querySelector('.bar span')));
+    $('#ctlAxes').querySelectorAll('[data-learn]').forEach((b) => b.addEventListener('click', () => {
+      const k = b.dataset.learn;
+      ctl.learn = ctl.learn && ctl.learn.key === k ? null : { key: k, phase: 'still', still: {} };
+      ctl.rec = false; renderCtl();
+    }));
+    $('#ctlAxes').querySelectorAll('[data-clear]').forEach((b) => b.addEventListener('click', () => { delete prof().axes[b.dataset.clear]; saveIN(); renderCtl(); }));
+    // record toggle
+    const rb = $('#ctlRec');
+    rb.setAttribute('aria-pressed', String(ctl.rec));
+    rb.textContent = ctl.rec ? '■ Stop recording' : '● Record buttons';
+    $('#ctlRecHint').textContent = ctl.rec
+      ? 'Recording: press buttons and hats one at a time. Each press jumps to its channel so you can name it. Names save as you type.'
+      : 'Every button already has a channel. Press Record, then press each button to find and name it. Hats and switches that Chrome reports as axes are added when you record them.';
+    // channel list
+    ctl.rows.clear();
+    let html = '';
+    for (const d of devs) {
+      const chs = prof().channels.filter((c) => c.dev === d);
+      if (!chs.length) continue;
+      html += `<div class="chdev">${esc(devName(d))}${pads.has(d) ? '' : ' · not connected'}</div>`;
+      for (const ch of chs)
+        html += `<div class="ch${ctl.sel === ch.id ? ' hl' : ''}" data-id="${ch.id}"><i class="led"></i><span class="lab">${esc(chLabel(ch))}</span>` +
+          `<input type="text" id="nm-${ch.id}" value="${esc(ch.name || '')}" placeholder="Name it" aria-label="Name for ${esc(chLabel(ch))}" maxlength="40">` +
+          `<select id="ac-${ch.id}" aria-label="Action for ${esc(chLabel(ch))}">${actionOptions(ch.action)}</select>` +
+          `${ch.kind === 'button' ? '<span></span>' : `<button class="btn small del" data-del="${ch.id}" aria-label="Remove">×</button>`}</div>`;
+    }
+    $('#ctlList').innerHTML = html || '<p class="note">Buttons appear here once a controller is connected.</p>';
+    $('#ctlList').querySelectorAll('.ch').forEach((row) => {
+      const ch = prof().channels.find((c) => c.id === row.dataset.id);
+      ctl.rows.set(ch.id, { row, led: row.querySelector('.led') });
+      row.querySelector('input').addEventListener('input', (e) => { ch.name = e.target.value.trim(); saveIN(); syncLast(ch); });
+      row.querySelector('select').addEventListener('change', (e) => { ch.action = e.target.value; saveIN(); syncLast(ch); });
+      const del = row.querySelector('[data-del]');
+      if (del) del.addEventListener('click', () => { { const P = prof(); P.channels = P.channels.filter((c) => c !== ch); } saveIN(); renderCtl(); });
+    });
+    renderLast();
+  }
+  function renderLast() {
+    const box = $('#ctlLast');
+    const ch = ctl.sel && prof().channels.find((c) => c.id === ctl.sel);
+    if (!ch) { box.hidden = true; return; }
+    box.hidden = false;
+    box.innerHTML = `<span class="eyebrow">Just pressed</span><div class="last-row"><i class="led on"></i><b>${esc(devName(ch.dev))} · ${esc(chLabel(ch))}</b>` +
+      `<input type="text" id="lastName" value="${esc(ch.name || '')}" placeholder="Name it, e.g. Trigger" maxlength="40">` +
+      `<select id="lastAct" aria-label="Action">${actionOptions(ch.action)}</select></div>` +
+      (ctl.recent.length > 1 ? `<div class="note">Recorded so far: ${ctl.recent.map(esc).join(' · ')}</div>` : '');
+    const nm = $('#lastName'), ac = $('#lastAct');
+    nm.addEventListener('input', () => { ch.name = nm.value.trim(); saveIN(); const r = $(`#nm-${ch.id}`); if (r) r.value = nm.value; });
+    nm.addEventListener('keydown', (e) => { if (e.key === 'Enter') nm.blur(); });
+    ac.addEventListener('change', () => { ch.action = ac.value; saveIN(); const r = $(`#ac-${ch.id}`); if (r) r.value = ac.value; });
+    if (ctl.rec) nm.focus({ preventScroll: true });
+  }
+  function syncLast(ch) {
+    if (ctl.sel !== ch.id) return;
+    const nm = $('#lastName'), ac = $('#lastAct');
+    if (nm && document.activeElement !== nm) nm.value = ch.name || '';
+    if (ac) ac.value = ch.action || '';
+  }
+  function recordHit(m) {
+    const before = prof().channels.length;
+    const ch = findOrMakeChannel(m);
+    ctl.sel = ch.id;
+    const lab = `${devName(ch.dev)} ${chLabel(ch)}`;
+    ctl.recent = [chTitle(ch) === chLabel(ch) ? chLabel(ch) : `${chLabel(ch)} (${ch.name})`, ...ctl.recent.filter((x) => !x.startsWith(chLabel(ch)))].slice(0, 8);
+    if (prof().channels.length !== before) renderCtl();
+    else {
+      ctl.rows.forEach((r, id) => r.row.classList.toggle('hl', id === ch.id));
+      renderLast();
+    }
+    const r = ctl.rows.get(ch.id);
+    if (r) r.row.scrollIntoView({ block: 'nearest' });
+    return lab;
+  }
+  const discrete = (v) => { const r = Math.round(v * 7); return Math.abs(v * 7 - r) < 0.25 && Math.abs(r) % 2 === 1; };
+  function ctlTick(dt) {
+    // live values
+    for (const [k, el] of ctl.axisRows) {
+      const r = prof().axes[k];
+      if (!r || !pads.has(r.dev)) { el.style.width = '0'; continue; }
+      const v = sticksFrom({ [k]: r, thr: k === 'thr' ? r : null })[k === 'thr' ? 'thr' : k];
+      if (k === 'thr') { el.style.left = '0'; el.style.width = `${v * 100}%`; }
+      else { const x = (v + 1) / 2; el.style.left = `${Math.min(50, x * 100)}%`; el.style.width = `${Math.abs(x - 0.5) * 100}%`; }
+    }
+    for (const ch of prof().channels) { const r = ctl.rows.get(ch.id); if (r) r.led.classList.toggle('on', chActive(ch)); }
+    // learning one flight axis
+    if (ctl.learn) {
+      const L = ctl.learn;
+      if (L.phase === 'still') {
+        const r = stillness(L.still, dt, 0.8);
+        if (r.done) { L.phase = 'move'; L.det = { base: r.snap, cand: null, hold: 0, ext: 0, skip: (dev, i) => AXES.some(([k]) => k !== L.key && prof().axes[k] && prof().axes[k].dev === dev && prof().axes[k].i === i) }; renderCtl(); }
+      } else {
+        const hit = detectAxis(L.det, dt, 0.45);
+        if (hit.done) { prof().axes[L.key] = axisRef(L.key, hit); saveIN(); ctl.learn = null; renderCtl(); toast(`${AXES.find(([k]) => k === L.key)[1]} set to ${devName(hit.dev)} axis ${hit.i}`); }
+      }
+    }
+    // recording buttons and hats
+    if (!ctl.rec) { ctl.prevBtn.clear(); ctl.axState.clear(); return; }
+    for (const [dev, p] of pads) {
+      const prev = ctl.prevBtn.get(dev);
+      const now = p.buttons.map(btnOn);
+      if (prev) now.forEach((on, i) => { if (on && !prev[i]) recordHit({ dev, kind: 'button', i }); });
+      ctl.prevBtn.set(dev, now);
+      p.axes.forEach((v, i) => {
+        if (isFlightAxis(dev, i)) return;
+        const key = devKey(dev, i);
+        let a = ctl.axState.get(key);
+        if (!a) { ctl.axState.set(key, { rest: v, last: v, fired: false, jumped: false }); return; }
+        const off = Math.abs(v - a.rest);
+        if (off < 0.1) { a.fired = false; a.jumped = false; }
+        else {
+          if (Math.abs(a.last - a.rest) < 0.1 && off > 0.4) a.jumped = true; // left rest in one step, like a hat
+          // a hat jumps straight to a discrete value and stays; an analog axis sweeps through values
+          if (!a.fired && a.jumped && discrete(v) && Math.abs(v - a.last) < 0.02) { a.fired = true; recordHit({ dev, kind: 'axisVal', i, v: Math.round(v * 7) / 7 }); }
+        }
+        a.last = v;
+      });
+    }
+  }
+  $('#ctlRec').addEventListener('click', () => { ctl.rec = !ctl.rec; ctl.learn = null; if (ctl.rec) { ctl.recent = []; ctl.prevBtn.clear(); ctl.axState.clear(); } renderCtl(); });
+  $('#ctlClose').addEventListener('click', closeCtl);
+  $('#ctlWizard').addEventListener('click', () => { closeCtl(); openWizard(); });
+
+  function refreshCtlStatus() {
+    const n = $('#rbName'), w = $('#wRadio'), dot = $('#wRadioDot');
+    const named = prof().channels.filter((c) => c.name).length, acting = prof().channels.filter((c) => c.action).length;
+    const txt = padBlocked ? 'This view blocks game controllers. Open the page in its own Chrome tab.'
+      : !pads.size ? 'No controller detected. Plug in by USB (a radio needs Joystick (HID) mode), then move a stick.'
+      : `${[...pads.keys()].map(devName).join(' + ')} · ${hasAxes() ? 'sticks mapped' : 'sticks not mapped yet'} · ${named} named, ${acting} with actions`;
+    if (n) n.textContent = txt;
+    if (w) w.textContent = pads.size ? txt : 'Plug in by USB, then move a stick. A transmitter needs Joystick (HID) mode; a HOTAS or gamepad just works.';
+    if (dot) dot.classList.toggle('ok', pads.size > 0 && hasAxes());
+  }
 
   /* ---------------------------------------------------------------- UI: bar, banner, toast */
   const show = (el) => { el.hidden = false; }, hide = (el) => { el.hidden = true; };
@@ -616,14 +1049,14 @@
     $('#bPause').classList.toggle('hot', userPaused);
     const chip = $('#chip');
     chip.className = src === 'radio' ? 'radio' : src === 'touch' ? 'touch' : 'keys';
-    $('#chipTxt').innerHTML = src === 'radio' ? `Radio${lastPadId && !mapped({ id: lastPadId }) ? ' <b>· uncalibrated</b>' : ''}` : src === 'touch' ? 'Touch' : 'Keys';
+    $('#chipTxt').innerHTML = src === 'radio' ? `${esc(prof().name.slice(0, 22))}${hasAxes() ? '' : ' <b>· not mapped</b>'}` : src === 'touch' ? 'Touch' : 'Keys';
   }
   function setView(v) { S.view = v; saveS(); refreshBar(); syncSheet(); }
   function cycleView() { setView({ los: 'split', split: 'fpv', fpv: 'los' }[S.view]); }
   function setMode(m) { S.mode = m; saveS(); refreshBar(); syncSheet(); }
   function setAircraft(id) { S.aircraft = id; AC = ACS[id]; saveS(); doReset(); refreshBar(); buildSheet(); }
-  function setPaused(p) { paused = p; }
-  function togglePause() { userPaused = !userPaused; setPaused(userPaused || sheetOpen() || wiz.open); if (userPaused) showBanner('Paused', 'Press P or tap here to resume.'); else hideBanner(); refreshBar(); }
+  function syncPause() { paused = userPaused || sheetOpen() || wiz.open || ctl.open; }
+  function togglePause() { userPaused = !userPaused; syncPause(); if (userPaused) showBanner('Paused', 'Press P or tap here to resume.'); else hideBanner(); refreshBar(); }
   function toggleFull() {
     try {
       if (document.fullscreenElement) document.exitFullscreen();
@@ -633,7 +1066,8 @@
   $('#bAc').addEventListener('click', () => setAircraft(S.aircraft === 'goblin' ? 'trainer' : 'goblin'));
   $('#bView').addEventListener('click', cycleView);
   $('#bMode').addEventListener('click', () => setMode(S.mode === 'stab' ? 'manual' : 'stab'));
-  $('#bStart').addEventListener('click', () => { const opts = AC.starts, cur = startOf(AC.id); S.start[AC.id] = opts[(opts.indexOf(cur) + 1) % opts.length]; saveS(); doReset(); refreshBar(); });
+  function cycleStart() { const opts = AC.starts, cur = startOf(AC.id); S.start[AC.id] = opts[(opts.indexOf(cur) + 1) % opts.length]; saveS(); doReset(); refreshBar(); }
+  $('#bStart').addEventListener('click', cycleStart);
   $('#bReset').addEventListener('click', doReset);
   $('#bPause').addEventListener('click', togglePause);
   $('#bSettings').addEventListener('click', () => (sheetOpen() ? closeSheet() : openSheet()));
@@ -649,8 +1083,8 @@
 
   /* ---------------------------------------------------------------- settings sheet */
   const sheetOpen = () => $('#sheet').classList.contains('open');
-  function openSheet() { buildSheet(); $('#sheet').classList.add('open'); setPaused(true); }
-  function closeSheet() { $('#sheet').classList.remove('open'); setPaused(userPaused || wiz.open); }
+  function openSheet() { if (ctl.open) closeCtl(); buildSheet(); $('#sheet').classList.add('open'); syncPause(); }
+  function closeSheet() { $('#sheet').classList.remove('open'); syncPause(); }
   $('#shClose').addEventListener('click', closeSheet);
 
   const seg = (key, label, opts, help, get, set) => ({ type: 'seg', key, label, opts, help, get, set });
@@ -741,22 +1175,23 @@
         } else if (it.type === 'da') {
           box.id = 'daBox'; box.innerHTML = daHtml();
         } else if (it.type === 'radio') {
-          box.innerHTML = `<div class="radio-box"><div class="name" id="rbName"></div><div class="live" id="rbLive"></div><div class="actions" style="justify-content:flex-start"><button class="btn small" id="rbSetup">Set up radio</button><button class="btn small" id="rbForget">Forget radio</button></div></div>`;
+          box.innerHTML = `<div class="radio-box"><div class="name" id="rbName"></div><div class="actions" style="justify-content:flex-start"><button class="btn small" id="rbCtl">Controls &amp; buttons</button><button class="btn small" id="rbSetup">Guided setup</button></div><div class="help">One profile per controller (your HOTAS, your radio…), picked automatically when you plug it in. Each keeps its own stick mapping, button names and actions, rates and expo.</div></div>`;
+          box.querySelector('#rbCtl').addEventListener('click', () => { closeSheet(); openCtl(); });
           box.querySelector('#rbSetup').addEventListener('click', () => { closeSheet(); openWizard(); });
-          box.querySelector('#rbForget').addEventListener('click', () => { radioMap = null; store(RKEY, null); refreshRadioBox(); toast('Radio calibration cleared'); });
         } else if (it.type === 'rates') {
+          const RE = rateSource(true);
           const ax = AC.kind === 'wing' ? [['a', 'Roll'], ['e', 'Pitch']] : [['a', 'Aileron'], ['e', 'Elevator'], ['r', 'Rudder']];
           let h = '<div class="rates"><span class="hd">Axis</span><span class="hd">Rate</span><span class="hd">Expo</span>';
           for (const [k, l] of ax) {
-            h += `<span>${l}</span><label for="rt-${k}"><output id="rt-${k}-o">${S.rates[k]}%</output><input type="range" id="rt-${k}" min="30" max="100" step="5" value="${S.rates[k]}"></label>`;
-            h += `<label for="ex-${k}"><output id="ex-${k}-o">${S.expo[k]}%</output><input type="range" id="ex-${k}" min="0" max="80" step="5" value="${S.expo[k]}"></label>`;
+            h += `<span>${l}</span><label for="rt-${k}"><output id="rt-${k}-o">${RE.rates[k]}%</output><input type="range" id="rt-${k}" min="30" max="100" step="5" value="${RE.rates[k]}"></label>`;
+            h += `<label for="ex-${k}"><output id="ex-${k}-o">${RE.expo[k]}%</output><input type="range" id="ex-${k}" min="0" max="80" step="5" value="${RE.expo[k]}"></label>`;
           }
           h += '</div>';
           const throws = AC.kind === 'wing' ? `Full stick = ${Math.round(AC.defl.a * R2D)}° elevon for roll, ${Math.round(AC.defl.e * R2D)}° for pitch.` : `Full stick = ${Math.round(AC.defl.a * R2D)}° aileron, ${Math.round(AC.defl.e * R2D)}° elevator, ${Math.round(AC.defl.r * R2D)}° rudder.`;
-          box.innerHTML = h + `<div class="help">${throws} If your radio already applies rates and expo, set expo here to 0%.</div>`;
+          box.innerHTML = `<div class="help">Applies to: <b>${esc(RE.label)}</b></div>` + h + `<div class="help">${throws} If your radio already applies rates and expo, set expo here to 0% for its profile.</div>`;
           for (const [k] of ax) for (const [pre, obj, unit] of [['rt', 'rates', '%'], ['ex', 'expo', '%']]) {
             const e = box.querySelector(`#${pre}-${k}`), o = box.querySelector(`#${pre}-${k}-o`);
-            e.addEventListener('input', () => { S[obj][k] = Number(e.value); o.textContent = e.value + unit; saveS(); });
+            e.addEventListener('input', () => { RE[obj][k] = Number(e.value); o.textContent = e.value + unit; RE.save(); });
           }
         } else if (it.type === 'notes') {
           box.innerHTML = notesHtml();
@@ -765,21 +1200,10 @@
       }
       body.appendChild(el);
     }
-    refreshRadioBox();
+    refreshCtlStatus();
     $('#sheet').scrollTop = scroll;
   }
   function syncSheet() { if (sheetOpen()) buildSheet(); }
-  function refreshRadioBox() {
-    const n = $('#rbName'), w = $('#wRadio'), dot = $('#wRadioDot');
-    const p = readPad();
-    const txt = padBlocked ? 'This view blocks game controllers. Open the page in its own Chrome tab.'
-      : !p ? 'Not detected. Plug in by USB, choose Joystick (HID) on the radio, then move a stick.'
-      : mapped(p) ? `${shortName(p.id)} · calibrated` : `${shortName(p.id)} · not calibrated yet (run setup)`;
-    if (n) n.textContent = txt;
-    if (w) w.textContent = p ? txt : 'Plug your transmitter in by USB, choose Joystick (HID) on the radio, then move a stick.';
-    if (dot) dot.classList.toggle('ok', !!(p && mapped(p)));
-  }
-
   let perfCache = { key: '', html: '' };
   function notesHtml() {
     const key = `${AC.id}|${env.rho.toFixed(4)}|${S.units}`;
@@ -929,6 +1353,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     if (st.held && !armed) w.push(['THROTTLE DOWN TO ARM', '#ffd36a']);
     else if (st.held) w.push(['THROTTLE UP TO LAUNCH', '#ffd36a']);
     else if (!armed) w.push(['THROTTLE DOWN TO ARM', '#ffd36a']);
+    if (cutOn || cutHeld) w.push(['THROTTLE CUT', '#ff9d42']);
     if (S.battery && st.soc <= 0) w.push(['BATTERY EMPTY', '#ff6157']);
     else if (S.battery && st.vb / AC.batt.cells < (AC.batt.chem === 'liion' ? 3.1 : 3.45) && st.n > 0.05) w.push(['LOW BATTERY', '#ff9d42']);
     const d = Math.hypot(st.p[0], st.p[1]);
@@ -1002,6 +1427,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       }
       // warnings
       W.forEach(([t, c], i) => osdText(t, cx, topY + fs * 1.6 + i * fs * 1.35, 'center', fs, c));
+      if (osdFlash.t > 0) osdText(osdFlash.text, cx, cy - fs * 3, 'center', fs, '#cfe9f3');
       ctx.restore();
     }
     // split divider
@@ -1087,14 +1513,23 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     const droop = (Math.PI / 2) * 0.92 * (1 - clamp(sp / 7, 0, 1));
     return M4.chain(M4.trans(SOCK_POS[0], SOCK_POS[1], SOCK_POS[2]), M4.rotY(Math.atan2(wn, we)), M4.rotZ(-droop));
   }
+  // rates & expo: the active controller profile's when flying with a controller, else keyboard/touch
+  function rateSource(forEdit) {
+    const P = prof();
+    if (src === 'radio' && P !== EMPTY) {
+      if (forEdit) { P.rates = P.rates || Object.assign({}, S.rates); P.expo = P.expo || Object.assign({}, S.expo); }
+      return { rates: P.rates || S.rates, expo: P.expo || S.expo, label: `${P.name} profile`, save: saveIN };
+    }
+    return { rates: S.rates, expo: S.expo, label: 'keyboard and touch', save: saveS };
+  }
   function controls() {
     const ex = (x, e) => { const k = e / 100; return x * (k * x * x + 1 - k); };
-    const T = AC.trim;
+    const T = AC.trim, ut = userTrim(), RE = rateSource(false);
     return {
-      thr: armed ? inp.thr : 0,
-      a: FL.sat((ex(inp.a, S.expo.a) * S.rates.a) / 100 + T.a),
-      e: FL.sat((ex(inp.e, S.expo.e) * S.rates.e) / 100 + T.e),
-      r: FL.sat((ex(inp.r, S.expo.r) * S.rates.r) / 100),
+      thr: armed && !cutOn && !cutHeld ? inp.thr : 0,
+      a: FL.sat((ex(inp.a, RE.expo.a) * RE.rates.a) / 100 + T.a + ut.a),
+      e: FL.sat((ex(inp.e, RE.expo.e) * RE.rates.e) / 100 + T.e + ut.e),
+      r: FL.sat((ex(inp.r, RE.expo.r) * RE.rates.r) / 100 + ut.r),
       sa: inp.a, se: inp.e,
     };
   }
@@ -1114,8 +1549,10 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     const dt = Math.min(0.1, raw); // physics never takes a bigger bite than 0.1 s
     blink += dt;
     fpsN++; fpsT += dt; if (fpsT > 0.5) { fpsVal = Math.round(fpsN / fpsT); fpsN = 0; fpsT = 0; }
-    const p = pollInput(dt);
-    if (wiz.open) wizTick(p, Math.min(0.5, raw)); // wizard timers use real time
+    pollInput(dt);
+    if (wiz.open) wizTick(Math.min(0.5, raw)); // setup timers use real time
+    if (ctl.open) ctlTick(Math.min(0.5, raw));
+    if (osdFlash.t > 0) osdFlash.t -= raw;
 
     if (!paused) {
       if (!armed && inp.thr < 0.05) armed = true;
@@ -1164,8 +1601,8 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   buildWorld(S.scenery);
   resize();
   doReset();
-  refreshBar(); refreshTouch(); refreshRadioBox();
+  refreshBar(); refreshTouch(); refreshCtlStatus();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { gl.bindTexture(gl.TEXTURE_2D, runwayTex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, runwayTexture()); gl.generateMipmap(gl.TEXTURE_2D); });
   requestAnimationFrame((t) => { last = t; frame(t); });
-  window.__flightline = { st, S, env, AC: () => AC, doReset, FL };
+  window.__flightline = { st, S, env, AC: () => AC, doReset, FL, IN: () => IN, prof, ctl }; // debugging and tests
 })();

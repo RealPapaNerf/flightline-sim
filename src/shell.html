@@ -159,6 +159,53 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; heigh
 .kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 13px; margin-bottom: 12px; }
 .kv span:nth-child(even) { font-family: var(--f-mono); color: var(--sky); text-align: right; }
 
+/* ---------- controls & buttons panel ---------- */
+.card.xwide { width: min(900px, calc(100% - 32px)); gap: 12px; }
+.ctl-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 10px; }
+.profbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+.profbar label { font: 600 11px/1 var(--f-display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.card select, .card input[type="text"] { min-height: 34px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font: 13px var(--f-body); min-width: 0; }
+.card input[type="text"]::placeholder { color: var(--muted); opacity: 0.8; }
+.profbar select { flex: 1 1 180px; } .profbar input { flex: 1 1 160px; }
+.devs { display: flex; flex-wrap: wrap; gap: 8px; }
+.devchip { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; min-width: 0; max-width: 100%; }
+.devchip i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.devchip.on i { background: var(--good); box-shadow: 0 0 8px var(--good); }
+.devchip.other { border-style: dashed; }
+.devchip span { display: grid; gap: 2px; min-width: 0; }
+.devchip b { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.devchip small { font-size: 12px; color: var(--muted); }
+.sub { margin: 4px 0 0; font: 600 11px/1 var(--f-display); letter-spacing: 0.18em; text-transform: uppercase; color: var(--accent); }
+.axes { display: grid; gap: 6px; }
+.axrow { display: grid; grid-template-columns: 76px minmax(0, 1.4fr) minmax(80px, 1fr) auto; gap: 10px; align-items: center; padding: 6px 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; font-size: 13px; }
+.axrow b { font: 600 13px/1 var(--f-display); letter-spacing: 0.06em; text-transform: uppercase; }
+.axrow .src { color: var(--muted); overflow-wrap: anywhere; }
+.axrow .src em { color: var(--accent); font-style: normal; }
+.axrow .ax-btns { display: flex; gap: 6px; }
+.rec-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+#ctlRec[aria-pressed="true"] { background: var(--bad); border-color: var(--bad); color: #1a0705; }
+.last { position: sticky; top: 0; z-index: 2; display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--accent); border-radius: 8px; background: var(--panel-2); box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35); }
+.last-row { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1.2fr); gap: 10px; align-items: center; font-size: 13px; }
+.chlist { display: grid; gap: 4px; }
+.chdev { margin-top: 6px; font: 600 11px/1.3 var(--f-display); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.ch { display: grid; grid-template-columns: 12px minmax(0, 0.9fr) minmax(0, 1.2fr) minmax(0, 1.4fr) 34px; gap: 10px; align-items: center; padding: 4px 8px; border-radius: 6px; font-size: 13px; }
+.ch:nth-child(even) { background: rgba(255, 255, 255, 0.02); }
+.ch.hl { background: rgba(245, 194, 66, 0.1); outline: 1px solid rgba(245, 194, 66, 0.5); }
+.ch .lab { font-family: var(--f-mono); color: var(--muted); overflow-wrap: anywhere; }
+.ch .del { min-height: 30px; padding: 0; width: 30px; }
+.led { width: 10px; height: 10px; border-radius: 50%; background: var(--line-2); display: inline-block; }
+.led.on { background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+.mon .row.dev span { font: 600 11px/1.3 var(--f-display); letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); padding-top: 4px; }
+@media (max-width: 640px) {
+  .axrow { grid-template-columns: 70px minmax(0, 1fr); }
+  .axrow .bar, .axrow .ax-btns { grid-column: 1 / -1; }
+  .ch { grid-template-columns: 12px minmax(0, 1fr) 30px; }
+  .ch input, .ch select { grid-column: 2 / 4; }
+  .ch .del { grid-row: 1; grid-column: 3; }
+  .last-row { grid-template-columns: auto minmax(0, 1fr); }
+  .last-row input, .last-row select { grid-column: 1 / -1; }
+}
+
 #toast { position: absolute; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 24px); transform: translateX(-50%); z-index: 10; padding: 10px 16px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 8px; font-size: 13px; max-width: calc(100% - 32px); text-align: center; }
 #err { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--muted); }
 
@@ -197,19 +244,19 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; heigh
     <h1 id="wTitle">Flightline</h1>
     <p>Fly a Nano Goblin or a trainer by line of sight, FPV, or both at once. Stalls, wing drops and spins come out of the physics, not a script.</p>
     <div class="inputs">
-      <div class="inp"><i id="wRadioDot"></i><b>Radio</b><span id="wRadio">Plug your transmitter in by USB, choose <em>Joystick (HID)</em> on the radio, then move a stick.</span></div>
+      <div class="inp"><i id="wRadioDot"></i><b>Radio or HOTAS</b><span id="wRadio">Plug in by USB, then move a stick. A transmitter needs Joystick (HID) mode; a HOTAS or gamepad just works.</span></div>
       <div class="inp"><i class="ok"></i><b>Keyboard</b><span><kbd>W</kbd><kbd>S</kbd> throttle · <kbd>A</kbd><kbd>D</kbd> rudder · arrows pitch &amp; roll · <kbd>R</kbd> reset · <kbd>V</kbd> view · <kbd>M</kbd> mode</span></div>
       <div class="inp"><i class="ok"></i><b>Touch</b><span>On-screen sticks appear on touch screens (settings → Controls).</span></div>
     </div>
     <p class="note">Split view stacks line of sight over FPV when the screen is upright. Rotate the Chromebook to portrait and pick View → Split.</p>
     <div class="actions">
-      <button class="btn" id="wSetup">Set up radio</button>
+      <button class="btn" id="wSetup">Set up controller</button>
       <button class="btn primary" id="wFly">Fly</button>
     </div>
   </section>
 
   <section id="wizard" class="card wide" role="dialog" aria-labelledby="wzTitle" hidden>
-    <span class="eyebrow" id="wzStep">Radio setup</span>
+    <span class="eyebrow" id="wzStep">Controller setup</span>
     <h2 id="wzTitle">Connect your radio</h2>
     <p id="wzText"></p>
     <div class="prog"><div id="wzBar"></div></div>
@@ -219,6 +266,21 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; heigh
       <button class="btn" id="wzSkip" hidden>Skip</button>
       <button class="btn primary" id="wzNext">Start</button>
     </div>
+  </section>
+
+  <section id="ctl" class="card xwide" role="dialog" aria-labelledby="ctlTitle" hidden>
+    <div class="ctl-head">
+      <div><span class="eyebrow">Controllers</span><h2 id="ctlTitle">Controls &amp; buttons</h2></div>
+      <div class="actions"><button class="btn small" id="ctlWizard">Guided setup</button><button class="btn small primary" id="ctlClose">Done</button></div>
+    </div>
+    <div id="ctlProfile" class="profbar"></div>
+    <div id="ctlDevices" class="devs"></div>
+    <h3 class="sub">Flight axes</h3>
+    <div id="ctlAxes" class="axes"></div>
+    <div class="rec-head"><h3 class="sub">Buttons &amp; switches</h3><button class="btn small" id="ctlRec" aria-pressed="false">● Record buttons</button></div>
+    <p class="note" id="ctlRecHint"></p>
+    <div id="ctlLast" class="last" hidden></div>
+    <div id="ctlList" class="chlist"></div>
   </section>
 
   <aside id="sheet" aria-label="Settings">

@@ -35,21 +35,39 @@ ChromeOS keeps apps in the launcher and shelf rather than on a desktop.
 The installed app opens in its own window, and a service worker caches it so it runs
 with no internet at the field.
 
-## Radio setup
+## Controllers: radios, HOTAS, gamepads
 
-Works with EdgeTX/OpenTX radios (RadioMaster, Jumper, FrSky, …) in USB joystick mode.
+Anything Chrome sees as a game controller works: an EdgeTX/OpenTX radio (RadioMaster,
+Jumper, FrSky…) in USB joystick mode, a HOTAS, or a gamepad.
 
-1. Plug the radio into the Chromebook and choose **USB Joystick (HID)** on the radio.
-2. In the sim: **Set up radio** (welcome card, or ⚙ Settings → Controls).
-3. Follow the steps: centre the sticks with throttle down, then move throttle, roll,
-   pitch and yaw when asked. Optionally pick switches for **reset**, **view**, and
-   **stabilised mode**. Directions and ranges are detected, so channel order and
-   reversed channels don't matter.
+**Profiles.** Each controller gets its own profile the first time it's plugged in, and
+plugging it in again makes that profile active. A profile keeps the controller's stick
+mapping, button names and actions, and its own rates and expo, so a HOTAS and a radio
+never overwrite each other. A HOTAS whose stick and throttle are separate USB devices can
+share one profile (Controls & buttons → *Add to this profile*). Profiles can be renamed
+or deleted there too.
 
-Tip: make a dedicated sim model on the radio with no mixes. If that model has its own
-rates and expo, set expo in the sim to 0%.
+**Sticks.** ⚙ Settings → Controls → **Guided setup** walks through throttle, roll, pitch
+and yaw (directions and ranges are detected, so reversed axes don't matter), plus
+optional reset / view / stabilised-mode buttons. Or set one axis at a time with **Learn**
+in Controls & buttons. On a radio, choose **USB Joystick (HID)** when you plug it in.
 
-Chrome only reports a controller after a stick moves, so wiggle a stick after plugging in.
+**Buttons.** Every button on every controller has a channel. In **Controls & buttons**,
+press **Record buttons**, then press buttons and hats one at a time: each press jumps to
+its channel and puts the cursor in its name box. Hats that Chrome reports as an axis
+(common on HOTAS sticks) are added as channels when you record them. Give any channel a
+name now and an action whenever you want one:
+
+reset · pause · views · stabilised mode (toggle, or while held / switch on) · throttle
+cut (toggle or hold) · hand-launch throw · trims for elevator, aileron and rudder (hold
+to repeat, like radio trims) · trim reset · FPV camera tilt · LOS zoom · OSD mode · stall
+indicator · engineering readout · switch aircraft · start position.
+
+Trims are stored per aircraft and add to the built-in trim.
+
+Chrome only reports a controller after a stick moves or a button is pressed, so do that
+after plugging in. If your radio's sim model has its own rates and expo, set the sim's
+expo to 0% for that profile (Settings → Rates & expo shows which profile you're editing).
 
 ## Controls
 
@@ -63,7 +81,7 @@ Chrome only reports a controller after a stick moves, so wiggle a stick after pl
 `R` reset · `V` cycle view (also `1` LOS, `2` FPV, `3` split) · `M` manual/stabilised ·
 `P` or `Space` pause · `F` full screen · `L` throw the Goblin at any throttle.
 
-Touch screens get on-screen sticks (Settings → Controls → Touch sticks).
+Touch screens get on-screen sticks (Settings → Controls → Touch sticks). Controller buttons can do all of these and more; see above.
 
 **Hand launch (Goblin):** pull throttle to zero to arm, then push it past 70%. The model
 is thrown once the motor is wound up, a firm 25 mph toss. Launch too slow or with the
@@ -147,7 +165,7 @@ trees are cylinders.
 ```
 src/physics.js   flight model (no DOM; runs in Node for tests)
 src/render.js    small WebGL 1 renderer
-src/app.js       world, aircraft meshes, cameras, OSD, input, radio wizard, settings, loop
+src/app.js       world, aircraft meshes, cameras, OSD, controller profiles and buttons, settings, loop
 src/shell.html   page markup and styles
 src/sw.js        offline cache for the installed app
 tools/build.py   assembles index.html (and dist/artifact.html) from src/
