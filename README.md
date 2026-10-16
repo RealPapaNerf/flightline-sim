@@ -176,3 +176,7 @@ test/perf.js     trim solver: level-flight table, stall speed, top speed
 
 Edit `src/`, then run `python3 tools/build.py`. `index.html` is generated, so commit it
 along with the sources (GitHub Pages serves it directly).
+
+## License
+
+MIT. See [LICENSE](LICENSE). Use it, fork it, change it; keep the copyright notice.
