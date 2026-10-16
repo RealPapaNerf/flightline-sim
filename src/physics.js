@@ -456,7 +456,12 @@ const FL = (function () {
       const span = sf.vertical ? half : 2 * sf.y1;
       const areaTot = sf.vertical ? areaHalf : 2 * areaHalf;
       const AR = sf.vertical ? (1.6 * half * half) / areaHalf : (span * span) / areaTot;
-      if (sf.role === 'wing') { wingArea = areaTot; wingSpan = span; wingSlope = sf.foil.a; }
+      // more than one surface can be a wing: a tail-sitter's body and its four arms all carry weight
+      if (sf.role === 'wing') {
+        if (areaTot > wingArea) { wingSlope = sf.foil.a; }
+        wingArea += areaTot;
+        wingSpan = Math.max(wingSpan, span);
+      }
       const Gam = (sf.dihedral || 0) * D2R;
       // Schrenk load factor: local lift ∝ (actual chord + elliptic chord)/2; sweep pushes load outboard
       const loads = [];
@@ -523,7 +528,7 @@ const FL = (function () {
               st.kf = fl.f || 0;
             }
           }
-          if (ac.prop.wash) {
+          if (ac.prop && ac.prop.wash) {
             const dy = r[1] - ac.prop.r[1], dz = r[2] - ac.prop.r[2];
             st.wash = r[0] < ac.prop.r[0] && Math.hypot(dy, dz) < 0.6 * ac.prop.D;
           }
@@ -553,7 +558,9 @@ const FL = (function () {
       const shift = ac.xNP + ac.staticMargin * ac.mac;
       const mv = (p) => { p[0] -= shift; };
       for (const s of ac.strips) { mv(s.r); mv(s.r34); }
-      mv(ac.body.r); mv(ac.prop.r);
+      mv(ac.body.r);
+      if (ac.prop) mv(ac.prop.r);
+      if (ac.motors) for (const mo of ac.motors) { mo[0] -= shift; }
       for (const p of ac.points) mv(p.p);
       for (const wh of ac.wheels) mv(wh.p);
       mv(ac.fpvCam);
@@ -561,21 +568,32 @@ const FL = (function () {
       ac.xNP -= shift;
     }
     ac.SM = -ac.xNP / ac.mac;
+    if (ac.kind === 'vtol') {
+      const base = hoverCommand(ac);
+      ac.hoverThr = (base - ac.motor.idle) / (1 - ac.motor.idle);
+    }
     return ac;
+  }
+
+  /* The motor command that holds a hover on a full pack, as a stick position
+     (thrust goes as the command squared, and a sagging pack makes less of it). */
+  function hoverCommand(ac) {
+    const Bt = ac.batt;
+    let base = Math.sqrt((ac.mass * G) / (4 * ac.motor.Tmax));
+    for (let i = 0; i < 4; i++) {
+      let v = Bt.cells * 4.2;
+      for (let j = 0; j < 4; j++) v = Bt.cells * 4.2 - (Bt.Iidle + Bt.Imax * base ** 3 * (v / Bt.Vref) ** 2) * Bt.R;
+      const k = (v / Bt.Vref) ** 2;
+      base = Math.sqrt((ac.mass * G) / (4 * ac.motor.Tmax * k));
+    }
+    return base;
   }
 
   function buildRotary(ac) {
     ac.S = 0; ac.b = ac.kind === 'quad' ? 2 * Math.max(...ac.motors.map(([x, y]) => Math.hypot(x, y))) * 0.71 + ac.motor.D : 2 * ac.rotor.R; ac.mac = 0; ac.ARw = 1; ac.xShift = 0; ac.SM = 0;
     if (ac.kind === 'quad') {
       // collective thrust for hover, as a stick position (thrust ∝ motor command²)
-      const Bt = ac.batt;
-      let base = Math.sqrt((ac.mass * G) / (4 * ac.motor.Tmax));
-      for (let i = 0; i < 4; i++) { // full pack, sagging under hover current
-        let v = Bt.cells * 4.2;
-        for (let j = 0; j < 4; j++) v = Bt.cells * 4.2 - (Bt.Iidle + Bt.Imax * base ** 3 * (v / Bt.Vref) ** 2) * Bt.R;
-        const k = (v / Bt.Vref) ** 2;
-        base = Math.sqrt((ac.mass * G) / (4 * ac.motor.Tmax * k));
-      }
+      const base = hoverCommand(ac);
       ac.hoverThr = (base - ac.motor.idle) / (1 - ac.motor.idle);
     }
     if (ac.kind === 'heli') {
@@ -598,7 +616,7 @@ const FL = (function () {
   function makeState() {
     return {
       p: [0, 0, 0], v: [0, 0, 0], q: [1, 0, 0, 0], w: [0, 0, 0],
-      n: 0, sa: 0, se: 0, sr: 0, sf: 0, gear: 1, soc: 1, mAh: 0, vb: 0, I: 0,
+      n: 0, sa: 0, se: 0, sr: 0, sf: 0, gear: 1, fwd: 0, soc: 1, mAh: 0, vb: 0, I: 0,
       crashed: false, crashMsg: '', wow: false, held: false, t: 0, clw: 0,
       mot: [0, 0, 0, 0], pidI: [0, 0, 0], spPrev: [0, 0, 0], ff: [0, 0, 0], buf: [0, 0], wPrev: [0, 0, 0], dF: [0, 0, 0], // flight controller
       om: 0, coll: 0, gov: 0, tailI: 0, vi: 0, tilt: [0, 0], tt: 0, // helicopter rotor
@@ -619,6 +637,29 @@ const FL = (function () {
     s.w = [0, 0, 0]; s.n = 0; s.sa = s.se = s.sr = s.sf = 0; s.gear = 1;
     s.crashed = false; s.crashMsg = ''; s.mAh = 0; s.soc = 1; s.t = 0; s.held = false; s.clw = 0;
     s.mot = [0, 0, 0, 0]; s.pidI = [0, 0, 0]; s.spPrev = [0, 0, 0]; s.ff = [0, 0, 0]; s.buf = [0, 0]; s.wPrev = [0, 0, 0]; s.dF = [0, 0, 0]; s.om = 0; s.coll = 0; s.gov = 0; s.tailI = 0; s.vi = 0; s.tilt = [0, 0]; s.tt = 0;
+    s.fwd = 0;
+
+    /* A tail-sitter stands on its tail with the nose straight up, and in the
+       air it is already flying horizontally. */
+    if (ac.kind === 'vtol' && !(where && typeof where === 'object')) {
+      const hov = Math.sqrt((ac.mass * G) / (4 * ac.motor.Tmax));
+      if (where === 'air') {
+        s.fwd = 1;
+        const V = ac.trans.vAir;
+        s.p = [60, 40, -up(60, 40) - 60];
+        s.q = quatFromEuler(0, ac.trans.pitch, -Math.PI / 2);
+        s.v = mulMV(quatToMat(s.q), [V, 0, 0]);
+        s.mot = [hov, hov, hov, hov];
+      } else {
+        // on its tail on the pad, nose at the sky
+        s.q = quatFromEuler(0, Math.PI / 2, 0);
+        const R0 = quatToMat(s.q);
+        const zr = Math.max(...ac.points.map((pt) => mulMV(R0, pt.p)[2]));
+        s.p = [8, 1.5, -up(8, 1.5) - zr - 0.001];
+        s.v = [0, 0, 0];
+      }
+      return;
+    }
 
     // a start position out of a map file: put it where the map says
     if (where && typeof where === 'object') {
@@ -631,7 +672,7 @@ const FL = (function () {
       const V = +where.speedMs || 0;
       s.v = V > 0 ? mulMV(quatToMat(s.q), [V, 0, 0]) : [0, 0, 0];
       if (V > 0 || agl > 0.05) {
-        if (ac.kind === 'quad') { const b = Math.sqrt((ac.mass * G) / (4 * ac.motor.Tmax)); s.mot = [b, b, b, b]; }
+        if (ac.kind === 'quad' || ac.kind === 'vtol') { const b = Math.sqrt((ac.mass * G) / (4 * ac.motor.Tmax)); s.mot = [b, b, b, b]; if (ac.kind === 'vtol') s.fwd = V > 0 ? 1 : 0; }
         else if (ac.kind === 'heli') { s.om = ac.rotor.om0; s.gov = 1; s.coll = ac.hoverPitch; s.vi = Math.sqrt((ac.mass * G) / (2 * 1.225 * ac.rotor.A)); }
         else s.n = ac.kind === 'wing' ? 0.45 : 0.6;
       }
@@ -710,6 +751,92 @@ const FL = (function () {
      ten contact points, 400 times a second; allocating there would make the
      garbage collector part of the flight model. */
   const gProbe = { up: 0, dn: 0, de: 0, nN: 0, nE: 0, nD: -1, cls: 0 };
+
+
+  /* Every lifting surface, strip by strip: its own airflow, angle of attack,
+     stall, ice and flap. Adds to F and Mo in the body frame and returns what
+     the telemetry and the next step's tail downwash need. Shared by the
+     fixed-wing and tail-sitter models. */
+  function stripForces(s, ac, vb, wa, R, rho, env, dWash, dt, F, Mo) {
+      // --- lifting strips ---
+      const hCG = -s.p[2];
+      let clwSum = 0, clwArea = 0, stL = 0, stR = 0, aL = 0, aR = 0, aSum = 0;
+      const eps = (2 * s.clw) / (Math.PI * ac.ARw); // tail downwash from last step's wing CL
+      // weather: rain roughens the wing; ice builds on each strip's leading edge and melts above freezing
+      const wxa = env.wx, rainP = wxa ? wxa.rain : 0;
+      const icing = wxa && wxa.lwc > 0 && wxa.T < 3, melt = wxa && wxa.T > 0.5 ? (wxa.T - 0.5) * 2e-6 * (wxa.rain > 0 ? 3 : 1) * dt : 0;
+      if (icing && !s.ice) s.ice = new Float64Array(ac.strips.length);
+      let iceM = 0;
+      for (let i = 0; i < ac.strips.length; i++) {
+        const st = ac.strips[i];
+        const r = st.r34; // angle of attack taken at 3/4 chord (Pistolesi); force applied at 1/4 chord
+        const v0 = vb[0] + (wa[1] * r[2] - wa[2] * r[1]);
+        const v1 = vb[1] + (wa[2] * r[0] - wa[0] * r[2]);
+        const v2 = vb[2] + (wa[0] * r[1] - wa[1] * r[0]);
+        let uc = v0 * st.c[0] + v1 * st.c[1] + v2 * st.c[2];
+        const un = v0 * st.n[0] + v1 * st.n[1] + v2 * st.n[2];
+        if (st.wash) uc += dWash;
+        const V2 = uc * uc + un * un;
+        if (V2 < 0.04) continue;
+        const Vin = Math.sqrt(V2);
+        let alpha = Math.atan2(-un, uc);
+        if (st.role === 'tail') alpha -= eps;
+        const d = clamp(st.ka * s.sa + st.ke * s.se + st.kr * s.sr + st.kf * s.sf, -ac.defl.flapMax, ac.defl.flapMax);
+        const flex = ac.flexQ ? 1 / (1 + (0.5 * rho * V2) / ac.flexQ) : 1;
+        /* Thin-airfoil flap theory holds to about 12°; past that the flow starts
+           to leave the flap and the extra lift tails off — a plain flap at 30°
+           measures about 65% of theory, and at 45° it has almost given up. */
+        let dEff = d * flex * (1 - 0.65 * clamp((Math.abs(d) - 0.21) / 0.58, 0, 1));
+        /* A flap over part of the span dumps a bump of lift inboard, and that bump
+           induces downwash on itself: lifting-line solutions put the extra induced
+           angle at roughly 45% of the flap's α shift for a short flap, fading to
+           nothing when the flap runs the whole span. It costs some of the flap's
+           lift and it is what stops the flapped span from stalling far ahead of
+           the rest of the wing. Flaps up (kf = 0 everywhere) this does nothing. */
+        if (st.kf) dEff *= 1 - 0.45 * (1 - (ac.flapArea || 0));
+        let ae = alpha + st.tau * dEff;
+        if (ae > Math.PI) ae -= 2 * Math.PI; else if (ae < -Math.PI) ae += 2 * Math.PI;
+        let dCL = 0.12 * rainP, dCD = 0.01 * rainP, slope = 1;
+        if (s.ice) {
+          let k = s.ice[i];
+          if (icing) k += iceRate(wxa, Vin, st.chord, wxa.T) * dt;
+          if (melt && k > 0) k = Math.max(0, k - melt);
+          s.ice[i] = k;
+          if (k > 0) { const pn = icePenalty(k / st.chord, s.iceGl); dCL += pn.dCL; dCD += pn.dCD; slope = pn.slope; iceM += 80 * k * st.area; }
+        }
+        const cf = foilCoeffs(st, ae, dEff, dCL, dCD, slope);
+        // induced drag, reduced in ground effect (McCormick)
+        const hz = hCG - (R[6] * st.r[0] + R[7] * st.r[1] + R[8] * st.r[2]);
+        const g16 = (16 * Math.max(0.02, hz)) / (ac.b || 1);
+        const ge = st.role === 'fin' ? 1 : (g16 * g16) / (1 + g16 * g16);
+        const CD = cf.CDp + (1 - cf.sig) * st.k * ge * cf.CLlin * cf.CLlin;
+        const qs = ((wa[0] * st.s[0] + wa[1] * st.s[1] + wa[2] * st.s[2]) * st.chord) / Vin;
+        const Cm = cf.Cm - 0.4 * qs; // section pitch-rate damping
+        const qS = 0.5 * rho * V2 * st.area;
+        const vh0 = (uc * st.c[0] + un * st.n[0]) / Vin, vh1 = (uc * st.c[1] + un * st.n[1]) / Vin, vh2 = (uc * st.c[2] + un * st.n[2]) / Vin;
+        const lh0 = st.s[1] * vh2 - st.s[2] * vh1, lh1 = st.s[2] * vh0 - st.s[0] * vh2, lh2 = st.s[0] * vh1 - st.s[1] * vh0; // lift ⟂ local flow
+        const L = qS * cf.CL, D = qS * CD;
+        const f0 = L * lh0 - D * vh0, f1 = L * lh1 - D * vh1, f2 = L * lh2 - D * vh2;
+        F[0] += f0; F[1] += f1; F[2] += f2;
+        const p = st.r, mc = qS * st.chord * Cm;
+        Mo[0] += p[1] * f2 - p[2] * f1 + mc * st.s[0];
+        Mo[1] += p[2] * f0 - p[0] * f2 + mc * st.s[1];
+        Mo[2] += p[0] * f1 - p[1] * f0 + mc * st.s[2];
+        if (st.role === 'wing') {
+          clwSum += cf.CL * st.area; clwArea += st.area; aSum += alpha * st.area;
+          if (st.side > 0) { stR += cf.sig * st.area; aR += st.area; } else { stL += cf.sig * st.area; aL += st.area; }
+        }
+      }
+      s.clw = clwArea > 0 ? clwSum / clwArea : 0;
+      // ice mass ≈ ρ_ice·0.1·k·c per unit span (a wedge ~10% of chord deep); glaze share by mass
+      if (icing && iceM > s.iceMass) s.iceGl += ((glazeOf(wxa.T) - s.iceGl) * (iceM - s.iceMass)) / iceM;
+      s.iceMass = iceM;
+    return {
+      alpha: clwArea > 0 ? aSum / clwArea : 0,
+      stallL: aL ? stL / aL : 0,
+      stallR: aR ? stR / aR : 0,
+    };
+  }
 
   /* Second half of every step, shared by all aircraft: gravity, ground contact, crash checks
      and integration. F and Mo are the body-frame force and moment from the aircraft itself. */
@@ -847,6 +974,7 @@ const FL = (function () {
     s.t += dt;
     if (ac.kind === 'quad') return stepQuad(s, ac, ctl, env, dt);
     if (ac.kind === 'heli') return stepHeli(s, ac, ctl, env, dt);
+    if (ac.kind === 'vtol') return stepVtol(s, ac, ctl, env, dt);
 
     // --- motor & battery ---
     let thrCmd = s.crashed ? 0 : clamp(ctl.thr, 0, 1);
@@ -893,81 +1021,10 @@ const FL = (function () {
     Mo[0] += P.torque * T * P.D; // prop reaction torque
     if (s.shed > 0) for (let k = 0; k < 3; k++) Mo[k] += (Math.random() * 2 - 1) * s.shed * 0.04 * m * ac.b; // ice shed off the prop: imbalance
 
-    // --- lifting strips ---
-    const hCG = -s.p[2];
-    let clwSum = 0, clwArea = 0, stL = 0, stR = 0, aL = 0, aR = 0, aSum = 0;
-    const eps = (2 * s.clw) / (Math.PI * ac.ARw); // tail downwash from last step's wing CL
+    // --- lifting surfaces ---
     // turbulence: rotational gusts (Dryden p, q, r) act like the air itself rotating
     const gw = env.gw || [0, 0, 0], wa = [w[0] - gw[0], w[1] - gw[1], w[2] - gw[2]];
-    // weather: rain roughens the wing; ice builds on each strip's leading edge and melts above freezing
-    const wxa = env.wx, rainP = wxa ? wxa.rain : 0;
-    const icing = wxa && wxa.lwc > 0 && wxa.T < 3, melt = wxa && wxa.T > 0.5 ? (wxa.T - 0.5) * 2e-6 * (wxa.rain > 0 ? 3 : 1) * dt : 0;
-    if (icing && !s.ice) s.ice = new Float64Array(ac.strips.length);
-    let iceM = 0;
-    for (let i = 0; i < ac.strips.length; i++) {
-      const st = ac.strips[i];
-      const r = st.r34; // angle of attack taken at 3/4 chord (Pistolesi); force applied at 1/4 chord
-      const v0 = vb[0] + (wa[1] * r[2] - wa[2] * r[1]);
-      const v1 = vb[1] + (wa[2] * r[0] - wa[0] * r[2]);
-      const v2 = vb[2] + (wa[0] * r[1] - wa[1] * r[0]);
-      let uc = v0 * st.c[0] + v1 * st.c[1] + v2 * st.c[2];
-      const un = v0 * st.n[0] + v1 * st.n[1] + v2 * st.n[2];
-      if (st.wash) uc += dWash;
-      const V2 = uc * uc + un * un;
-      if (V2 < 0.04) continue;
-      const Vin = Math.sqrt(V2);
-      let alpha = Math.atan2(-un, uc);
-      if (st.role === 'tail') alpha -= eps;
-      const d = clamp(st.ka * s.sa + st.ke * s.se + st.kr * s.sr + st.kf * s.sf, -ac.defl.flapMax, ac.defl.flapMax);
-      const flex = ac.flexQ ? 1 / (1 + (0.5 * rho * V2) / ac.flexQ) : 1;
-      /* Thin-airfoil flap theory holds to about 12°; past that the flow starts
-         to leave the flap and the extra lift tails off — a plain flap at 30°
-         measures about 65% of theory, and at 45° it has almost given up. */
-      let dEff = d * flex * (1 - 0.65 * clamp((Math.abs(d) - 0.21) / 0.58, 0, 1));
-      /* A flap over part of the span dumps a bump of lift inboard, and that bump
-         induces downwash on itself: lifting-line solutions put the extra induced
-         angle at roughly 45% of the flap's α shift for a short flap, fading to
-         nothing when the flap runs the whole span. It costs some of the flap's
-         lift and it is what stops the flapped span from stalling far ahead of
-         the rest of the wing. Flaps up (kf = 0 everywhere) this does nothing. */
-      if (st.kf) dEff *= 1 - 0.45 * (1 - (ac.flapArea || 0));
-      let ae = alpha + st.tau * dEff;
-      if (ae > Math.PI) ae -= 2 * Math.PI; else if (ae < -Math.PI) ae += 2 * Math.PI;
-      let dCL = 0.12 * rainP, dCD = 0.01 * rainP, slope = 1;
-      if (s.ice) {
-        let k = s.ice[i];
-        if (icing) k += iceRate(wxa, Vin, st.chord, wxa.T) * dt;
-        if (melt && k > 0) k = Math.max(0, k - melt);
-        s.ice[i] = k;
-        if (k > 0) { const pn = icePenalty(k / st.chord, s.iceGl); dCL += pn.dCL; dCD += pn.dCD; slope = pn.slope; iceM += 80 * k * st.area; }
-      }
-      const cf = foilCoeffs(st, ae, dEff, dCL, dCD, slope);
-      // induced drag, reduced in ground effect (McCormick)
-      const hz = hCG - (R[6] * st.r[0] + R[7] * st.r[1] + R[8] * st.r[2]);
-      const g16 = (16 * Math.max(0.02, hz)) / (ac.b || 1);
-      const ge = st.role === 'fin' ? 1 : (g16 * g16) / (1 + g16 * g16);
-      const CD = cf.CDp + (1 - cf.sig) * st.k * ge * cf.CLlin * cf.CLlin;
-      const qs = ((wa[0] * st.s[0] + wa[1] * st.s[1] + wa[2] * st.s[2]) * st.chord) / Vin;
-      const Cm = cf.Cm - 0.4 * qs; // section pitch-rate damping
-      const qS = 0.5 * rho * V2 * st.area;
-      const vh0 = (uc * st.c[0] + un * st.n[0]) / Vin, vh1 = (uc * st.c[1] + un * st.n[1]) / Vin, vh2 = (uc * st.c[2] + un * st.n[2]) / Vin;
-      const lh0 = st.s[1] * vh2 - st.s[2] * vh1, lh1 = st.s[2] * vh0 - st.s[0] * vh2, lh2 = st.s[0] * vh1 - st.s[1] * vh0; // lift ⟂ local flow
-      const L = qS * cf.CL, D = qS * CD;
-      const f0 = L * lh0 - D * vh0, f1 = L * lh1 - D * vh1, f2 = L * lh2 - D * vh2;
-      F[0] += f0; F[1] += f1; F[2] += f2;
-      const p = st.r, mc = qS * st.chord * Cm;
-      Mo[0] += p[1] * f2 - p[2] * f1 + mc * st.s[0];
-      Mo[1] += p[2] * f0 - p[0] * f2 + mc * st.s[1];
-      Mo[2] += p[0] * f1 - p[1] * f0 + mc * st.s[2];
-      if (st.role === 'wing') {
-        clwSum += cf.CL * st.area; clwArea += st.area; aSum += alpha * st.area;
-        if (st.side > 0) { stR += cf.sig * st.area; aR += st.area; } else { stL += cf.sig * st.area; aL += st.area; }
-      }
-    }
-    s.clw = clwArea > 0 ? clwSum / clwArea : 0;
-    // ice mass ≈ ρ_ice·0.1·k·c per unit span (a wedge ~10% of chord deep); glaze share by mass
-    if (icing && iceM > s.iceMass) s.iceGl += ((glazeOf(wxa.T) - s.iceGl) * (iceM - s.iceMass)) / iceM;
-    s.iceMass = iceM;
+    const sf = stripForces(s, ac, vb, wa, R, rho, env, dWash, dt, F, Mo);
 
     // --- fuselage / pod drag ---
     if (V > 0.1) {
@@ -982,11 +1039,11 @@ const FL = (function () {
     const Fcb = finish(s, ac, F, Mo, R, env, dt);
 
     const t = s.tele;
-    t.alpha = clwArea > 0 ? aSum / clwArea : 0;
+    t.alpha = sf.alpha;
     t.beta = V > 0.3 ? Math.asin(clamp(vb[1] / V, -1, 1)) : 0;
     t.V = V; t.qbar = 0.5 * rho * V * V; t.T = T; t.CL = s.clw;
     t.nz = -(F[2] + Fcb[2]) / (m * G);
-    t.stallL = aL ? stL / aL : 0; t.stallR = aR ? stR / aR : 0;
+    t.stallL = sf.stallL; t.stallR = sf.stallR;
 
   }
 
@@ -998,8 +1055,9 @@ const FL = (function () {
   function rotarySetpoints(ctl, R, w, ac) {
     const RT = ac.rates, A = ac.angle;
     const lim = ctl.lim || { bank: A.max, pitch: A.max, tBank: 60, tPitch: 60 };
-    const a = sat(ctl.a), e = sat(ctl.e);
-    const acro = [actualRate(a, RT.roll) * D2R, actualRate(e, RT.pitch) * D2R, actualRate(sat(ctl.r), RT.yaw) * D2R];
+    // an axis the caller left out is centred, not NaN
+    const a = sat(ctl.a || 0), e = sat(ctl.e || 0);
+    const acro = [actualRate(a, RT.roll) * D2R, actualRate(e, RT.pitch) * D2R, actualRate(sat(ctl.r || 0), RT.yaw) * D2R];
     const mode = ctl.mode || 'acro';
     if (mode === 'acro') return acro;
     const eu = eulerFromMat(R), cap = A.rate * D2R;
@@ -1121,6 +1179,158 @@ const FL = (function () {
     t.V = Vn; t.qbar = 0.5 * rho * Vn * Vn; t.T = Ttot; t.alpha = 0; t.beta = 0; t.CL = 0; t.stallL = 0; t.stallR = 0;
     t.nz = -(F[2] + Fcb[2]) / (ac.mass * G);
     t.tw = (4 * Tmax) / (ac.mass * G); t.sp = sp; t.wash = wash;
+  }
+
+
+  /* ---------------- Tail-sitter VTOL ----------------
+     Four motors thrusting along the nose (+x), lifting surfaces in the cruise
+     frame, and one number for which way up it is flying: s.fwd, 0 standing on
+     its tail and 1 flying horizontally. The pack, the rate PID and the mixer
+     are the multirotor model; the lift, the stall and the drag are the strip
+     model. They meet in the control frame below.
+
+     The trick that makes a tail-sitter tractable is that there is no "hover
+     controller" and no "forward controller" — there is one attitude the
+     aircraft should be holding, which starts out vertical and ends up level,
+     and the ordinary multirotor controller flies level *in that frame*. The
+     transition is then nothing but that frame rotating, and because the frame
+     is near level in both regimes the Euler angles it works in never go near
+     the 90° singularity a tail-sitter otherwise lives on.
+
+     ctl adds: { fwd: 0 hover … 1 forward } */
+  function stepVtol(s, ac, ctl, env, dt) {
+    const M = ac.motor, B = ac.batt, I = ac.I, rho = env.rho, w = s.w;
+    const armed = !!ctl.armed && !s.crashed && !(env.battery && s.soc <= 0);
+    s.fwd = approach(s.fwd, clamp(ctl.fwd === undefined ? 0 : +ctl.fwd, 0, 1), dt / ac.trans.time);
+
+    // --- battery and motors, as on a multirotor ---
+    const m3 = (s.mot[0] ** 3 + s.mot[1] ** 3 + s.mot[2] ** 3 + s.mot[3] ** 3) / 4;
+    const vbody = Math.hypot(s.v[0], s.v[1], s.v[2]), mAvg = (s.mot[0] + s.mot[1] + s.mot[2] + s.mot[3]) / 4;
+    const pice = iceSmall(s, env, vbody, 3.5 * M.Vp * mAvg + vbody, 0.09 * M.D, dt);
+    const vprev = clamp((s.vb || B.Vref) / B.Vref, 0, 1.2);
+    battery(s, B, B.Iidle + B.Imax * m3 * (rho / RHO0) * pice.power * vprev * vprev, vbody, env, dt);
+    const vsc = clamp(s.vb / B.Vref, 0, 1.2);
+    const Tmax = M.Tmax * vsc * vsc * (rho / RHO0) * pice.thrust;
+
+    const R = quatToMat(s.q);
+    const wind = env.wind || [0, 0, 0];
+    const vb = mulMtV(R, [s.v[0] - wind[0], s.v[1] - wind[1], s.v[2] - wind[2]]);
+    const V = Math.hypot(vb[0], vb[1], vb[2]);
+
+    // --- control frame: Rf = R·Ry(−tilt), level when the aircraft sits at the
+    //     attitude the transition currently asks for ---
+    // the cruise trim attitude only belongs at the forward-flight end of it:
+    // held in the hover it is a permanent 2° lean, and the aircraft slides away
+    const tilt = (1 - s.fwd) * (Math.PI / 2) + s.fwd * ac.trans.pitch;
+    const ct = Math.cos(tilt), stl = Math.sin(tilt);
+    const Rf = [
+      R[0] * ct + R[2] * stl, R[1], -R[0] * stl + R[2] * ct,
+      R[3] * ct + R[5] * stl, R[4], -R[3] * stl + R[5] * ct,
+      R[6] * ct + R[8] * stl, R[7], -R[6] * stl + R[8] * ct,
+    ];
+    const wf = [ct * w[0] + stl * w[2], w[1], -stl * w[0] + ct * w[2]];
+    const spF = rotarySetpoints(ctl, Rf, wf, ac);
+    const sp = [ct * spF[0] - stl * spF[2], spF[1], stl * spF[0] + ct * spF[2]];
+
+    // --- rate PID with feed-forward, exactly as the multirotor ---
+    const resetI = !armed || (s.wow && ctl.thr < 0.05);
+    const alpha = [0, 0, 0];
+    const gains = [ac.pid.roll, ac.pid.pitch, ac.pid.yaw];
+    for (let k = 0; k < 3; k++) {
+      const g = gains[k], e = sp[k] - w[k];
+      const relax = clamp(1 - Math.abs(s.ff[k]) / 40, 0, 1);
+      s.pidI[k] = resetI ? 0 : clamp(s.pidI[k] + e * dt * relax, -g[3], g[3]);
+      const dsp = (sp[k] - s.spPrev[k]) / dt;
+      s.spPrev[k] = sp[k];
+      s.ff[k] += (dsp - s.ff[k]) * Math.min(1, dt / 0.02);
+      const dw = (w[k] - s.wPrev[k]) / dt;
+      s.wPrev[k] = w[k];
+      s.dF[k] += (dw - s.dF[k]) * Math.min(1, dt / 0.006);
+      alpha[k] = g[0] * e + g[1] * s.pidI[k] + g[2] * s.ff[k] - (g[4] || 0) * s.dF[k];
+    }
+    const Iw = [I[0] * w[0], I[1] * w[1], I[2] * w[2]], gyro = cross(w, Iw);
+    const Mx = I[0] * alpha[0] + gyro[0], My = I[1] * alpha[1] + gyro[1], Mz = I[2] * alpha[2] + gyro[2];
+
+    /* --- mixer. Thrust is along the nose, so the motors above and below the
+       centreline pitch it, the motors left and right yaw it, and roll about
+       the nose is left to the propellers' own reaction torque — which is why
+       a tail-sitter rolls lazily and pitches hard. --- */
+    const ay = Math.abs(ac.motors[0][1]) || 1, az = Math.abs(ac.motors[0][2]) || 1;
+    const base = M.idle + clamp(ctl.thr, 0, 1) * (1 - M.idle);
+    const Tc = 4 * Tmax * base * base;
+    const want = ac.motors.map(([x, y, z, q]) => (My / az) * Math.sign(z) / 4 - (Mz / ay) * Math.sign(y) / 4 + (Mx / M.kQ) * q / 4);
+    const lo = Tmax * M.idle * M.idle, hi = Tmax;
+    const spread = Math.max(...want) - Math.min(...want);
+    if (spread > hi - lo) { const k = (hi - lo) / spread; for (let i = 0; i < 4; i++) want[i] *= k; }
+    let Ti = want.map((d) => Tc / 4 + d);
+    const over = Math.max(...Ti) - hi, under = lo - Math.min(...Ti);
+    if (over > 0) Ti = Ti.map((t) => t - over); else if (under > 0) Ti = Ti.map((t) => t + under);
+    for (let i = 0; i < 4; i++) {
+      const cmd = armed ? Math.sqrt(clamp(Ti[i] / Tmax, 0, 1)) : 0;
+      s.mot[i] += (cmd - s.mot[i]) * Math.min(1, dt / M.tau);
+    }
+
+    // --- control surfaces, if it has any ---
+    if (ac.defl) {
+      s.sa = approach(s.sa, sat(ctl.a) * ac.defl.a, ac.servoRate * dt);
+      s.se = approach(s.se, sat(ctl.e) * ac.defl.e, ac.servoRate * dt);
+      s.sr = approach(s.sr, sat(ctl.r) * ac.defl.r, ac.servoRate * dt);
+      s.sf = approach(s.sf, clamp(ctl.f || 0, 0, 1) * (ac.defl.f || 0), ((ac.defl.f || 0) / 2) * dt);
+    }
+
+    // --- thrust ---
+    const F = [0, 0, 0], Mo = [0, 0, 0];
+    // ground effect only counts when the thrust is pointing at the ground
+    const h = Math.max(0.03, -s.p[2]), rr = M.D / 2;
+    const up = clamp(-R[6], 0, 1); // how vertical the thrust axis is
+    const ge = 1 + up * (1 / (1 - Math.min(0.25, Math.pow(rr / (4 * h), 2))) - 1);
+    // sinking back into its own wake, hovering: the nose-up equivalent of a quad's prop wash
+    const vperp = Math.hypot(vb[1], vb[2]);
+    const wash = clamp((-vb[0] - 2.5) / 3, 0, 1) * clamp(1 - vperp / 5, 0, 1);
+    s.buf[0] += (Math.random() * 2 - 1 - s.buf[0]) * Math.min(1, dt / 0.05);
+    s.buf[1] += (Math.random() * 2 - 1 - s.buf[1]) * Math.min(1, dt / 0.05);
+    let Ttot = 0;
+    for (let i = 0; i < 4; i++) {
+      const mo = ac.motors[i], om = s.mot[i];
+      // air going into the disc: forward speed plus what the rotation adds at this motor
+      const vax = vb[0] + (w[1] * mo[2] - w[2] * mo[1]);
+      /* Thrust falls away as the aircraft catches up with its own propellers
+         and reaches zero at the pitch speed — no floor under it, unlike the
+         multirotor model, because a tail-sitter spends its whole run up there
+         and the top speed is exactly this. */
+      const inflow = om > 0.02 ? clamp(1 - vax / Math.max(M.Vp * om, 1), 0, 1.35) : 1;
+      const T = Tmax * om * om * inflow * ge * (1 - 0.3 * wash);
+      Ttot += T;
+      F[0] += T;
+      Mo[0] += mo[3] * M.kQ * T;
+      Mo[1] += mo[2] * T;
+      Mo[2] += -mo[1] * T;
+    }
+    const shake = (wash * 0.14 + s.shed * 0.12) * ((M.Tmax * az) / (13.5 * 0.078));
+    Mo[1] += shake * s.buf[0]; Mo[2] += shake * s.buf[1];
+    // rotor drag acts in the disc plane, which here is across the aircraft
+    F[1] -= ac.rotorDrag * Ttot * vb[1]; F[2] -= ac.rotorDrag * Ttot * vb[2];
+    if (s.shed > 0) for (let k = 0; k < 3; k++) Mo[k] += (Math.random() * 2 - 1) * s.shed * 0.04 * ac.mass * ac.b;
+
+    // --- lifting surfaces and body drag ---
+    const gw = env.gw || [0, 0, 0], wa = [w[0] - gw[0], w[1] - gw[1], w[2] - gw[2]];
+    const sf = stripForces(s, ac, vb, wa, R, rho, env, 0, dt, F, Mo);
+    if (V > 0.1) {
+      const Bd = ac.body, kq = 0.5 * rho * V;
+      const fb = [-kq * Bd.CdA[0] * vb[0], -kq * Bd.CdA[1] * vb[1], -kq * Bd.CdA[2] * vb[2]];
+      F[0] += fb[0]; F[1] += fb[1]; F[2] += fb[2];
+      const mb = cross(Bd.r, fb);
+      Mo[0] += mb[0]; Mo[1] += mb[1]; Mo[2] += mb[2];
+    }
+
+    const Fcb = finish(s, ac, F, Mo, R, env, dt);
+    s.n = mAvg;
+    const t = s.tele;
+    t.V = V; t.qbar = 0.5 * rho * V * V; t.T = Ttot; t.CL = s.clw;
+    t.alpha = sf.alpha; t.beta = V > 0.3 ? Math.asin(clamp(vb[1] / V, -1, 1)) : 0;
+    t.nz = -(F[2] + Fcb[2]) / (ac.mass * G);
+    t.stallL = sf.stallL; t.stallR = sf.stallR;
+    t.wash = wash;
   }
 
   /* ---------------- Helicopter (flybarless, governed) ----------------

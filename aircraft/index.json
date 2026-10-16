@@ -36,6 +36,13 @@
       "kind": "quad",
       "blurb": "7-inch long-range quad with an ArduPilot stack on a 6S2P 18650 pack. 1.15 kg, about 6:1 on the motor rating — but the pack cannot feed a full punch, so watch what the voltage does when you pull hard.",
       "author": "RealPapaNerf"
+    },
+    {
+      "file": "speed-tailsitter.json",
+      "name": "Speed tail-sitter",
+      "kind": "vtol",
+      "blurb": "Four motors along the nose, a body that flies like a wing, and nothing else. Stands on its tail, pitches over, and runs.",
+      "author": "Flightline"
     }
   ]
 }

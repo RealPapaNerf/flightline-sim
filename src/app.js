@@ -102,7 +102,7 @@
   const ACS = {};          // id -> built aircraft (strips, bench numbers)
   const SRC = {};          // id -> { def, meta, spec, builtin } the file it came from
   const START_LABEL = { launch: 'Hand launch', runway: 'Runway', air: 'In the air', pad: 'Launch pad' };
-  const ROTARY = (ac) => ac.kind === 'quad' || ac.kind === 'heli';
+  const ROTARY = (ac) => ac.kind === 'quad' || ac.kind === 'heli' || ac.kind === 'vtol';
   function installDef(def, meta, spec, builtin) {
     const ac = FL.build(def);
     ACS[def.id] = ac;
@@ -826,7 +826,7 @@
   // ground under snow: only when it's snowing and cold enough to lie
   const snowCover = () => ((S.precip === 'snow' || S.precip === 'heavysnow') && atmo.Tc <= 1 ? (S.precip === 'heavysnow' ? 0.72 : 0.5) : 0);
   // ice the pilot can see: plane surfaces whiten with relative ice height; props and blades with prop ice
-  const propChord = (ac) => (ac.kind === 'quad' ? 0.09 * ac.motor.D : ac.kind === 'heli' ? ac.rotor.chord : 0.08 * ac.prop.D + 0.006);
+  const propChord = (ac) => (ac.motor ? 0.09 * ac.motor.D : ac.kind === 'heli' ? ac.rotor.chord : 0.08 * ac.prop.D + 0.006);
   function iceInfo() {
     let kc = 0;
     if (st.ice && AC.strips) { let a = 0; AC.strips.forEach((sp, i) => { if (sp.role === 'wing') { kc += (st.ice[i] / sp.chord) * sp.area; a += sp.area; } }); kc = a ? kc / a : 0; }
@@ -1037,9 +1037,10 @@
     const canopyC = C('canopy', [0.1, 0.16, 0.24]), dark = C('dark', [0.09, 0.09, 0.11]), metal = C('metal', [0.72, 0.74, 0.78]);
     const accent = C('accent', [0.05, 0.05, 0.06]);
     const g = new Geo(), parts = [], moving = [];
-    const plank = ac.kind === 'wing';
+    const plank = ac.kind === 'wing', tailsit = ac.kind === 'vtol';
 
     for (const sf of ac.surfaces) {
+      if (sf.hidden) continue; // a lifting body standing in for the fuselage: already drawn as the fuselage
       const vert = !!sf.vertical, sides = vert ? [0] : sf.mirror ? [1, -1] : [1];
       const span = sf.y1 - sf.y0;
       const at = (y) => (span > 1e-6 ? (y - sf.y0) / span : 0);
@@ -1099,10 +1100,25 @@
     const sh = ac.shape || {};
     // if the file says nothing, read the size back out of the body drag area (0.30·w·h, h ≈ 1.16·w)
     const w = sh.fuseW || Math.sqrt(Math.max(1e-5, ac.body.CdA[0]) / 0.3 / 1.16), h = sh.fuseH || 1.16 * w;
-    let nose = X(ac.prop.r[0]) + (ac.prop.wash ? 0 : 0.5 * wing.c0), tail = X(wing.xLE0 - wing.c0);
-    for (const sf of ac.surfaces) tail = Math.min(tail, X(Math.min(sf.xLE0 - sf.c0, sf.xLE1 - sf.c1)));
+    let nose = ac.prop ? X(ac.prop.r[0]) + (ac.prop.wash ? 0 : 0.5 * wing.c0) : -1e9, tail = 1e9;
+    for (const sf of ac.surfaces) {
+      nose = Math.max(nose, X(Math.max(sf.xLE0, sf.xLE1)));
+      tail = Math.min(tail, X(Math.min(sf.xLE0 - sf.c0, sf.xLE1 - sf.c1)));
+    }
+    for (const pt of ac.points) { nose = Math.max(nose, pt.p[0]); tail = Math.min(tail, pt.p[0]); }
     const wingTE = X(wing.xLE0 - wing.c0);
-    if (plank) { // a pod on top of the wing, like the Goblin's
+    if (tailsit) { // a body of revolution: a pointed nose, a parallel middle, a tapered tail
+      const mid1 = nose - 0.35 * (nose - tail), mid2 = tail + 0.25 * (nose - tail);
+      const col = { top: fuseC, bottom: fuseC, side: fuseC, front: dark, back: dark };
+      g.taper(-nose, w * 0.18, h * 0.18, 0, -mid1, w, h, 0, col);
+      g.taper(-mid1, w, h, 0, -mid2, w, h, 0, col);
+      g.taper(-mid2, w, h, 0, -tail, w * 0.55, h * 0.55, 0, { top: accent, bottom: accent, side: accent, back: dark });
+      // the ring it stands on
+      for (const pt of ac.points) if (pt.foot) {
+        const q = BR(pt.p);
+        g.box(q[0] - w * 0.08, q[1] - h * 0.08, q[2] - 0.004, q[0] + w * 0.08, q[1] + h * 0.08, q[2] + 0.02, metal);
+      }
+    } else if (plank) { // a pod on top of the wing, like the Goblin's
       const f0 = X(wing.xLE0) + 0.13 * wing.c0, f1 = wingTE - 0.09 * wing.c0;
       g.taper(-f0, w, h * 0.95, 0, -f1, w * 0.8, h * 0.62, 0.0015, { top: fuseC, bottom: fuseC, side: fuseC, front: dark, back: fuseC });
       g.box(-w * 0.35, h * 0.45, -f0 + 0.02 * wing.c0, w * 0.35, h * 0.8, -f0 + 0.08 * wing.c0, canopyC);
@@ -1129,7 +1145,22 @@
         parts.push({ mesh: GLR.mesh(R, gw), mat: pivot, anim: (s0) => axis(1 - clamp(s0.gear, 0, 1)) });
       }
     }
-    // --- prop ---
+    // --- propulsion ---
+    if (tailsit) {
+      const props = [], blades = LK.blades || 2, D = ac.motor.D;
+      ac.motors.forEach((mo, i) => {
+        const P = BR([mo[0], mo[1], mo[2]]);
+        // the arm, from the body out to the motor
+        const dx = P[0], dy = P[1], l = Math.hypot(dx, dy) || 1;
+        const nx = (-dy / l) * 0.009, ny = (dx / l) * 0.009;
+        slab(g, [nx, ny, P[2] + 0.012], [P[0] + nx, P[1] + ny, P[2] + 0.012], [P[0] - nx, P[1] - ny, P[2] + 0.012], [-nx, -ny, P[2] + 0.012], 0.05, 0.03, dark, dark, dark, [0, 0, 1]);
+        g.with(M4.trans(P[0], P[1], P[2]), () => g.with(M4.rotX(Math.PI / 2), () => g.cyl(0, -0.012, 0, D * 0.085, D * 0.07, 0.03, 10, metal)));
+        const pm = propMeshes(g, blades, D / 2, dark, mo[2] < 0 ? top : sideC);
+        props.push({ blades: pm.blades, disc: pm.disc, mat: M4.trans(P[0], P[1], P[2] - 0.016), spin: (s0) => s0.mot[i], dir: mo[3], ang: i * 0.7, hideFpv: true });
+      });
+      parts.unshift({ mesh: GLR.mesh(R, g), mat: M4.ident() });
+      return { parts: parts.concat(moving), props, cam: BR(ac.fpvCam) };
+    }
     const pz = -X(ac.prop.r[0]);
     g.with(M4.trans(0, 0, pz + (ac.prop.wash ? 0.01 : -0.01)), () => g.with(M4.rotX(ac.prop.wash ? -Math.PI / 2 : Math.PI / 2), () => g.cyl(0, 0, 0, ac.prop.D * 0.09, ac.prop.D * 0.05, ac.prop.D * 0.12, 8, metal)));
     const pm = propMeshes(g, (LK.blades || 2), ac.prop.D / 2, dark);
@@ -1143,6 +1174,7 @@
   const MODELS = {};
   const modelFor = (ac) => (ac.kind === 'quad' ? buildQuad(ac) : ac.kind === 'heli' ? buildHeli(ac)
     : ac.id === 'trainer' ? buildTrainer(ac) : ac.id === 'goblin' ? buildGoblin(ac) : buildPlane(ac));
+  const VTOL = (ac) => ac.kind === 'vtol';
   for (const [id, ac] of Object.entries(ACS)) MODELS[id] = modelFor(ac);
 
   /* ---------------------------------------------------------------- sim state */
@@ -1196,6 +1228,7 @@
     if (inAir) kb.thr = AC.kind === 'quad' ? AC.hoverThr : AC.kind === 'heli' ? AC.hoverThrCurve[S.curve] : AC.kind === 'wing' ? 0.55 : 0.6;
     else kb.thr = 0;
     flapSet = 0; gearDown = !inAir; st.gear = gearDown ? 1 : 0;
+    fwdCmd = isVtol() && inAir ? 1 : 0;
     crashAt = 0; crashAnnounced = false; flightTime = 0; timerOn = inAir; launchHold = 0; acc = 0; farWarned = false;
     for (let i = 0; i < 3; i++) gust[i] = 0;
     courseReset(); obsPrev = null;
@@ -1231,6 +1264,7 @@
     ['aircraft-cycle', 'Switch aircraft'], ['start-cycle', 'Start position: cycle'],
     ['flaps-cycle', 'Flaps: up / takeoff / landing'], ['flaps-down', 'Flaps: one step down'], ['flaps-up', 'Flaps: one step up'],
     ['gear-toggle', 'Landing gear: up / down'],
+    ['transition', 'Tail-sitter: hover / forward flight'],
   ];
   const REPEATS = new Set(['trim-e-up', 'trim-e-down', 'trim-a-left', 'trim-a-right', 'trim-r-left', 'trim-r-right', 'tilt-up', 'tilt-down']);
   const AXES = [['thr', 'Throttle'], ['a', 'Roll'], ['e', 'Pitch'], ['r', 'Yaw']];
@@ -1423,6 +1457,7 @@
       case 'flaps-down': setFlaps(flapSet + 0.5); break;
       case 'flaps-up': setFlaps(flapSet - 0.5); break;
       case 'gear-toggle': toggleGear(); break;
+      case 'transition': toggleTransition(); break;
     }
     syncSheet();
   }
@@ -1503,6 +1538,7 @@
         else if (c === 'KeyI') fire('curve-toggle');
         else if (c === 'KeyC') fire('flaps-cycle');
         else if (c === 'KeyU') fire('gear-toggle');
+        else if (c === 'KeyT') fire('transition');
         else if (c === 'Digit1') setView('los'); else if (c === 'Digit2') setView('fpv'); else if (c === 'Digit3') setView('split');
       }
     }
@@ -1932,6 +1968,7 @@
     S.mode = m; saveS(); refreshBar(); syncSheet();
   }
   function setAp(m) {
+    if (isVtol()) { flash('NO AUTOPILOT ON A TAIL-SITTER'); return; }
     if (apMode() === m) return;
     NAV.enter(nav, m, st); flash(AP_NAME[m].toUpperCase()); refreshBar();
   }
@@ -2029,8 +2066,14 @@
       .then(() => syncSheet());
   }
 
-  /* ---------------------------------------------------------------- flaps and gear */
-  let flapSet = 0, gearDown = true;
+  /* ---------------------------------------------------------------- flaps, gear, transition */
+  let flapSet = 0, gearDown = true, fwdCmd = 0;
+  const isVtol = () => VTOL(AC);
+  function toggleTransition() {
+    if (!isVtol()) return;
+    fwdCmd = fwdCmd > 0.5 ? 0 : 1;
+    flash(fwdCmd ? 'TRANSITION → FORWARD' : 'TRANSITION → HOVER');
+  }
   const hasFlaps = () => !ROTARY(AC) && !!(AC.defl && AC.defl.f);
   const hasGear = () => !ROTARY(AC) && !!AC.retract;
   const flapDeg = () => Math.round(flapSet * (AC.defl.f || 0) * R2D);
@@ -2940,6 +2983,12 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     }
     if (S.battery && st.soc <= 0) w.push(['BATTERY EMPTY', '#ff6157']);
     else if (S.battery && st.vb / AC.batt.cells < (AC.batt.chem === 'liion' ? 3.1 : 3.45) && st.n > 0.05) w.push(['LOW BATTERY', '#ff9d42']);
+    if (isVtol() && !st.crashed) {
+      const f = st.fwd;
+      if (f < 0.02) w.push(['HOVER', '#9fd3ff']);
+      else if (f > 0.98) w.push(['FORWARD FLIGHT', '#9fd3ff']);
+      else w.push([`TRANSITION ${Math.round(f * 100)}%`, '#ffd36a']);
+    }
     if (hasFlaps() && st.sf > 0.01) w.push([`FLAPS ${Math.round((st.sf * R2D))}°`, '#9fd3ff']);
     if (hasGear()) {
       if (st.gear > 0.01 && st.gear < 0.99) w.push(['GEAR IN TRANSIT', '#ffd36a']);
@@ -3310,7 +3359,13 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   function drawEng(v) {
     const t = st.tele, x = v.x + 12, y0 = v.y + (v.y < 4 ? 92 : 30);
     if (ROTARY(AC)) {
-      const L2 = AC.kind === 'quad'
+      const L2 = AC.kind === 'vtol'
+        ? [`V  ${t.V.toFixed(1)} m/s (${(t.V * 3.6).toFixed(0)} km/h)   n ${t.nz.toFixed(2)} g`,
+           `α ${(t.alpha * R2D).toFixed(1)}°   β ${(t.beta * R2D).toFixed(1)}°   CL ${t.CL.toFixed(2)}`,
+           `T  ${t.T.toFixed(1)} N   transition ${Math.round(st.fwd * 100)}%`,
+           `motors ${st.mot.map((m) => Math.round(m * 100)).join(' ')}%`,
+           `pack ${st.vb.toFixed(1)} V  ${st.I.toFixed(0)} A`]
+        : AC.kind === 'quad'
         ? [`V  ${t.V.toFixed(1)} m/s   n ${t.nz.toFixed(2)} g`, `T  ${t.T.toFixed(1)} N   T/W max ${(t.tw || 0).toFixed(1)}`,
            `motors ${st.mot.map((m) => Math.round(m * 100)).join(' ')}%`, `pack ${st.vb.toFixed(1)} V  ${st.I.toFixed(0)} A   wash ${(t.wash || 0).toFixed(2)}`]
         : [`V  ${t.V.toFixed(1)} m/s   n ${t.nz.toFixed(2)} g`, `T  ${t.T.toFixed(1)} N   rotor ${Math.round(st.om * 60 / (2 * Math.PI))} rpm`,
@@ -3360,9 +3415,9 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     if (!actx) return;
     const t = actx.currentTime;
     let g = S.sound && !paused && !st.crashed ? 0.012 + 0.05 * st.n : 0;
-    const K0 = { wing: [120, 520, 1.5], conventional: [70, 260, 2], quad: [170, 950, 1.5], heli: [0, 0, 2] }[AC.kind];
+    const K0 = { wing: [120, 520, 1.5], conventional: [70, 260, 2], quad: [170, 950, 1.5], vtol: [170, 1100, 1.5], heli: [0, 0, 2] }[AC.kind] || [120, 520, 1.5];
     let f = K0[0] + K0[1] * st.n;
-    if (AC.kind === 'quad') f *= 0.127 / AC.motor.D; // bigger props turn slower: lower note
+    if (AC.motor) f *= 0.127 / AC.motor.D; // bigger props turn slower: lower note
     if (AC.kind === 'heli') { f = (st.om / (2 * Math.PI)) * 2; g = S.sound && !paused && !st.crashed ? 0.015 + 0.04 * (st.om / AC.rotor.om0) : 0; } // blade pass
     if (S.view !== 'fpv') {
       g /= 1 + losDist / 45;
@@ -3562,7 +3617,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       const cut = cutOn || cutHeld, heli = AC.kind === 'heli';
       // heli: the left stick is collective, live even with the motor held; hold stops the motor only
       return { thr: armed || heli ? inp.thr : 0, a: inp.a, e: inp.e, r: inp.r, armed: armed && !cut, hold: cut, curve: S.curve,
-        mode: { manual: 'acro', horizon: 'horizon', trainer: 'trainer', stab: 'angle' }[S.mode] || 'acro', lim: limNow() };
+        fwd: fwdCmd, mode: { manual: 'acro', horizon: 'horizon', trainer: 'trainer', stab: 'angle' }[S.mode] || 'acro', lim: limNow() };
     }
     const ex = (x, e) => { const k = e / 100; return x * (k * x * x + 1 - k); };
     const T = AC.trim, ut = userTrim(), RE = rateSource(false);

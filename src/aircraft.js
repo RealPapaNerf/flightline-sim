@@ -126,10 +126,11 @@ const ACF = (function (FL) {
   const SURFACE = o({
     name: s(24), role: e(['wing', 'tail', 'fin']),
     mirror: opt(b()), vertical: opt(b()),
+    hidden: opt(b()),        // an aerodynamic stand-in (a lifting body); the model does not draw it
     n: i(1, 14),
     y0: n(0, 6), y1: n(0.01, 6),
     xLE0: n(-8, 8), xLE1: n(-8, 8), c0: n(0.01, 2.5), c1: n(0.01, 2.5), z0: n(-3, 3),
-    dihedral: opt(n(-25, 45)), inc0: opt(n(-15, 15)), inc1: opt(n(-15, 15)), sweepLoad: opt(n(-1, 1)),
+    dihedral: opt(n(-60, 60)), inc0: opt(n(-15, 15)), inc1: opt(n(-15, 15)), sweepLoad: opt(n(-1, 1)),
     foil: FOIL, flaps: a(6, FLAP, []),
   });
   const POINT = o({
@@ -200,6 +201,25 @@ const ACF = (function (FL) {
     gear: opt(b()), gimbal: opt(b()),
     look: QUAD_LOOK,
   });
+  /* A tail-sitter: four motors thrusting along the nose, wings in the cruise
+     frame, and a transition between standing on its tail and flying level. */
+  const VTOL = Object.assign({}, COMMON, ROTARY, {
+    kind: e(['vtol']),
+    motors: a(8, v(4, -3, 3)),   // [x, y, z, spin] — spin sets the sign of its torque about the nose
+    motor: o({ Tmax: n(0.05, 900), tau: n(0.005, 1), idle: n(0, 0.3), kQ: n(0.0005, 0.5), Vp: n(1, 400), D: n(0.01, 1.5) }),
+    staticMargin: opt(n(-0.1, 0.6)),
+    surfaces: a(8, SURFACE),
+    defl: o({ a: n(0, 1.2), e: n(0, 1.2), r: n(0, 1.2), flapMax: n(0, 1.4), f: opt(n(0, 1.2)) }, { a: 0, e: 0, r: 0, flapMax: 0 }),
+    flexQ: n(0, 1e6, 0), servoRate: n(0.5, 60, 8),
+    trans: o({
+      time: n(0.2, 30),        // seconds to swing the nose between vertical and level
+      pitch: n(-0.4, 0.4),     // the attitude it holds in cruise, radians nose-up
+      vAir: n(1, 300),         // the speed a start in the air begins at, m/s
+    }),
+    shape: opt(o({ fuseW: n(0.01, 1.5), fuseH: n(0.01, 1.8), wheelR: opt(n(0.004, 0.4)) })),
+    rotorDrag: n(0, 0.2),
+    look: PLANE_LOOK,
+  });
   const HELI = Object.assign({}, COMMON, ROTARY, {
     kind: e(['heli']),
     rotor: o({
@@ -212,7 +232,7 @@ const ACF = (function (FL) {
     }),
     look: opt(QUAD_LOOK),
   });
-  const TABLE = { wing: PLANE, conventional: PLANE, quad: QUAD, heli: HELI };
+  const TABLE = { wing: PLANE, conventional: PLANE, quad: QUAD, heli: HELI, vtol: VTOL };
   const MAX_STRIPS = 40; // a plane's whole flying cost is its strips; see docs/aircraft-format.md
 
   function stripCount(def) {
@@ -237,8 +257,13 @@ const ACF = (function (FL) {
     const ns = stripCount(def);
     if (ns > MAX_STRIPS) { out.errors.push(`surfaces add up to ${ns} strips; the limit is ${MAX_STRIPS} (lower each surface's "n")`); return null; }
     if (kind !== 'quad' && kind !== 'heli' && !def.surfaces.some((sf) => sf.role === 'wing')) { out.errors.push('no surface has role "wing"'); return null; }
-    if (kind === 'quad' && def.motors.length !== 4) { out.errors.push(`motors: ${def.motors.length} given; the model flies 4`); return null; }
+    if ((kind === 'quad' || kind === 'vtol') && def.motors.length !== 4) { out.errors.push(`motors: ${def.motors.length} given; the model flies 4`); return null; }
+    if (kind === 'vtol' && !def.motors.some((m) => Math.abs(m[2]) > 1e-4)) { out.errors.push('motors: a tail-sitter needs motors above and below the centreline (the z of each) to pitch with'); return null; }
     if (!def.starts.length) def.starts = kind === 'wing' ? ['launch', 'air'] : kind === 'conventional' ? ['runway', 'air'] : ['pad', 'air'];
+    if (kind === 'vtol') { // the tail-sitter's own bench numbers want a lifting surface and a pack that can feed it
+      const S = def.surfaces.reduce((t, sf) => t + ((sf.c0 + sf.c1) / 2) * (sf.y1 - sf.y0) * (sf.mirror && !sf.vertical ? 2 : 1), 0);
+      if (S <= 0) { out.errors.push('surfaces: a tail-sitter needs some wing area to fly horizontally on'); return null; }
+    }
     return def;
   }
 

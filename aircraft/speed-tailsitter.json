@@ -1,0 +1,428 @@
+{
+  "format": "flightline-aircraft/1",
+  "author": "Flightline",
+  "version": "1",
+  "source": "published Peregreen V4 figures, with the drag area fitted to the record speed",
+  "def": {
+    "id": "peregreen-class",
+    "name": "Speed tail-sitter",
+    "blurb": "Four motors along the nose, a body that flies like a wing, and nothing else. Stands on its tail, pitches over, and runs.",
+    "notes": "A tail-sitter in the class of the Peregreen V4, not a copy of it. Published: 657.59 km/h (408.6 mph) Guinness record, four T-Motor 3120 at 900KV, props cut down to 6 inches, LiPo built for short bursts, 3D printed. The V3 weighed 2.77 kg. Assumed here: 2.8 kg all-up; 5.1 kgf of thrust per motor on a full 12S pack (7.3:1); 260 m/s pitch speed, which is what a 6-inch prop cut from a high-pitch blade gives at about 38,000 rpm; 0.0017 m2 of head-on drag area, a drag coefficient of 0.24 on the 95 mm body. That last one is the number doing the work: it is the only one that cannot be looked up, and it was chosen so the model reaches the published record. It lands at 649 km/h, 1.3% under. The fuselage is modelled as a lifting body (a low aspect ratio surface with a slow lift curve and a late stall) and the four arms as a cruciform wing at 45 degrees. No compressibility: at 650 km/h this is Mach 0.53 with the prop tips past Mach 1, so treat the top end as optimistic.",
+    "mass": 2.8,
+    "I": [
+      0.022,
+      0.05,
+      0.05
+    ],
+    "body": {
+      "r": [
+        -0.05,
+        0,
+        0
+      ],
+      "CdA": [
+        0.0017,
+        0.012,
+        0.012
+      ]
+    },
+    "batt": {
+      "chem": "lipo",
+      "cells": 12,
+      "mAh": 4400,
+      "R": 0.021,
+      "Imax": 338,
+      "Iidle": 1.2,
+      "Vref": 45.6,
+      "label": "12S2P 4,400 LiPo",
+      "cool": [
+        0.25,
+        0.1
+      ]
+    },
+    "wheels": [],
+    "points": [
+      {
+        "p": [
+          0.23,
+          0,
+          0
+        ],
+        "name": "nose",
+        "impact": 4,
+        "slide": 10
+      },
+      {
+        "p": [
+          -0.21,
+          0.05,
+          0.05
+        ],
+        "name": "tail ring",
+        "impact": 4,
+        "slide": 99,
+        "foot": true
+      },
+      {
+        "p": [
+          -0.21,
+          -0.05,
+          0.05
+        ],
+        "name": "tail ring",
+        "impact": 4,
+        "slide": 99,
+        "foot": true
+      },
+      {
+        "p": [
+          -0.21,
+          0.05,
+          -0.05
+        ],
+        "name": "tail ring",
+        "impact": 4,
+        "slide": 99,
+        "foot": true
+      },
+      {
+        "p": [
+          -0.21,
+          -0.05,
+          -0.05
+        ],
+        "name": "tail ring",
+        "impact": 4,
+        "slide": 99,
+        "foot": true
+      },
+      {
+        "p": [
+          0.02,
+          0.11192388155425118,
+          -0.09192388155425117
+        ],
+        "name": "upper right motor",
+        "impact": 6,
+        "slide": 99,
+        "prop": true,
+        "motor": 0,
+        "strike": 3
+      },
+      {
+        "p": [
+          0.02,
+          -0.11192388155425118,
+          -0.09192388155425117
+        ],
+        "name": "upper left motor",
+        "impact": 6,
+        "slide": 99,
+        "prop": true,
+        "motor": 1,
+        "strike": 3
+      },
+      {
+        "p": [
+          0.02,
+          0.11192388155425118,
+          0.09192388155425117
+        ],
+        "name": "lower right motor",
+        "impact": 6,
+        "slide": 99,
+        "prop": true,
+        "motor": 2,
+        "strike": 3
+      },
+      {
+        "p": [
+          0.02,
+          -0.11192388155425118,
+          0.09192388155425117
+        ],
+        "name": "lower left motor",
+        "impact": 6,
+        "slide": 99,
+        "prop": true,
+        "motor": 3,
+        "strike": 3
+      },
+      {
+        "p": [
+          0,
+          0,
+          0.05
+        ],
+        "name": "belly",
+        "impact": 5,
+        "slide": 12
+      }
+    ],
+    "contact": {
+      "kW": 0,
+      "cW": 0,
+      "kB": 7000,
+      "cB": 90,
+      "muRoll": 0,
+      "muLat": 0,
+      "muBody": 0.7
+    },
+    "crash": {
+      "wheelImpact": 99
+    },
+    "starts": [
+      "pad",
+      "air"
+    ],
+    "fpvCam": [
+      0.22,
+      0,
+      0
+    ],
+    "camTilt": 0,
+    "colR": 0.25,
+    "pid": {
+      "roll": [
+        18,
+        96,
+        0.3,
+        0.4,
+        0.012
+      ],
+      "pitch": [
+        18,
+        96,
+        0.3,
+        0.4,
+        0.012
+      ],
+      "yaw": [
+        18,
+        96,
+        0.3,
+        0.4,
+        0.012
+      ]
+    },
+    "angle": {
+      "max": 45,
+      "k": 5,
+      "rate": 250
+    },
+    "rates": {
+      "roll": {
+        "c": 50,
+        "m": 250,
+        "e": 0
+      },
+      "pitch": {
+        "c": 50,
+        "m": 250,
+        "e": 0
+      },
+      "yaw": {
+        "c": 50,
+        "m": 250,
+        "e": 0
+      }
+    },
+    "kind": "vtol",
+    "motors": [
+      [
+        0.02,
+        0.09192388155425117,
+        -0.09192388155425117,
+        1
+      ],
+      [
+        0.02,
+        -0.09192388155425117,
+        -0.09192388155425117,
+        -1
+      ],
+      [
+        0.02,
+        0.09192388155425117,
+        0.09192388155425117,
+        -1
+      ],
+      [
+        0.02,
+        -0.09192388155425117,
+        0.09192388155425117,
+        1
+      ]
+    ],
+    "motor": {
+      "Tmax": 50,
+      "tau": 0.04,
+      "idle": 0.05,
+      "kQ": 0.019,
+      "Vp": 260,
+      "D": 0.152
+    },
+    "staticMargin": 0.08,
+    "surfaces": [
+      {
+        "name": "body",
+        "role": "wing",
+        "mirror": true,
+        "hidden": true,
+        "n": 2,
+        "y0": 0,
+        "y1": 0.0475,
+        "xLE0": 0.21,
+        "xLE1": 0.21,
+        "c0": 0.42,
+        "c1": 0.42,
+        "z0": 0,
+        "dihedral": 0,
+        "inc0": 0,
+        "inc1": 0,
+        "sweepLoad": 0,
+        "foil": {
+          "a": 1.2,
+          "CL0": 0,
+          "CLmax": 0.8,
+          "CLmin": -0.8,
+          "M": 18,
+          "CD0": 0.02,
+          "e": 0.6,
+          "Cm0": 0,
+          "CN90": 1.2
+        },
+        "flaps": []
+      },
+      {
+        "name": "arms upper",
+        "role": "wing",
+        "mirror": true,
+        "n": 2,
+        "y0": 0.045,
+        "y1": 0.13,
+        "xLE0": 0.045,
+        "xLE1": 0.045,
+        "c0": 0.075,
+        "c1": 0.06,
+        "z0": 0,
+        "dihedral": 45,
+        "inc0": 0,
+        "inc1": 0,
+        "sweepLoad": 0,
+        "foil": {
+          "a": 2.6,
+          "CL0": 0,
+          "CLmax": 1,
+          "CLmin": -1,
+          "M": 40,
+          "CD0": 0.014,
+          "e": 0.7,
+          "Cm0": 0,
+          "CN90": 1.8
+        },
+        "flaps": []
+      },
+      {
+        "name": "arms lower",
+        "role": "wing",
+        "mirror": true,
+        "n": 2,
+        "y0": 0.045,
+        "y1": 0.13,
+        "xLE0": 0.045,
+        "xLE1": 0.045,
+        "c0": 0.075,
+        "c1": 0.06,
+        "z0": 0,
+        "dihedral": -45,
+        "inc0": 0,
+        "inc1": 0,
+        "sweepLoad": 0,
+        "foil": {
+          "a": 2.6,
+          "CL0": 0,
+          "CLmax": 1,
+          "CLmin": -1,
+          "M": 40,
+          "CD0": 0.014,
+          "e": 0.7,
+          "Cm0": 0,
+          "CN90": 1.8
+        },
+        "flaps": []
+      }
+    ],
+    "defl": {
+      "a": 0,
+      "e": 0,
+      "r": 0,
+      "flapMax": 0
+    },
+    "flexQ": 0,
+    "servoRate": 8,
+    "trans": {
+      "time": 2.5,
+      "pitch": 0.03490658503988659,
+      "vAir": 60
+    },
+    "shape": {
+      "fuseW": 0.095,
+      "fuseH": 0.095
+    },
+    "rotorDrag": 0.012,
+    "look": {
+      "top": [
+        1,
+        0.42,
+        0.06
+      ],
+      "bottom": [
+        0.1,
+        0.1,
+        0.11
+      ],
+      "side": [
+        0.9,
+        0.38,
+        0.06
+      ],
+      "tip": [
+        0.1,
+        0.1,
+        0.11
+      ],
+      "accent": [
+        0.05,
+        0.05,
+        0.06
+      ],
+      "fuse": [
+        1,
+        0.42,
+        0.06
+      ],
+      "fuseBottom": [
+        0.12,
+        0.12,
+        0.13
+      ],
+      "canopy": [
+        0.1,
+        0.12,
+        0.16
+      ],
+      "dark": [
+        0.07,
+        0.07,
+        0.08
+      ],
+      "metal": [
+        0.72,
+        0.74,
+        0.78
+      ],
+      "blades": 2
+    }
+  }
+}
