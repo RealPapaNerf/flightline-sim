@@ -1,15 +1,19 @@
 # Multiplayer and racing
 
-**Status: pinned.**
+**Status: step 1 (ghosts) done; step 2 (live racing) building.**
 
-## Step 1: ghost racing (no server)
+## Step 1: ghost racing (no server) — done
 
-- Every lap on the gate course records a compact track: position and attitude at 20 Hz, about
-  30 KB a minute.
-- Race against your own best lap, or a friend's lap file, shown as a translucent "ghost" with
-  the split time at every gate.
-- Lap files are shared like maps (GitHub, Drive, Supabase).
-- Leaderboards per course and aircraft class can come later, through the same storage.
+- Every lap on the gate course records a compact track: position, attitude, throttle and the
+  gate times at 20 Hz (`src/ghost.js`), about 20 KB a minute as a file.
+- Position is kept as millimetre steps between samples and attitude as a 1/32767 quaternion, so
+  a decoded lap is within a millimetre and 0.01° of what was flown (`node test/ghost_test.js`).
+- Your best lap per course and aircraft lives in browser storage, one key each, every read and
+  write wrapped.
+- The ghost is a translucent copy of the model in both views, with a name tag and the split at
+  every gate. Settings → Racing picks which lap it flies.
+- Laps export and import as JSON files. A public `flightline-laps` repo, or the same storage as
+  maps, can come later, and leaderboards per course and aircraft class through it.
 
 ## Step 2: live racing
 

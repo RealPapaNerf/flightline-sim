@@ -180,7 +180,7 @@ once the motor is wound up.
 - **Split:** LOS on top, FPV below in portrait (side by side when wide).
 
 The field has:
-- an eight-gate FPV course with a lap timer
+- an eight-gate FPV course with a lap timer and ghost laps
 - pylons and plane gates
 - slalom poles and a tree line
 - a power line with sagging wires
@@ -188,6 +188,23 @@ The field has:
 - a search scene
 
 Collisions with all of them count.
+
+## Racing
+
+**Ghost laps.** Every lap of the gate course is recorded at 20 Hz — position, attitude,
+throttle and the time at each gate. Your quickest lap with each aircraft is kept in the
+browser, and the ghost flies it back beside you: a translucent copy of the model in both
+LOS and FPV, with the split at every gate (`−0.42` means you are up on it) and a name tag
+over it.
+
+Settings → Racing:
+- **Race a ghost:** off, your best lap, or a lap you picked from the list.
+- **Your name:** goes on the laps you export.
+- **Saved laps:** race, export or delete any of them. *Load a lap file…* takes one back in.
+
+A lap file is JSON, about 20 KB a minute, so you can e-mail a lap to a friend and they can
+race it. Laps are kept per course and aircraft; nothing leaves the browser unless you
+export it.
 
 ## Ideas
 
@@ -205,12 +222,13 @@ Planned features, with their order and dependencies, live in [`ideas/`](ideas/RE
 src/physics.js   flight models: strip-theory wings, quads, heli, weather, icing, batteries (no DOM)
 src/nav.js       sensors, link budget, autopilot (no DOM)
 src/render.js    small WebGL 1 renderer
+src/ghost.js     lap recording, quantisation, playback and storage (no DOM)
 src/app.js       world, aircraft meshes, cameras, HUD/OSD, controllers, settings, loop
 src/shell.html   page markup and styles
 src/sw.js        offline cache for the installed app
 tools/build.py   assembles index.html (and dist/artifact.html) from src/
 test/*.js        bench tests: fm_test (planes), perf (trim table), quad_test <id>, heli_test,
-                 modes_test, weather_test, nav_test
+                 modes_test, weather_test, nav_test, ghost_test
 ```
 
 Edit `src/`, then run `python3 tools/build.py`. `index.html` is generated; commit it with

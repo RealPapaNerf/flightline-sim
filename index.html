@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<!-- built by tools/build.py from src/ (0c2d22ff); edit the sources, not this file -->
+<!-- built by tools/build.py from src/ (a839aeec); edit the sources, not this file -->
 <title>Flightline RC Sim</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Browser RC flight trainer: Nano Goblin and trainer flight models, line of sight, FPV and split view, USB transmitter support.">
@@ -154,6 +154,20 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; heigh
 .rates label { display: grid; gap: 2px; }
 .rates output { font: 12px/1 var(--f-mono); color: var(--sky); }
 .rates.rates4 { grid-template-columns: auto 1fr 1fr 1fr; }
+/* ---------- racing: saved laps, rooms ---------- */
+.set input.txt { min-height: 34px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font: 13px var(--f-body); width: 100%; box-sizing: border-box; }
+.set input.txt::placeholder { color: var(--muted); opacity: 0.8; }
+.setrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.setrow .btn { display: inline-flex; align-items: center; }
+.laps { display: grid; gap: 4px; }
+.lap { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px 12px; align-items: center; padding: 6px 8px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; font-size: 12.5px; }
+.lap.on { border-color: var(--accent); }
+.lap b { font: 14px/1 var(--f-mono); color: var(--sky); font-variant-numeric: tabular-nums; }
+.lap > span { color: var(--muted); overflow-wrap: anywhere; }
+.lap .acts { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+.lap .acts .btn { min-height: 28px; padding: 0 8px; font-size: 11px; }
+@media (max-width: 420px) { .lap { grid-template-columns: auto minmax(0, 1fr); } .lap .acts { grid-column: 1 / -1; justify-content: flex-start; } }
+
 .radio-box { display: grid; gap: 8px; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; }
 .radio-box .name { font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
 .live { display: grid; grid-template-columns: 34px 1fr; gap: 4px 8px; align-items: center; font: 11px/1 var(--f-mono); color: var(--muted); }
@@ -2110,6 +2124,240 @@ void main(){
 })();
 
 /* =====================================================================
+   Flightline ghost laps — recording, quantisation, playback, storage.
+   Pure JavaScript (no DOM); the browser's localStorage is passed in.
+
+   A lap is sampled on a fixed grid (20 Hz by default) from the moment the
+   aircraft crosses gate 1 to the moment it comes back round to it, so
+   sample i is always at t = i / rate and the file carries no timestamps.
+
+   Wire format "flightline-lap" v1: a small JSON envelope (aircraft,
+   course, lap time, gate splits) around one base64 blob of samples:
+
+     bytes 0..11   int32  first position, mm, NED  (n, e, d)
+     then per sample, 15 bytes:
+       int16 x3   position step from the previous sample, mm
+       int16 x4   attitude quaternion (w, x, y, z), 1/32767
+       uint8      throttle, 1/255
+
+   Steps are taken between rounded millimetre positions, so the error
+   never accumulates: every sample decodes to within half a millimetre of
+   where it was recorded, and the attitude to within about 0.005°.
+   ===================================================================== */
+const GH = (function () {
+  'use strict';
+  const RATE = 20;            // samples a second
+  const MAX_SECS = 600;       // never record more than ten minutes of lap
+  const STRIDE = 15;          // bytes per sample
+  const POS = 1000;           // position quantum: 1 mm
+  const QSC = 32767;          // quaternion quantum: 1 / 32767
+  const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
+  const i16 = (x) => clamp(Math.round(x), -32768, 32767);
+
+  /* ---------------------------------------------------------------- base64 */
+  // Own codec so laps encode the same in the browser and in node.
+  const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const INV = (() => { const m = {}; for (let i = 0; i < 64; i++) m[A[i]] = i; return m; })();
+  function b64(u8) {
+    let s = '';
+    for (let i = 0; i < u8.length; i += 3) {
+      const a = u8[i], b = u8[i + 1], c = u8[i + 2], n = i + 1 < u8.length, o = i + 2 < u8.length;
+      s += A[a >> 2] + A[((a & 3) << 4) | (n ? b >> 4 : 0)] + (n ? A[((b & 15) << 2) | (o ? c >> 6 : 0)] : '=') + (o ? A[c & 63] : '=');
+    }
+    return s;
+  }
+  function unb64(s) {
+    s = String(s).replace(/[^A-Za-z0-9+/]/g, '');
+    const out = new Uint8Array(Math.floor((s.length * 3) / 4));
+    let k = 0;
+    for (let i = 0; i < s.length; i += 4) {
+      const a = INV[s[i]], b = INV[s[i + 1]], c = INV[s[i + 2]], d = INV[s[i + 3]];
+      if (a === undefined || b === undefined) break;
+      out[k++] = (a << 2) | (b >> 4);
+      if (c !== undefined) out[k++] = ((b & 15) << 4) | (c >> 2);
+      if (d !== undefined) out[k++] = ((c & 3) << 6) | d;
+    }
+    return k === out.length ? out : out.subarray(0, k);
+  }
+
+  /* ---------------------------------------------------------------- samples */
+  const nlerp = (a, b, t) => {
+    let d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3], s = 1;
+    if (d < 0) { s = -1; d = -d; }
+    const o = [a[0] + (b[0] * s - a[0]) * t, a[1] + (b[1] * s - a[1]) * t, a[2] + (b[2] * s - a[2]) * t, a[3] + (b[3] * s - a[3]) * t];
+    const l = Math.hypot(o[0], o[1], o[2], o[3]) || 1;
+    return [o[0] / l, o[1] / l, o[2] / l, o[3] / l];
+  };
+  // keep consecutive quaternions in one hemisphere so interpolation takes the short way
+  const near = (q, ref) => (ref && q[0] * ref[0] + q[1] * ref[1] + q[2] * ref[2] + q[3] * ref[3] < 0 ? [-q[0], -q[1], -q[2], -q[3]] : q);
+
+  function pack(samples) {
+    const n = samples.length;
+    if (!n) return new Uint8Array(0);
+    const u8 = new Uint8Array(12 + STRIDE * n), dv = new DataView(u8.buffer);
+    const first = samples[0].p.map((v) => Math.round(v * POS));
+    for (let a = 0; a < 3; a++) dv.setInt32(a * 4, first[a], true);
+    const prev = first.slice(); // the position as it will decode, so steps never drift
+    for (let i = 0; i < n; i++) {
+      const s = samples[i], o = 12 + i * STRIDE;
+      for (let a = 0; a < 3; a++) {
+        const d = i ? i16(Math.round(s.p[a] * POS) - prev[a]) : 0;
+        dv.setInt16(o + a * 2, d, true);
+        prev[a] += d;
+      }
+      for (let a = 0; a < 4; a++) dv.setInt16(o + 6 + a * 2, i16(clamp(s.q[a], -1, 1) * QSC), true);
+      u8[o + 14] = clamp(Math.round(s.thr * 255), 0, 255);
+    }
+    return u8;
+  }
+  function unpack(u8, n) {
+    const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength), out = [];
+    const p = [dv.getInt32(0, true), dv.getInt32(4, true), dv.getInt32(8, true)];
+    for (let i = 0; i < n; i++) {
+      const o = 12 + i * STRIDE;
+      if (i) for (let a = 0; a < 3; a++) p[a] += dv.getInt16(o + a * 2, true);
+      const q = [0, 0, 0, 0];
+      for (let a = 0; a < 4; a++) q[a] = dv.getInt16(o + 6 + a * 2, true) / QSC;
+      const l = Math.hypot(q[0], q[1], q[2], q[3]) || 1;
+      out.push({ p: [p[0] / POS, p[1] / POS, p[2] / POS], q: [q[0] / l, q[1] / l, q[2] / l, q[3] / l], thr: u8[o + 14] / 255 });
+    }
+    return out;
+  }
+
+  /* ---------------------------------------------------------------- recorder */
+  /* Driven by the sim: begin() on the gate-1 crossing that starts a lap, push()
+     every frame, split() at each gate, end() on the crossing that closes it.
+     push() lands samples exactly on the grid by interpolating between frames,
+     so the recording is the same whatever frame rate the sim ran at. */
+  function recorder(meta) {
+    const rate = meta && meta.rate ? meta.rate : RATE, grid = 1 / rate, cap = Math.ceil(MAX_SECS * rate);
+    let on = false, t0 = 0, prev = null, S = [], splits = [];
+    const look = (s) => ({ p: [s.p[0], s.p[1], s.p[2]], q: near([s.q[0], s.q[1], s.q[2], s.q[3]], prev ? prev.v.q : null), thr: clamp(s.thr === undefined ? 0 : s.thr, 0, 1) });
+    const add = (v) => { if (S.length < cap) S.push(v); };
+    return {
+      get active() { return on; },
+      get count() { return S.length; },
+      get rate() { return rate; },
+      begin(clock, s) { on = true; t0 = clock; S = []; splits = [0]; prev = null; add(look(s)); prev = { t: 0, v: S[0] }; },
+      // interpolate onto every grid time the frame stepped over
+      push(clock, s) {
+        if (!on) return;
+        const t = clock - t0, now = look(s);
+        if (!prev || t <= prev.t) { prev = { t, v: now }; return; }
+        for (let k = S.length; k * grid <= t + 1e-9 && S.length < cap; k++) {
+          const u = clamp((k * grid - prev.t) / (t - prev.t), 0, 1), a = prev.v;
+          add({ p: [a.p[0] + (now.p[0] - a.p[0]) * u, a.p[1] + (now.p[1] - a.p[1]) * u, a.p[2] + (now.p[2] - a.p[2]) * u],
+            q: nlerp(a.q, now.q, u), thr: a.thr + (now.thr - a.thr) * u });
+        }
+        prev = { t, v: now };
+      },
+      split(gate, clock) { if (on && gate > 0) splits[gate] = clock - t0; },
+      abort() { on = false; S = []; splits = []; prev = null; },
+      // close the lap; returns null if it is too short or lost samples
+      end(clock) {
+        if (!on) return null;
+        const time = clock - t0;
+        on = false;
+        if (!(time > 0.5) || S.length < 2 || S.length >= cap) { S = []; return null; }
+        const lap = { v: 1, aircraft: meta.aircraft, course: meta.course, rate, time, splits: splits.slice(), date: Date.now(), pilot: meta.pilot || '', samples: S };
+        S = []; splits = []; prev = null;
+        return lap;
+      },
+    };
+  }
+
+  /* ---------------------------------------------------------------- playback */
+  function player(lap) {
+    const S = lap.samples, n = S.length, rate = lap.rate || RATE, last = (n - 1) / rate;
+    return {
+      lap,
+      get span() { return last; },
+      // state at lap time t, interpolated; held at the ends
+      at(t) {
+        if (!n) return null;
+        const u = clamp(t, 0, last) * rate, i = Math.min(n - 1, Math.floor(u)), j = Math.min(n - 1, i + 1), f = u - i;
+        const a = S[i], b = S[j];
+        return { p: [a.p[0] + (b.p[0] - a.p[0]) * f, a.p[1] + (b.p[1] - a.p[1]) * f, a.p[2] + (b.p[2] - a.p[2]) * f],
+          q: nlerp(a.q, b.q, f), thr: a.thr + (b.thr - a.thr) * f, done: t > last };
+      },
+      split(gate) { const s = lap.splits && lap.splits[gate]; return typeof s === 'number' ? s : null; },
+    };
+  }
+
+  /* ---------------------------------------------------------------- files */
+  const FMT = 'flightline-lap';
+  function encode(lap) {
+    const u8 = pack(lap.samples);
+    return { f: FMT, v: 1, course: lap.course, aircraft: lap.aircraft, pilot: lap.pilot || '', rate: lap.rate || RATE,
+      ms: Math.round(lap.time * 1000), splits: (lap.splits || []).map((s) => Math.round(s * 1000)), date: lap.date || Date.now(),
+      n: lap.samples.length, d: b64(u8) };
+  }
+  function decode(o) {
+    try {
+      if (!o || o.f !== FMT || o.v !== 1) return null;
+      const n = o.n | 0, rate = o.rate || RATE;
+      if (!(n >= 2) || !(rate > 0) || !(o.ms > 0) || typeof o.d !== 'string') return null;
+      const u8 = unb64(o.d);
+      if (u8.length < 12 + STRIDE * n) return null;
+      const samples = unpack(u8, n);
+      for (const s of samples) if (!s.p.every(Number.isFinite) || !s.q.every(Number.isFinite)) return null;
+      return { v: 1, aircraft: String(o.aircraft || ''), course: String(o.course || ''), pilot: String(o.pilot || '').slice(0, 24),
+        rate, time: o.ms / 1000, splits: (Array.isArray(o.splits) ? o.splits : []).map((m) => m / 1000), date: o.date || Date.now(), samples };
+    } catch (e) { return null; }
+  }
+  const toText = (lap) => JSON.stringify(encode(lap));
+  function fromText(txt) { try { return decode(JSON.parse(txt)); } catch (e) { return null; } }
+  const fileName = (lap) => `${lap.course || 'course'}-${lap.aircraft || 'aircraft'}-${(lap.time || 0).toFixed(2)}s.flap.json`;
+  const bytes = (lap) => 12 + STRIDE * lap.samples.length;
+
+  /* ---------------------------------------------------------------- storage */
+  /* Best lap per course and aircraft, one key each so a save rewrites only that
+     lap. Every read and write is wrapped: storage can be full, blocked by the
+     browser, or hold something another version wrote. */
+  function laps(storage) {
+    const PRE = 'flightline.lap.v1.';
+    const key = (course, slot) => PRE + course + '|' + slot;
+    const read = (k) => { try { const t = storage.getItem(k); return t ? decode(JSON.parse(t)) : null; } catch (e) { return null; } };
+    return {
+      available: !!storage,
+      // slot: the aircraft id for your own best lap, 'aircraft@pilot' for a lap someone sent you
+      get(course, slot) {
+        if (!storage) return null;
+        const lap = read(key(course, slot));
+        if (lap) { lap.course = lap.course || course; lap.slot = slot; }
+        return lap;
+      },
+      put(course, slot, lap) {
+        if (!storage) return false;
+        try { storage.setItem(key(course, slot), toText(lap)); return true; } catch (e) { return false; }
+      },
+      del(course, slot) { try { storage.removeItem(key(course, slot)); return true; } catch (e) { return false; } },
+      // every stored lap, quickest first; bad entries are skipped, not thrown
+      list() {
+        const out = [];
+        if (!storage) return out;
+        try {
+          const keys = [];
+          for (let i = 0; i < storage.length; i++) { const k = storage.key(i); if (k && k.indexOf(PRE) === 0) keys.push(k); }
+          for (const k of keys) {
+            const rest = k.slice(PRE.length), cut = rest.indexOf('|');
+            if (cut < 0) continue;
+            const lap = read(k);
+            if (!lap) continue;
+            lap.course = rest.slice(0, cut); lap.slot = rest.slice(cut + 1);
+            out.push(lap);
+          }
+        } catch (e) { /* storage blocked */ }
+        return out.sort((a, b) => a.course.localeCompare(b.course) || a.time - b.time);
+      },
+    };
+  }
+
+  return { RATE, STRIDE, recorder, player, encode, decode, toText, fromText, fileName, bytes, laps, pack, unpack, b64, unb64, nlerp };
+})();
+if (typeof module !== 'undefined') module.exports = GH;
+
+/* =====================================================================
    Flightline app: world, aircraft models, cameras, OSD, input, UI, loop.
    Depends on FL (physics.js) and GLR (render.js).
    Render world is Y-up: x = east, y = up, z = south. The pilot stands at
@@ -2147,6 +2395,9 @@ void main(){
     quality: 1, scenery: 'med', aa: false, fps: false, eng: false, sound: true, units: 'imp',
     trim: {}, // user trims per aircraft, stick units, set from controller trim buttons
     course: true, best: {}, // gate course lap timer, best lap per aircraft (s)
+    // racing: ghost source ('off' | 'best' = your best lap with this aircraft | 'pick' = the lap chosen in
+    // Settings → Racing), which lap is picked, and the name put on laps you export and on your aircraft online
+    ghost: 'best', ghostPick: null, pilot: '',
     curve: 'normal', // helicopter pitch curve: 'normal' or '3d' (idle up)
     sheetTab: 'aircraft', // last settings tab
     hud: 'hud', // FPV OSD style: 'hud' (pitch ladder and tapes) or 'classic'
@@ -2501,7 +2752,7 @@ void main(){
       if (o.k === 'cyl' && o.y0 < 2 && o.y1 >= 3.5 && o.r >= 0.5) blockers.push({ n: -o.z, e: o.x, r: o.r * 1.3, h: o.y1 });
       else if (o.k === 'box' && o.y0 < 2 && o.y1 >= 3 && o.x1 - o.x0 > 2) blockers.push({ n: -(o.z0 + o.z1) / 2, e: (o.x0 + o.x1) / 2, r: Math.hypot(o.x1 - o.x0, o.z1 - o.z0) / 2, h: o.y1 });
     }
-    world = { ground: GLR.mesh(R, gg), runway: GLR.mesh(R, gr), decal: GLR.mesh(R, gd), scenery: GLR.mesh(R, g), obstacles: shapes, gates, blockers };
+    world = { courseId: 'oval8', ground: GLR.mesh(R, gg), runway: GLR.mesh(R, gr), decal: GLR.mesh(R, gd), scenery: GLR.mesh(R, g), obstacles: shapes, gates, blockers };
   }
 
   // sky dome (unlit, follows the camera)
@@ -3523,7 +3774,7 @@ void main(){
   }
   function cycleMode() { setMode(MODES[(MODES.indexOf(S.mode) + 1) % MODES.length]); }
   function setCurve(c) { c = c === '3d' ? '3d' : 'normal'; if (c !== S.curve && AC.kind === 'heli') flash(c === '3d' ? '3D CURVE' : 'NORMAL CURVE'); S.curve = c; saveS(); syncSheet(); }
-  function setAircraft(id) { S.aircraft = id; AC = ACS[id]; saveS(); doReset(); refreshBar(); buildSheet(); }
+  function setAircraft(id) { S.aircraft = id; AC = ACS[id]; saveS(); doReset(); ghostLoad(); refreshBar(); buildSheet(); }
   function cycleAircraft() { const ids = Object.keys(ACS); setAircraft(ids[(ids.indexOf(S.aircraft) + 1) % ids.length]); }
   function syncPause() { paused = userPaused || sheetOpen() || wiz.open || ctl.open; }
   function togglePause() { userPaused = !userPaused; syncPause(); if (userPaused) showBanner('Paused', 'Press P or tap here to resume.'); else hideBanner(); refreshBar(); }
@@ -3610,11 +3861,20 @@ void main(){
         seg('osd', 'FPV OSD', [['full', 'Full'], ['min', 'Minimal'], ['off', 'Off']]),
         seg('hud', 'FPV OSD style', [['hud', 'HUD'], ['classic', 'Classic']], 'HUD: pitch ladder that rolls with the horizon, airspeed tape on the left, altitude tape and vario on the right, heading tape on top, bank scale and a flight-path marker showing where the aircraft is actually going. Classic: horizon line and numbers.'),
         seg('losInfo', 'LOS readout', [[true, 'On'], [false, 'Off']]),
-        seg('course', 'Gate course', [[true, 'Timer on'], [false, 'Off']], 'Eight gates on an oval north of the runway. Fly them in order; an orange marker floats over the next one. Laps run from gate 1 back to gate 1.', null, (v) => { S.course = v; saveS(); courseReset(); }),
         seg('stallCue', 'Stall indicator', [[false, 'Off'], [true, 'On']], 'Flashes STALL when a wing panel is stalled. Off is realistic; turn it on while you learn what a stall looks like.'),
         seg('iceCue', 'Ice indicator', [[true, 'On'], [false, 'Off']], 'Shows lift and thrust lost to ice. Real aircraft don’t tell you: turn it off and watch for the signs (more throttle for the same speed, a mushy climb, a stall at a higher speed, white leading edges).'),
         seg('eng', 'Engineering readout', [[false, 'Off'], [true, 'On']], 'Angle of attack, sideslip, load factor and stalled area per wing, plus air and pack temperature and ice.'),
         seg('units', 'Units', [['imp', 'ft · mph · °F'], ['met', 'm · km/h · °C']]),
+      ] },
+      { tab: 'racing', title: 'Gate course', items: [
+        seg('course', 'Gate course', [[true, 'Timer on'], [false, 'Off']], 'Eight gates on an oval north of the runway. Fly them in order; an orange marker floats over the next one. Laps run from gate 1 back to gate 1.', null, (v) => { S.course = v; saveS(); courseReset(); ghostLoad(); buildSheet(); }),
+      ] },
+      { tab: 'racing', title: 'Ghost lap', items: [
+        seg('ghost', 'Race a ghost', [['off', 'Off'], ['best', 'My best lap'], ['pick', 'The lap I picked']],
+          'Every lap of the gate course is recorded at 20 Hz. The ghost flies one of them back beside you, translucent, in both views, with the split at every gate: − means you are up on it. Your quickest lap with each aircraft is kept in this browser.',
+          () => S.ghost, (v) => { S.ghost = v; saveS(); ghostLoad(); buildSheet(); }),
+        { type: 'pilot' },
+        { type: 'laps' },
       ] },
       { tab: 'weather', title: 'Weather', items: [
         { type: 'wxpresets' },
@@ -3677,7 +3937,7 @@ void main(){
     Object.assign(S, p[3]); S.wxPreset = id; saveS(); updateAtmos(); doReset(); buildSheet();
     toast(`${p[1]}: ${p[2]}`);
   }
-  const TABS = [['aircraft', 'Aircraft'], ['controller', 'Controller'], ['weather', 'Weather'], ['link', 'Link & sensors'], ['display', 'Display'], ['graphics', 'Graphics & sound'], ['model', 'Flight model']];
+  const TABS = [['aircraft', 'Aircraft'], ['controller', 'Controller'], ['racing', 'Racing'], ['weather', 'Weather'], ['link', 'Link & sensors'], ['display', 'Display'], ['graphics', 'Graphics & sound'], ['model', 'Flight model']];
   function setTab(t) { if (S.sheetTab !== t) { S.sheetTab = t; saveS(); $('#sheet').scrollTop = 0; } buildSheet(); }
   function buildSheet() {
     const body = $('#shBody');
@@ -3757,6 +4017,38 @@ void main(){
             const e = box.querySelector(`#${pre}-${k}`), o = box.querySelector(`#${pre}-${k}-o`);
             e.addEventListener('input', () => { RE[obj][k] = Number(e.value); o.textContent = e.value + unit; RE.save(); });
           }
+        } else if (it.type === 'pilot') {
+          box.innerHTML = `<label for="setPilot"><span>Your name</span></label><input class="txt" type="text" id="setPilot" maxlength="16" placeholder="Pilot" value="${esc(S.pilot)}"><div class="help">Goes on the laps you export, and on your aircraft when you race other people.</div>`;
+          const e = box.querySelector('input');
+          e.addEventListener('input', () => { S.pilot = e.value.slice(0, 16); saveS(); });
+        } else if (it.type === 'laps') {
+          const all = LAPS.list(), pick = S.ghostPick;
+          const head = '<div class="lab"><span>Saved laps</span></div>';
+          const tail = `<div class="setrow"><label class="btn small" for="lapFile">Load a lap file…<input type="file" id="lapFile" accept=".json,application/json" hidden></label></div>`
+            + '<div class="help">Lap files are small JSON files (about 20 KB a minute). Send one to a friend and they can race your lap, and the laps they send you show up here.</div>';
+          if (!LAPS.available) box.innerHTML = head + '<div class="help">This browser is not letting the page store anything, so laps cannot be kept between sessions.</div>' + tail;
+          else if (!all.length) box.innerHTML = head + '<div class="help">Nothing saved yet. Fly a lap of the gate course and your quickest one with each aircraft is kept here.</div>' + tail;
+          else box.innerHTML = head + `<div class="laps">${all.map((l, i) => {
+            const chosen = pick && pick.course === l.course && pick.slot === l.slot;
+            const who = l.slot.indexOf('@') >= 0 ? l.pilot || l.slot.slice(l.slot.indexOf('@') + 1) : 'you';
+            const acn = ACS[l.aircraft] ? ACS[l.aircraft].name : l.aircraft;
+            return `<div class="lap${chosen && S.ghost === 'pick' ? ' on' : ''}"><b>${fmtLap(l.time)}</b><span>${esc(acn)} · ${esc(who)} · ${esc(l.course)}</span><span class="acts"><button type="button" class="btn small" data-race="${i}">${chosen && S.ghost === 'pick' ? 'Racing' : 'Race'}</button><button type="button" class="btn small" data-exp="${i}">Save file</button><button type="button" class="btn small" data-del="${i}">Delete</button></span></div>`;
+          }).join('')}</div>` + tail;
+          box.querySelectorAll('[data-race]').forEach((b0) => b0.addEventListener('click', () => {
+            const l = all[Number(b0.dataset.race)];
+            S.ghostPick = { course: l.course, slot: l.slot }; S.ghost = 'pick'; saveS(); ghostLoad(); buildSheet();
+            toast(l.course === world.courseId ? `Racing the ${fmtLap(l.time)} lap` : `That lap is on ${l.course}; this field flies ${world.courseId}`);
+          }));
+          box.querySelectorAll('[data-exp]').forEach((b0) => b0.addEventListener('click', () => lapExport(all[Number(b0.dataset.exp)])));
+          box.querySelectorAll('[data-del]').forEach((b0) => b0.addEventListener('click', () => {
+            if (!b0.dataset.sure) { b0.dataset.sure = '1'; b0.textContent = 'Sure?'; return; }
+            const l = all[Number(b0.dataset.del)];
+            LAPS.del(l.course, l.slot);
+            if (S.ghostPick && S.ghostPick.course === l.course && S.ghostPick.slot === l.slot) { S.ghostPick = null; if (S.ghost === 'pick') S.ghost = 'best'; saveS(); }
+            ghostLoad(); buildSheet();
+          }));
+          const fi = box.querySelector('#lapFile');
+          if (fi) fi.addEventListener('change', () => { if (fi.files && fi.files[0]) lapImport(fi.files[0]); fi.value = ''; });
         } else if (it.type === 'notes') {
           box.innerHTML = notesHtml() + weatherNotesHtml() + navNotesHtml();
         }
@@ -3988,6 +4280,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       model.props.forEach((pr, i) => { const sp = pr.spin(st); if (sp > 0.12) GLR.draw(R, pr.disc, propMs[i], { alpha: 0.16 + 0.12 * sp, unlit: true, mix: propMix }); });
       gl.depthMask(true); gl.disable(gl.BLEND);
     }
+    if (avatars.length) drawAvatars(v);
     // cloud deck: a thin lower layer and an opaque one 12 m up, so a model climbing into it fades out
     if (S.ceilFt > 0) {
       const cy = S.ceilFt * 0.3048, base = S.precip === 'heavy' ? [0.5, 0.52, 0.56] : S.precip !== 'none' ? [0.6, 0.62, 0.66] : [0.7, 0.72, 0.75];
@@ -3995,6 +4288,23 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       for (const [dy, a] of [[0, 0.55], [12, 0.92]]) GLR.draw(R, cloudMesh, M4.trans(cam.pos[0], cy + dy, cam.pos[2]), { unlit: true, alpha: a, tint: cam.pos[1] > cy + dy ? [0.9, 0.91, 0.93] : base });
       gl.depthMask(true); gl.disable(gl.BLEND);
     }
+  }
+
+  /* Other aircraft: the ghost lap, and the other pilots in a live room. Each is one of
+     the models we already have, drawn from a stand-in state, translucent for a ghost and
+     solid in its own colours for a live player. */
+  function drawAvatars(v) {
+    gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    for (const av of avatars) {
+      const model = MODELS[av.ac] || MODELS[AC.id], mat = planeMatrix(av.st);
+      const o = { alpha: av.alpha, mix: av.mix, tint: av.tint };
+      if (av.alpha < 1) gl.depthMask(false);
+      for (const pt of model.parts) GLR.draw(R, pt.mesh, pt.anim ? M4.chain(mat, pt.mat, pt.anim(av.st)) : M4.mul(mat, pt.mat), o);
+      for (const pr of model.props)
+        GLR.draw(R, pr.blades, pr.tilt ? M4.chain(mat, pr.mat, pr.tilt(av.st), pr.post, M4.rotZ(av.ang * pr.dir)) : M4.chain(mat, pr.mat, M4.rotZ(av.ang * pr.dir)), o);
+      gl.depthMask(true);
+    }
+    gl.disable(gl.BLEND);
   }
 
   /* ---------------------------------------------------------------- OSD */
@@ -4332,8 +4642,15 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       const wy = topY + fs * (v.kind === 'fpv' && S.osd === 'full' && S.hud === 'hud' ? 2.9 : 1.6); // clear of the HUD heading tape
       W.forEach(([t, c], i) => osdText(t, cx, wy + i * fs * 1.35, 'center', fs, c));
       if (osdFlash.t > 0) osdText(osdFlash.text, cx, cy - fs * 3, 'center', fs, '#cfe9f3');
+      if (avatars.length) drawTags(v, fs);
       const ct = courseText();
-      if (ct) osdText(ct, cx, v.kind === 'fpv' ? v.y + v.h - m - fs * 1.6 - lift : v.y + v.h - m - fs * 3.2 - lift, 'center', v.kind === 'fpv' ? fs : Math.max(11, fs * 0.8), '#ffd36a');
+      if (ct) {
+        const cfs = v.kind === 'fpv' ? fs : Math.max(11, fs * 0.8);
+        const cy2 = v.kind === 'fpv' ? v.y + v.h - m - fs * 1.6 - lift : v.y + v.h - m - fs * 3.2 - lift;
+        osdText(ct, cx, cy2, 'center', cfs, '#ffd36a');
+        // split against the ghost at each gate: − means you are up on it
+        if (ghost.split.t > 0) osdText(ghost.split.text, cx, cy2 - cfs * 1.35, 'center', cfs * 1.15, ghost.split.ahead ? '#6ad49a' : '#ff9d6a');
+      }
       if (v.kind === 'fpv') drawStatic(v, nav.link.vidQ); // analog: the OSD is in the video signal, so it breaks up too
       ctx.restore();
     }
@@ -4348,6 +4665,20 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     }
     if (S.eng) drawEng(views[0]);
     if (S.fps) { ctx.font = '12px "Share Tech Mono", monospace'; ctx.textBaseline = 'bottom'; osdText(`${fpsVal} fps`, cssW - 10, cssH - 8, 'right', 12, '#9fe6b8'); }
+  }
+  // a tag over every other aircraft in view: who it is, and how far off if it is far away
+  function drawTags(v, fs) {
+    if (!v.vp) return;
+    const s2 = Math.max(10, Math.round(fs * 0.68));
+    ctx.font = `${s2}px "Share Tech Mono", ui-monospace, Menlo, Consolas, monospace`;
+    for (const av of avatars) {
+      if (!av.label) continue;
+      const pr = project(v.vp, v, [av.st.p[1], -av.st.p[2], -av.st.p[0]]);
+      if (!pr || pr[0] < v.x + 4 || pr[0] > v.x + v.w - 4 || pr[1] < v.y + 4 || pr[1] > v.y + v.h - 4) continue;
+      const far = pr[2] > 120 ? `  ${U.dist(pr[2])}` : '';
+      osdText(av.label + far, pr[0], pr[1] - s2 * 1.6, 'center', s2, av.col || '#9fe8ff');
+    }
+    ctx.font = `${fs}px "Share Tech Mono", ui-monospace, Menlo, Consolas, monospace`;
   }
   function wxEng() {
     const ii = iceInfo(), wxa = env.wx || {};
@@ -4610,12 +4941,18 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   /* ---------- gate course: fly the gates in order; lap time from gate 1 to gate 1 ---------- */
   const course = { next: 0, lapStart: null, clock: 0, prev: null };
   const fmtLap = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
-  function courseReset() { course.next = 0; course.lapStart = null; course.prev = null; }
+  const fmtSplit = (d) => `${d >= 0 ? '+' : '−'}${Math.abs(d).toFixed(2)}`;
+  const lapElapsed = () => (course.lapStart === null ? 0 : course.clock - course.lapStart);
+  function courseReset() { course.next = 0; course.lapStart = null; course.prev = null; lapAbort(); }
+  function courseAbort() { course.lapStart = null; lapAbort(); }
   function courseTick(dt) {
     course.clock += dt;
+    if (ghost.split.t > 0) ghost.split.t -= dt;
     const p = [st.p[1], -st.p[2], -st.p[0]], prev = course.prev;
     course.prev = p;
-    if (!S.course || !prev || st.crashed || st.held || !world.gates.length) return;
+    if (!S.course || !world.gates.length) return;
+    if (st.crashed || st.held) { if (course.lapStart !== null) courseAbort(); return; }
+    if (!prev) return;
     const gt = world.gates[course.next], c = Math.cos(gt.psi), s = Math.sin(gt.psi);
     const loc = (q) => { const dx = q[0] - gt.x, dz = q[2] - gt.z; return [c * dx - s * dz, q[1], s * dx + c * dz]; };
     const a = loc(prev), b = loc(p);
@@ -4623,18 +4960,111 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     const t = a[2] / (a[2] - b[2]), x = a[0] + (b[0] - a[0]) * t, y = a[1] + (b[1] - a[1]) * t;
     if (Math.abs(x) > gt.W / 2 || y < gt.b || y > gt.b + gt.H) return;
     if (course.next === 0) {
-      if (course.lapStart !== null) {
-        const lap = course.clock - course.lapStart, best = S.best[AC.id];
-        if (!best || lap < best) { S.best[AC.id] = lap; saveS(); flash(`LAP ${fmtLap(lap)} · NEW BEST`); } else flash(`LAP ${fmtLap(lap)}`);
-      } else flash('LAP STARTED');
+      if (course.lapStart !== null) lapDone(course.clock - course.lapStart);
+      else flash('LAP STARTED');
       course.lapStart = course.clock;
+      lapBegin();
+    } else {
+      if (rec) rec.split(course.next, course.clock);
+      ghostSplit(course.next, lapElapsed());
     }
     course.next = (course.next + 1) % world.gates.length;
   }
   function courseText() {
     if (!S.course || course.lapStart === null) return '';
     const best = S.best[AC.id];
-    return `GATE ${course.next + 1}/${world.gates.length}  ${fmtLap(course.clock - course.lapStart)}${best ? '  BEST ' + fmtLap(best) : ''}`;
+    return `GATE ${course.next + 1}/${world.gates.length}  ${fmtLap(lapElapsed())}${best ? '  BEST ' + fmtLap(best) : ''}${ghost.play ? '  GHOST ' + fmtLap(ghost.play.lap.time) : ''}`;
+  }
+
+  /* ---------------------------------------------------------------- ghost laps
+     Every lap on the course is recorded at 20 Hz (src/ghost.js) and the quickest
+     one for each aircraft is kept in browser storage. The ghost flies that lap
+     back beside you, with the split at every gate. */
+  const LAPS = GH.laps((() => { try { return window.localStorage; } catch (e) { return null; } })());
+  const ghost = { play: null, ac: null, label: '', ang: 0, split: { t: 0, text: '', ahead: false } };
+  const GHOST_MIX = [0.35, 0.78, 1.0, 0.62], GHOST_ALPHA = 0.42;
+  let rec = null;
+  const slugName = (n) => String(n || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 16);
+  // a stand-in state for drawing someone else's aircraft: enough for the meshes and the props
+  function avatarState(acId, p, q, thr) {
+    const ac = ACS[acId] || AC;
+    return { p, q, thr, n: thr, mot: [thr, thr, thr, thr], om: ac.rotor ? ac.rotor.om0 * (thr > 0.02 ? 1 : 0) : 0,
+      coll: 0, tilt: [0, 0], sa: 0, se: 0, sr: 0, v: [0, 0, 0] };
+  }
+  // everyone drawn besides you this frame: the ghost, and later the other pilots in the room
+  const avatars = [];
+  function lapBegin() {
+    rec = GH.recorder({ aircraft: AC.id, course: world.courseId, pilot: S.pilot, rate: GH.RATE });
+    rec.begin(course.clock, { p: st.p, q: st.q, thr: inp.thr });
+    ghost.split.t = 0;
+  }
+  function lapAbort() { if (rec) rec.abort(); rec = null; }
+  function lapDone(lapTime) {
+    const best = S.best[AC.id], better = !best || lapTime < best;
+    if (better) { S.best[AC.id] = lapTime; saveS(); }
+    const lap = rec ? rec.end(course.clock) : null;
+    rec = null;
+    if (lap) {
+      const stored = LAPS.get(world.courseId, AC.id);
+      if (!stored || lap.time < stored.time) {
+        if (LAPS.put(world.courseId, AC.id, lap)) { if (S.ghost === 'best') ghostLoad(); syncSheet(); }
+        else if (LAPS.available) toast('Could not keep that lap: browser storage is full.');
+      }
+    }
+    const gs = ghost.play ? fmtSplit(lapTime - ghost.play.lap.time) : '';
+    if (gs) ghost.split = { t: 3, text: gs, ahead: lapTime < ghost.play.lap.time };
+    flash(`LAP ${fmtLap(lapTime)}${better ? ' · NEW BEST' : ''}${gs ? ' · ' + gs : ''}`);
+  }
+  // which lap the ghost flies: your best with this aircraft, or the one picked in Settings → Racing
+  function ghostLoad() {
+    ghost.play = null; ghost.ac = null; ghost.label = '';
+    if (!world || S.ghost === 'off' || !S.course) return;
+    let lap = null;
+    if (S.ghost === 'pick' && S.ghostPick) lap = LAPS.get(S.ghostPick.course, S.ghostPick.slot);
+    if (!lap) lap = LAPS.get(world.courseId, AC.id);
+    if (!lap || lap.course !== world.courseId || lap.samples.length < 2) return;
+    ghost.play = GH.player(lap);
+    ghost.ac = MODELS[lap.aircraft] ? lap.aircraft : AC.id;
+    ghost.label = `${lap.pilot ? lap.pilot.toUpperCase() : 'GHOST'} ${fmtLap(lap.time)}`;
+  }
+  function ghostSplit(gate, elapsed) {
+    if (!ghost.play) return;
+    const gs = ghost.play.split(gate);
+    if (gs === null) return;
+    ghost.split = { t: 2.5, text: fmtSplit(elapsed - gs), ahead: elapsed < gs };
+  }
+  // the ghost's place on the course right now, for this frame's avatar list
+  function ghostTick(dt) {
+    if (!ghost.play || course.lapStart === null || st.crashed) return;
+    const g = ghost.play.at(lapElapsed());
+    if (!g || g.done) return;
+    ghost.ang += g.thr * dt * 60;
+    avatars.push({ ac: ghost.ac, st: avatarState(ghost.ac, g.p, g.q, g.thr), ang: ghost.ang,
+      alpha: GHOST_ALPHA, mix: GHOST_MIX, label: ghost.label, col: '#9fe8ff' });
+  }
+  // export / import: one JSON file per lap, small enough to e-mail
+  function lapExport(lap) {
+    try {
+      const blob = new Blob([GH.toText(lap)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob), a = document.createElement('a');
+      a.href = url; a.download = GH.fileName(lap); document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      toast(`Saved ${GH.fileName(lap)}`);
+    } catch (e) { toast('This browser would not save the file.'); }
+  }
+  function lapImport(file) {
+    const fr = new FileReader();
+    fr.onerror = () => toast('Could not read that file.');
+    fr.onload = () => {
+      const lap = GH.fromText(String(fr.result));
+      if (!lap) { toast('That is not a Flightline lap file.'); return; }
+      const slot = `${lap.aircraft}@${slugName(lap.pilot) || 'import'}`;
+      if (!LAPS.put(lap.course, slot, lap)) { toast('Could not store that lap: browser storage is full.'); return; }
+      S.ghostPick = { course: lap.course, slot }; S.ghost = lap.course === world.courseId ? 'pick' : S.ghost; saveS();
+      ghostLoad(); buildSheet();
+      toast(`Loaded ${lap.pilot || 'a'} lap: ${fmtLap(lap.time)} on ${lap.course} with the ${ACS[lap.aircraft] ? ACS[lap.aircraft].name : lap.aircraft}${lap.course === world.courseId ? '' : ' (another course)'}`);
+    };
+    try { fr.readAsText(file); } catch (e) { toast('Could not read that file.'); }
   }
 
   let last = performance.now(), fpsN = 0, fpsT = 0, fpsVal = 0, barT = 0;
@@ -4677,6 +5107,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       if (steps >= 60) acc = 0;
       checkObstacles();
       courseTick(dt);
+      if (rec && rec.active) rec.push(course.clock, { p: st.p, q: st.q, thr: inp.thr });
       if (!timerOn && armed && inp.thr > 0.1) timerOn = true;
       if (timerOn && !st.crashed) flightTime += dt;
       for (const pr of MODELS[AC.id].props) pr.ang += pr.spin(st) * pr.dir * dt * 60;
@@ -4688,6 +5119,8 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       const d = Math.hypot(st.p[0], st.p[1]);
       if (d > 1500) { doReset(); toast('Flew out of range. Reset.'); }
     }
+    avatars.length = 0;
+    ghostTick(paused ? 0 : dt);
     const planeM = planeMatrix(st);
     const views = layout();
     const losD = Math.hypot(planeM[12] - EYE[0], planeM[13] - EYE[1], planeM[14] - EYE[2]);
@@ -4707,10 +5140,11 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   buildWorld(S.scenery);
   resize();
   doReset();
+  ghostLoad();
   refreshBar(); refreshTouch(); refreshCtlStatus();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { gl.bindTexture(gl.TEXTURE_2D, runwayTex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, runwayTexture()); gl.generateMipmap(gl.TEXTURE_2D); });
   requestAnimationFrame((t) => { last = t; frame(t); });
-  window.__flightline = { st, S, env, nav: () => nav, setAp: (m) => setAp(m), AC: () => AC, doReset, FL, IN: () => IN, prof, ctl, world: () => world, course }; // debugging and tests
+  window.__flightline = { st, S, env, nav: () => nav, setAp: (m) => setAp(m), AC: () => AC, doReset, FL, IN: () => IN, prof, ctl, world: () => world, course, ghost, avatars, laps: LAPS, rec: () => rec }; // debugging and tests
 })();
 
 </script>

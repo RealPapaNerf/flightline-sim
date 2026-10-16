@@ -27,7 +27,7 @@ foundation.md  ──┬── sensors (GPS, baro, downward lidar)
 
  terrain-maps.md + map-builder.md (lidar terrain, a map file, a builder and a shared library)
  recovery-mission.md (13" winch-and-hook recovery; after the gimbal)
- multiplayer.md (ghost racing first, then live racing)
+ multiplayer.md (ghost racing done; live racing next)
  failures-and-weather-extras.md (ESC cut-off, GPS glitch, thermals, night …)
  validate-with-your-data.md (check the sim against your thrust-stand and flight logs)
 ```
@@ -45,7 +45,7 @@ foundation.md  ──┬── sensors (GPS, baro, downward lidar)
 | [Check the sim against your own data](validate-with-your-data.md) | pinned | small | — |
 | [Map builder and shared maps](map-builder.md) | pinned | medium | terrain maps (shares the map file) |
 | [13" quad recovery mission (winch and hook)](recovery-mission.md) | pinned | medium | foundation, gimbal |
-| [Multiplayer: ghost racing, then live racing](multiplayer.md) | pinned | small → large | — |
+| [Multiplayer: ghost racing, then live racing](multiplayer.md) | ghosts done; live racing building | small → large | — |
 
 Already built (for reference): Goblin, trainer, 5" / 4" LR / 7" LR / 13" quads, 450 heli; flight
 modes; obstacle course; weather (density altitude, turbulence, precipitation, fog, ceiling, icing,
