@@ -556,28 +556,53 @@
     return { parts, props: [{ blades: pm.blades, disc: pm.disc, mat: M4.trans(0, 0, -0.455), spin: (s0) => s0.n, dir: 1, ang: 0 }], cam: BR(ac.fpvCam) };
   }
   function buildQuad(ac) {
-    const carbon = [0.14, 0.14, 0.15], dark = [0.06, 0.06, 0.07], battC = [0.98, 0.78, 0.15], bell = [0.72, 0.74, 0.78];
-    const frontC = [1.0, 0.45, 0.1], rearC = [0.85, 0.87, 0.9];
+    const LK = ac.look || {}, k = Math.abs(ac.motors[0][0]) / 0.078, D = ac.motor.D;
+    const carbon = LK.frame || [0.14, 0.14, 0.15], dark = [0.06, 0.06, 0.07], bell = [0.72, 0.74, 0.78];
+    const frontC = LK.front || [1.0, 0.45, 0.1], rearC = LK.rear || [0.85, 0.87, 0.9];
     const g = new Geo();
     const bar = (a, b, w, t, col) => {
       const dx = b[0] - a[0], dz = b[2] - a[2], l = Math.hypot(dx, dz) || 1, nx = (-dz / l) * (w / 2), nz = (dx / l) * (w / 2);
       slab(g, [a[0] + nx, a[1], a[2] + nz], [b[0] + nx, b[1], b[2] + nz], [b[0] - nx, b[1], b[2] - nz], [a[0] - nx, a[1], a[2] - nz], t, t, col, col, col);
     };
-    for (const [x, y] of ac.motors) bar([0, 0, 0], BR([x, y, 0]), 0.022, 0.006, carbon);
-    g.box(-0.03, -0.004, -0.055, 0.03, 0.004, 0.055, carbon); // bottom plate
-    g.box(-0.02, 0.004, -0.028, 0.02, 0.026, 0.028, dark); // stack
-    g.box(-0.028, 0.026, -0.05, 0.028, 0.03, 0.05, carbon); // top plate
-    g.box(-0.018, 0.03, -0.038, 0.018, 0.062, 0.038, { top: battC, bottom: dark, side: battC, front: dark, back: dark }); // battery
-    g.box(-0.019, 0.044, -0.008, 0.019, 0.063, 0.008, dark); // strap
-    g.box(-0.016, 0.0, -0.075, 0.016, 0.03, -0.05, dark); // camera
-    g.box(-0.004, 0.005, 0.05, 0.004, 0.06, 0.056, dark); // antenna
-    const props = [];
+    for (const [x, y] of ac.motors) bar([0, 0, 0], BR([x, y, 0]), 0.022 * Math.sqrt(k), 0.006 * Math.sqrt(k), carbon);
+    g.box(-0.03 * k, -0.004, -0.055 * k, 0.03 * k, 0.004, 0.055 * k, carbon); // bottom plate
+    g.box(-0.02 * k, 0.004, -0.028 * k, 0.02 * k, 0.026, 0.028 * k, dark); // stack
+    g.box(-0.028 * k, 0.026, -0.05 * k, 0.028 * k, 0.03, 0.05 * k, carbon); // top plate
+    const B = ac.batt, pz = ac.points.find((pt) => pt.name === 'battery').p[2];
+    if (B.cell) { // Li-ion pack: the cells themselves, lying fore–aft in rows
+      const d = B.cell.d, len = B.cell.l, n = B.series * B.parallel, rows = n > 6 ? 2 : 1, per = Math.ceil(n / rows);
+      const y0 = pz < 0 ? 0.03 : -0.004 - rows * d, wrap = LK.wrap || [0.2, 0.5, 0.8];
+      for (let r = 0; r < rows; r++) for (let i = 0; i < per; i++) {
+        const x = (i - (per - 1) / 2) * d, y = y0 + (r + 0.5) * d;
+        g.with(M4.mul(M4.trans(x, y, len / 2), M4.rotX(-Math.PI / 2)), () => g.cyl(0, 0, 0, d / 2, d / 2, len, 7, (i + r) % 2 ? wrap : scl(wrap, 0.85)));
+      }
+      g.box(-per * d / 2 - 0.002, y0 + (pz < 0 ? rows * d : 0) - 0.003, -0.01, per * d / 2 + 0.002, y0 + (pz < 0 ? rows * d : 0) + 0.003, 0.01, dark); // strap
+    } else {
+      g.box(-0.018, 0.03, -0.038, 0.018, 0.062, 0.038, { top: [0.98, 0.78, 0.15], bottom: dark, side: [0.98, 0.78, 0.15], front: dark, back: dark }); // LiPo
+      g.box(-0.019, 0.044, -0.008, 0.019, 0.063, 0.008, dark); // strap
+    }
+    const cam = BR(ac.points.find((pt) => pt.name === 'camera' || pt.name === 'gimbal').p);
+    if (ac.gimbal) { // three-camera pod (day, night, thermal) under the nose
+      g.box(-0.004, cam[1] + 0.03, cam[2] + 0.01, 0.004, 0.0, cam[2] + 0.02, dark);
+      g.box(-0.045, cam[1] - 0.025, cam[2] - 0.02, 0.045, cam[1] + 0.03, cam[2] + 0.035, [0.2, 0.21, 0.23]);
+      for (const [x, y, c] of [[-0.022, 0.012, [0.1, 0.1, 0.12]], [0.022, 0.012, [0.12, 0.08, 0.06]], [0, -0.012, [0.35, 0.2, 0.1]]]) g.with(M4.trans(x, cam[1] + y, cam[2] - 0.02), () => g.with(M4.rotX(-Math.PI / 2), () => g.cyl(0, 0, 0, 0.009, 0.008, 0.008, 8, c)));
+    } else g.box(-0.016 * Math.sqrt(k), cam[1] - 0.015, cam[2] - 0.012, 0.016 * Math.sqrt(k), cam[1] + 0.015, cam[2] + 0.012, dark); // FPV camera
+    g.box(-0.004, 0.005, 0.05 * k, 0.004, 0.06 * Math.sqrt(k), 0.056 * k, dark); // antenna
+    if (ac.gear) { // landing gear: two hoops under the frame
+      const fy = -ac.points.find((pt) => pt.foot).p[2], fx = ac.points.find((pt) => pt.foot).p[1];
+      for (const sx of [-1, 1]) {
+        g.box(sx * fx - 0.006, -fy, -0.16, sx * fx + 0.006, -fy + 0.012, 0.16, dark); // skid
+        for (const z of [-0.09, 0.09]) g.box(sx * fx * 0.55 - 0.006, -fy, z - 0.006, sx * fx * 0.55 + 0.006, 0, z + 0.006, carbon);
+        g.box(sx * fx * 0.55, -fy, -0.006, sx * fx, -fy + 0.012, 0.006, carbon);
+      }
+    }
+    const props = [], blades = LK.blades || 3, mr = 0.013 * (D / 0.127), mh = 0.018 * Math.sqrt(D / 0.127);
     ac.motors.forEach(([x, y, q], i) => {
       const P = BR([x, y, 0]);
-      g.cyl(P[0], -0.004, P[2], 0.013, 0.013, 0.018, 10, bell);
-      const front = x > 0, col = front ? frontC : rearC;
-      const pm = propMeshes(g, 3, 0.0635, col, col);
-      props.push({ blades: pm.blades, disc: pm.disc, mat: M4.mul(M4.trans(P[0], 0.02, P[2]), M4.rotX(-Math.PI / 2)), spin: (s0) => s0.mot[i], dir: q, ang: i, hideFpv: true });
+      g.cyl(P[0], -0.004, P[2], mr, mr, mh, 10, bell);
+      const col = x > 0 ? frontC : rearC;
+      const pm = propMeshes(g, blades, D / 2, col, col);
+      props.push({ blades: pm.blades, disc: pm.disc, mat: M4.mul(M4.trans(P[0], mh + 0.002, P[2]), M4.rotX(-Math.PI / 2)), spin: (s0) => s0.mot[i], dir: q, ang: i, hideFpv: true });
     });
     return { parts: [{ mesh: GLR.mesh(R, g), mat: M4.ident() }], props, cam: BR(ac.fpvCam) };
   }
@@ -617,7 +642,8 @@
     const tail = { blades: tp.blades, disc: tp.disc, mat: M4.mul(M4.trans(-0.03, 0.03, 0.62), M4.rotY(Math.PI / 2)), spin: (s0) => s0.om / Ro.om0, dir: 1, ang: 0 };
     return { parts, props: [main, tail], cam: BR(ac.fpvCam) };
   }
-  const MODELS = { goblin: buildGoblin(ACS.goblin), trainer: buildTrainer(ACS.trainer), quad: buildQuad(ACS.quad), heli: buildHeli(ACS.heli) };
+  const MODELS = {};
+  for (const [id, ac] of Object.entries(ACS)) MODELS[id] = ac.kind === 'quad' ? buildQuad(ac) : ac.kind === 'heli' ? buildHeli(ac) : id === 'trainer' ? buildTrainer(ac) : buildGoblin(ac);
 
   /* ---------------------------------------------------------------- sim state */
   const st = FL.makeState();
@@ -2172,6 +2198,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     let g = S.sound && !paused && !st.crashed ? 0.012 + 0.05 * st.n : 0;
     const K0 = { wing: [120, 520, 1.5], conventional: [70, 260, 2], quad: [170, 950, 1.5], heli: [0, 0, 2] }[AC.kind];
     let f = K0[0] + K0[1] * st.n;
+    if (AC.kind === 'quad') f *= 0.127 / AC.motor.D; // bigger props turn slower: lower note
     if (AC.kind === 'heli') { f = (st.om / (2 * Math.PI)) * 2; g = S.sound && !paused && !st.crashed ? 0.015 + 0.04 * (st.om / AC.rotor.om0) : 0; } // blade pass
     if (S.view !== 'fpv') {
       g /= 1 + losDist / 45;

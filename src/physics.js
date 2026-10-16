@@ -192,6 +192,27 @@ const FL = (function () {
      y0..y1 = span stations from the centreline.
      foil.a = 3-D lift-curve slope (per rad) for that surface's aspect ratio.
      --------------------------------------------------------------- */
+  /* A quad from a few numbers. arm: motor offset along x and y (m); foot: how far the landing feet sit
+     below the CG; pack/cam: where the battery and camera stick out (contact points). */
+  function quadDef(o) {
+    const a = o.arm, f = o.foot, ms = o.mass / 0.65;
+    const names = ['front right motor', 'front left motor', 'rear right motor', 'rear left motor'];
+    const motors = [[a, a, 1], [a, -a, -1], [-a, a, -1], [-a, -a, 1]];
+    return Object.assign({
+      kind: 'quad', wheels: [], starts: ['pad', 'air'], rotorDrag: 0.012,
+      motors,
+      angle: { max: 55, k: 7, rate: 500 },
+      points: [
+        ...[[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([sx, sy]) => ({ p: [sx * o.footX, sy * o.footY, f], name: o.gear ? 'landing leg' : 'frame', foot: true, impact: o.gear ? 3.5 : 6, slide: 99 })),
+        ...motors.map(([x, y], i) => ({ p: [x, y, f * 0.4], name: names[i], prop: true, motor: i, strike: 3, impact: 6, slide: 99 })),
+        { p: o.pack, name: 'battery', impact: 5, slide: 10 },
+        { p: o.cam, name: o.gimbal ? 'gimbal' : 'camera', impact: 4, slide: 8 },
+      ],
+      contact: { kW: 0, cW: 0, kB: 1500 * ms, cB: 18 * Math.sqrt(ms), muRoll: 0, muLat: 0, muBody: 0.7 },
+      crash: { wheelImpact: 99 },
+    }, o);
+  }
+
   const DEFS = {
     goblin: {
       id: 'goblin',
@@ -338,6 +359,52 @@ const FL = (function () {
       camTilt: 30,
       colR: 0.15,
     },
+    lr4: quadDef({
+      id: 'lr4',
+      name: '4" LR · 4S Li-ion',
+      blurb: '4-inch long-range quad on a 4S1P 18650 Li-ion pack (Molicel P28A-class: 2,800 mAh, 35 A). 340 g, about 5.5:1 thrust to weight on a full pack. Long flight times at cruise, but Li-ion can\'t feed a full punch: the voltage dives and the thrust goes with it.',
+      mass: 0.34,
+      I: [0.0008, 0.0009, 0.0015],
+      arm: 0.062, foot: 0.022, footX: 0.04, footY: 0.03, pack: [0, 0, 0.04], cam: [0.055, 0, -0.012],
+      motor: { Tmax: 4.7, tau: 0.03, idle: 0.05, kQ: 0.014, Vp: 44, D: 0.1016 },
+      body: { r: [0, 0, 0], CdA: [0.0045, 0.0055, 0.012] },
+      pid: { roll: [30, 160, 0.3, 0.35, 0.025], pitch: [30, 160, 0.3, 0.35, 0.025], yaw: [22, 70, 0.3, 0.5, 0] },
+      rates: { roll: { c: 70, m: 550, e: 0 }, pitch: { c: 70, m: 550, e: 0 }, yaw: { c: 70, m: 450, e: 0 } },
+      batt: { chem: 'liion', cells: 4, mAh: 2800, R: 0.09, Imax: 46, Iidle: 0.35, Vref: 14.8, label: '4S1P 18650 Li-ion, 2,800 mAh', cool: [0.1, 0.05], cell: { d: 0.0185, l: 0.065 }, series: 4, parallel: 1 },
+      fpvCam: [0.058, 0, -0.012], camTilt: 15, colR: 0.12,
+      look: { front: [1.0, 0.25, 0.2], rear: [0.88, 0.9, 0.92], frame: [0.14, 0.14, 0.15], wrap: [0.15, 0.6, 0.45], blades: 3 },
+    }),
+    q7: quadDef({
+      id: 'q7',
+      name: '7" LR · 6S2P Li-ion',
+      blurb: '7-inch long-range quad on a 6S2P 18650 Li-ion pack (P30B-class cells: 6,000 mAh, 72 A). 1.05 kg, about 6:1 thrust to weight on a full pack. Full throttle wants ~120 A, more than the pack can give: punch hard and the voltage collapses.',
+      mass: 1.05,
+      I: [0.0068, 0.0074, 0.0124],
+      arm: 0.108, foot: 0.03, footX: 0.06, footY: 0.04, pack: [0, 0, -0.06], cam: [0.09, 0, -0.015],
+      motor: { Tmax: 17, tau: 0.045, idle: 0.05, kQ: 0.022, Vp: 39, D: 0.178 },
+      body: { r: [0, 0, 0], CdA: [0.012, 0.014, 0.03] },
+      pid: { roll: [24, 120, 0.3, 0.35, 0.02], pitch: [24, 120, 0.3, 0.35, 0.02], yaw: [16, 60, 0.3, 0.5, 0] },
+      rates: { roll: { c: 70, m: 480, e: 0 }, pitch: { c: 70, m: 480, e: 0 }, yaw: { c: 70, m: 400, e: 0 } },
+      batt: { chem: 'liion', cells: 6, mAh: 6000, R: 0.07, Imax: 120, Iidle: 0.8, Vref: 22.2, label: '6S2P 18650 Li-ion, 6,000 mAh', cool: [0.12, 0.06], cell: { d: 0.0185, l: 0.065 }, series: 6, parallel: 2 },
+      fpvCam: [0.095, 0, -0.015], camTilt: 20, colR: 0.2,
+      look: { front: [1.0, 0.5, 0.1], rear: [0.88, 0.9, 0.92], frame: [0.14, 0.14, 0.15], wrap: [0.2, 0.45, 0.85], blades: 2 },
+    }),
+    q13: quadDef({
+      id: 'q13',
+      name: '13" lifter · 12S2P Li-ion',
+      blurb: '13-inch heavy lifter with landing gear and a three-camera gimbal pod, on a 12S2P 21700 Li-ion pack (P50B-class: 10,000 mAh, 120 A). 3.7 kg, about 4.6:1 thrust to weight. Big props spool slowly and it carries a lot of momentum: plan your stops.',
+      mass: 3.7,
+      I: [0.07, 0.08, 0.13],
+      arm: 0.205, foot: 0.16, footX: 0.12, footY: 0.14, gear: true, gimbal: true, pack: [0, 0, 0.07], cam: [0.15, 0, 0.1],
+      motor: { Tmax: 42, tau: 0.09, idle: 0.06, kQ: 0.04, Vp: 30, D: 0.33 },
+      body: { r: [0, 0, 0], CdA: [0.04, 0.045, 0.09] },
+      pid: { roll: [14, 60, 0.3, 0.4, 0.012], pitch: [14, 60, 0.3, 0.4, 0.012], yaw: [9, 30, 0.3, 0.6, 0] },
+      angle: { max: 40, k: 4, rate: 200 },
+      rates: { roll: { c: 50, m: 260, e: 0 }, pitch: { c: 50, m: 260, e: 0 }, yaw: { c: 50, m: 180, e: 0 } },
+      batt: { chem: 'liion', cells: 12, mAh: 10000, R: 0.08, Imax: 160, Iidle: 1.5, Vref: 44.4, label: '12S2P 21700 Li-ion, 10,000 mAh', cool: [0.2, 0.08], cell: { d: 0.021, l: 0.07 }, series: 12, parallel: 2 },
+      fpvCam: [0.16, 0, 0.11], camTilt: 0, colR: 0.4,
+      look: { front: [0.25, 0.9, 0.4], rear: [0.88, 0.9, 0.92], frame: [0.16, 0.16, 0.17], wrap: [0.25, 0.3, 0.35], blades: 2 },
+    }),
     heli: {
       id: 'heli',
       name: '450 heli',
@@ -496,13 +563,15 @@ const FL = (function () {
   }
 
   function buildRotary(ac) {
-    ac.S = 0; ac.b = ac.kind === 'quad' ? 0.25 : 2 * ac.rotor.R; ac.mac = 0; ac.ARw = 1; ac.xShift = 0; ac.SM = 0;
+    ac.S = 0; ac.b = ac.kind === 'quad' ? 2 * Math.max(...ac.motors.map(([x, y]) => Math.hypot(x, y))) * 0.71 + ac.motor.D : 2 * ac.rotor.R; ac.mac = 0; ac.ARw = 1; ac.xShift = 0; ac.SM = 0;
     if (ac.kind === 'quad') {
       // collective thrust for hover, as a stick position (thrust ∝ motor command²)
       const Bt = ac.batt;
       let base = Math.sqrt((ac.mass * G) / (4 * ac.motor.Tmax));
       for (let i = 0; i < 4; i++) { // full pack, sagging under hover current
-        const v = Bt.cells * 4.2 - (Bt.Iidle + Bt.Imax * base ** 3) * Bt.R, k = (v / Bt.Vref) ** 2;
+        let v = Bt.cells * 4.2;
+        for (let j = 0; j < 4; j++) v = Bt.cells * 4.2 - (Bt.Iidle + Bt.Imax * base ** 3 * (v / Bt.Vref) ** 2) * Bt.R;
+        const k = (v / Bt.Vref) ** 2;
         base = Math.sqrt((ac.mass * G) / (4 * ac.motor.Tmax * k));
       }
       ac.hoverThr = (base - ac.motor.idle) / (1 - ac.motor.idle);
@@ -873,7 +942,9 @@ const FL = (function () {
     const m3 = (s.mot[0] ** 3 + s.mot[1] ** 3 + s.mot[2] ** 3 + s.mot[3] ** 3) / 4;
     const vbody = Math.hypot(s.v[0], s.v[1], s.v[2]), mAvg = (s.mot[0] + s.mot[1] + s.mot[2] + s.mot[3]) / 4;
     const pice = iceSmall(s, env, vbody, 3.5 * M.Vp * mAvg + vbody, 0.09 * M.D, dt);
-    battery(s, B, B.Iidle + B.Imax * m3 * (rho / RHO0) * pice.power, vbody, env, dt);
+    // at a given command the motors draw more from a full pack than a sagging one (prop load ∝ V²)
+    const vprev = clamp((s.vb || B.Vref) / B.Vref, 0, 1.2);
+    battery(s, B, B.Iidle + B.Imax * m3 * (rho / RHO0) * pice.power * vprev * vprev, vbody, env, dt);
     const vsc = clamp(s.vb / B.Vref, 0, 1.2);
     const Tmax = M.Tmax * vsc * vsc * (rho / RHO0) * pice.thrust; // thrust falls with voltage sag, thin air and prop ice
 
@@ -941,7 +1012,7 @@ const FL = (function () {
       F[2] -= T;
       Mo[0] += -y * T; Mo[1] += x * T; Mo[2] += q * M.kQ * T;
     }
-    const shake = wash * 0.14 + s.shed * 0.12; // prop wash, or ice thrown unevenly off a prop
+    const shake = (wash * 0.14 + s.shed * 0.12) * ((M.Tmax * Math.abs(ac.motors[0][0])) / (13.5 * 0.078)); // prop wash, or ice thrown unevenly off a prop; scales with the quad's size
     Mo[0] += shake * s.buf[0]; Mo[1] += shake * s.buf[1];
     F[0] -= ac.rotorDrag * Ttot * vb[0]; F[1] -= ac.rotorDrag * Ttot * vb[1];
     const Vn = Math.hypot(vb[0], vb[1], vb[2]), kd = 0.5 * rho * Vn, Cd = ac.body.CdA;

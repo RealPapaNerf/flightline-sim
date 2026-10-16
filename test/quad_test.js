@@ -1,7 +1,9 @@
-/* Quad bench tests. Run: node test/quad_test.js
-   Prints numbers to compare with a real 5-inch 6S freestyle quad. */
+/* Quad bench tests. Run: node test/quad_test.js [quad|lr4|q7|q13]
+   Prints numbers to compare with the real thing. */
 const FL = require('../src/physics.js');
-const ac = FL.build(FL.DEFS.quad);
+const id = process.argv[2] || 'quad';
+const ac = FL.build(FL.DEFS[id]);
+const RM = ac.rates.roll.m, YM = ac.rates.yaw.m, cells = ac.batt.cells;
 const DT = 1 / 400, deg = (r) => (r * 180) / Math.PI, mph = (v) => v * 2.23694;
 const env = { rho: 1.225, wind: [0, 0, 0], battery: false, crashes: true };
 const eul = (s) => FL.eulerFromMat(FL.quatToMat(s.q));
@@ -17,7 +19,7 @@ const pad = () => { const s = FL.makeState(); FL.reset(s, ac, 'pad'); return s; 
 const air = (alt = 30) => { const s = FL.makeState(); FL.reset(s, ac, 'air'); s.p[2] = -alt; return s; };
 const H = ac.hoverThr;
 
-line(`5" quad: ${ac.mass * 1000} g, thrust/weight ${((4 * ac.motor.Tmax) / (ac.mass * 9.81)).toFixed(1)}:1, hover throttle ${(H * 100).toFixed(0)}%`);
+line(`${ac.name}: ${ac.mass * 1000} g, ${ac.batt.label}, thrust/weight ${((4 * ac.motor.Tmax) / (ac.mass * 9.81)).toFixed(1)}:1, hover throttle ${(H * 100).toFixed(0)}%`);
 
 { const s = pad(); const p0 = s.p.slice(); run(s, { thr: 0, a: 0, e: 0, r: 0 }, 3);
   line(`armed on the pad at zero throttle, 3 s: moved ${Math.hypot(s.p[0] - p0[0], s.p[1] - p0[1]).toFixed(3)} m, height ${(-s.p[2]).toFixed(3)} m, motors ${(s.n * 100).toFixed(0)}%, crashed ${s.crashed}`); }
@@ -29,12 +31,12 @@ line(`5" quad: ${ac.mass * 1000} g, thrust/weight ${((4 * ac.motor.Tmax) / (ac.m
   line(`punch-out from the pad, full throttle 1.5 s: ${(-s.p[2]).toFixed(1)} m up, peak climb ${vmax.toFixed(1)} m/s (${mph(vmax).toFixed(0)} mph), crashed ${s.crashed}`); }
 
 { const s = air(); let t90 = null, pmax = 0, ang = 0, tFlip = null;
-  run(s, { thr: 0.45, a: 1, e: 0, r: 0 }, 1.0, (s, t) => {
+  run(s, { thr: H * 1.4, a: 1, e: 0, r: 0 }, 2.0, (s, t) => {
     pmax = Math.max(pmax, s.w[0]); ang += s.w[0] * DT;
-    if (!t90 && s.w[0] > 0.9 * 670 * FL.D2R) t90 = t;
+    if (!t90 && s.w[0] > 0.9 * RM * FL.D2R) t90 = t;
     if (!tFlip && ang >= 2 * Math.PI) tFlip = t;
   });
-  line(`full right roll from hover: 90% of 670°/s after ${(t90 * 1000).toFixed(0)} ms, peak ${deg(pmax).toFixed(0)}°/s, a full roll in ${(tFlip * 1000).toFixed(0)} ms`); }
+  line(`full right roll from hover: 90% of ${RM}°/s after ${t90 === null ? '—' : (t90 * 1000).toFixed(0) + ' ms'}, peak ${deg(pmax).toFixed(0)}°/s, a full roll in ${tFlip === null ? '—' : (tFlip * 1000).toFixed(0) + ' ms'}`); }
 
 { const s = air(); const tr = [];
   run(s, { thr: 0.45, a: 0.4, e: 0, r: 0 }, 0.6, (s, t) => { if (Math.abs(t % 0.05) < DT / 2) tr.push(deg(s.w[0]).toFixed(0)); });
@@ -42,7 +44,7 @@ line(`5" quad: ${ac.mass * 1000} g, thrust/weight ${((4 * ac.motor.Tmax) / (ac.m
   line(`40% roll stick (setpoint ${sp.toFixed(0)}°/s), every 50 ms: ${tr.join(' ')}`); }
 
 { const s = air(); let rmax = 0; run(s, { thr: H, a: 0, e: 0, r: 1 }, 1.0, (s) => { rmax = Math.max(rmax, s.w[2]); });
-  line(`full right yaw: peak ${deg(rmax).toFixed(0)}°/s (setpoint 670°/s; yaw is torque-limited on a quad)`); }
+  line(`full right yaw: peak ${deg(rmax).toFixed(0)}°/s (setpoint ${YM}°/s; yaw is torque-limited on a quad)`); }
 
 { const keep = ac.angle.max; ac.angle.max = 85; const rows = [];
   for (const pitch of [40, 55, 65, 75]) {
@@ -71,6 +73,20 @@ line(`5" quad: ${ac.mass * 1000} g, thrust/weight ${((4 * ac.motor.Tmax) / (ac.m
 { const s = air(3); let td = null;
   run(s, (s) => ({ thr: H * 0.85, a: 0, e: 0, r: 0 }), 6, (s) => { if (!td && s.wow) td = s.v[2]; });
   line(`gentle descent onto the ground: touchdown ${td === null ? '—' : td.toFixed(2) + ' m/s'}, crashed ${s.crashed} ${s.crashMsg}`); }
+
+{ // battery: punch-out sag on a full pack, and hover / cruise current and flight time
+  const envB = Object.assign({}, env, { battery: true, wx: { T: 20, lwc: 0, mvd: 0, rain: 0 } });
+  const runB = (s, ctl, secs, cb) => { for (let i = 0, n = Math.round(secs / DT); i < n; i++) { FL.step(s, ac, Object.assign({ armed: true, mode: 'acro' }, typeof ctl === 'function' ? ctl(s) : ctl), envB, DT); if (cb) cb(s); } };
+  { const s = FL.makeState(); FL.reset(s, ac, 'pad', 20); let vmin = 99, imax = 0, vz = 0;
+    runB(s, { thr: 1, a: 0, e: 0, r: 0 }, 2, (s) => { if (s.t > 0.1) vmin = Math.min(vmin, s.vb / cells); imax = Math.max(imax, s.I); vz = Math.max(vz, -s.v[2]); });
+    line(`full-throttle punch on a full pack at 20°C: ${imax.toFixed(0)} A peak, sags to ${vmin.toFixed(2)} V/cell, peak climb ${vz.toFixed(1)} m/s`); }
+  { const s = FL.makeState(); FL.reset(s, ac, 'air', 20); s.p[2] = -30; let iz = 0, I = 0, n = 0;
+    runB(s, (s) => { const ez = -s.p[2] - 30; iz += ez * DT; return { thr: Math.min(1, Math.max(0, H - 0.03 * ez - 0.01 * iz + 0.02 * s.v[2])), a: 0, e: 0, r: 0, mode: 'angle' }; }, 20, (s) => { if (s.t > 5) { I += s.I; n++; } });
+    const Ih = I / n; line(`hover: ${Ih.toFixed(1)} A (${(Ih * cells * 3.7).toFixed(0)} W) → ${((ac.batt.mAh * 0.8) / 1000 / Ih * 60).toFixed(0)} min to 80% of the pack`); }
+  { const s = FL.makeState(); FL.reset(s, ac, 'air', 20); s.p[2] = -60; let iz = 0, I = 0, n = 0, V = 0;
+    runB(s, (s) => { const ez = -s.p[2] - 60; iz += ez * DT; return { thr: Math.min(1, Math.max(0, H * 1.25 - 0.03 * ez - 0.01 * iz + 0.02 * s.v[2])), a: 0, e: -0.35, r: 0, mode: 'angle' }; }, 25, (s) => { if (s.t > 10) { I += s.I; V += s.tele.V; n++; } });
+    const Ic = I / n; line(`cruise at ${Math.round((0.35 * 55))}° nose down: ${(V / n * 3.6).toFixed(0)} km/h on ${Ic.toFixed(1)} A → ${((ac.batt.mAh * 0.8) / 1000 / Ic * 60).toFixed(0)} min, ${((ac.batt.mAh * 0.8) / 1000 / Ic * V / n * 3.6).toFixed(1)} km`); }
+}
 
 { const t0 = process.hrtime.bigint(); const s = air(); run(s, { thr: 0.5, a: 0.3, e: 0.2, r: 0.1 }, 10);
   line(`CPU: ${(Number(process.hrtime.bigint() - t0) / 1e6 / 10).toFixed(2)} ms per simulated second`); }
