@@ -1,6 +1,6 @@
 # Foundation: sensors, link model, autopilot core
 
-**Status: building.** Everything autonomous, every failsafe and the Mission Planner-style screen
+**Status: done (first version).** Everything autonomous, every failsafe and the Mission Planner-style screen
 need these three pieces, and each is useful on its own.
 
 ## 1. Sensors
@@ -45,3 +45,25 @@ through sensors that lie a little, and the autopilot only knows what the sensors
 
 - Which lidar should the Goblin carry: your actual model and its max range?
 - RTL altitude and failsafe timeout defaults: copy from your ArduPilot params?
+
+## What v1 has, and what's still open
+
+Built (src/nav.js, test/nav_test.js):
+- GPS, baro and downward lidar as above. Lidar models: TF-Luna, TFmini Plus, TF02-Pro and
+  LightWare SF11/C.
+- Height estimate switches between lidar and baro without a jump in the target.
+- RC (ELRS 2.4 / 900) and analog video budgets with obstruction by trees and buildings, ground
+  bounce, overhead null, fading and interference. Packets freeze the sticks when lost; failsafe
+  after 1 s.
+- Analog breakup on the FPV view: snow, then torn bands, then gone.
+- ALT HOLD, LOITER and RTL for quads, heli and planes. RC-loss failsafe → RTL. Any mode switch
+  takes over. Quads and the heli land and disarm.
+
+Not yet:
+- compass errors
+- GPS degradation by terrain and jamming
+- antenna polarisation and aircraft-side patterns
+- digital video
+- plane auto-landing
+- "land" or "hold" as failsafe actions
+- a fence

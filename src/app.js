@@ -39,6 +39,8 @@
     curve: 'normal', // helicopter pitch curve: 'normal' or '3d' (idle up)
     sheetTab: 'aircraft', // last settings tab
     hud: 'hud', // FPV OSD style: 'hud' (pitch ladder and tapes) or 'classic'
+    // link and sensors: downward lidar, RC link, video transmitter, interference (%), RTL altitude (m) for planes / rotorcraft
+    lidar: 'tf02', rcLink: 'elrs24', vtx: 'a600', rfNoise: 0, rtlAlt: { plane: 50, rotary: 15 },
   };
   const load = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
   const store = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage blocked */ } };
@@ -50,6 +52,7 @@
   }
   if (!FL.DEFS[S.aircraft]) S.aircraft = 'goblin';
   for (const g of ['plane', 'rotary']) S.lim[g] = Object.assign({}, DEF.lim[g], S.lim[g]);
+  S.rtlAlt = Object.assign({}, DEF.rtlAlt, S.rtlAlt);
   const saveS = () => store(SKEY, S);
 
   const U = {
@@ -94,8 +97,12 @@
     ACS[id].rates = S.fc[id];
   }
   const MODES = ['manual', 'horizon', 'trainer', 'stab'];
-  const modeName = (m) => (ROTARY(AC) ? { manual: 'Acro', horizon: 'Horizon', trainer: 'Acro trainer', stab: 'Angle' } : { manual: 'Manual', horizon: 'Horizon', trainer: 'Trainer', stab: 'Stabilised' })[m] || 'Manual';
-  const modeOsd = (m) => (ROTARY(AC) ? { manual: 'ACRO', horizon: 'HORZ', trainer: 'TRNR', stab: 'ANGL' } : { manual: 'MANU', horizon: 'HORZ', trainer: 'TRNR', stab: 'STAB' })[m] || 'MANU';
+  const AP_NAME = { althold: 'Alt hold', loiter: 'Loiter', rtl: 'RTL' }, AP_OSD = { althold: 'ALTH', loiter: 'LOIT', rtl: 'RTL' };
+  let nav = null, fsActive = false; // set up with the sim state below
+  const apMode = () => (nav && nav.ap.mode) || null;
+  const baseName = (m) => (ROTARY(AC) ? { manual: 'Acro', horizon: 'Horizon', trainer: 'Acro trainer', stab: 'Angle' } : { manual: 'Manual', horizon: 'Horizon', trainer: 'Trainer', stab: 'Stabilised' })[m] || 'Manual';
+  const modeName = (m) => (apMode() ? AP_NAME[apMode()] : baseName(m));
+  const modeOsd = (m) => (apMode() ? AP_OSD[apMode()] + (fsActive ? ' FS' : '') : (ROTARY(AC) ? { manual: 'ACRO', horizon: 'HORZ', trainer: 'TRNR', stab: 'ANGL' } : { manual: 'MANU', horizon: 'HORZ', trainer: 'TRNR', stab: 'STAB' })[m] || 'MANU');
   const limNow = () => S.lim[ROTARY(AC) ? 'rotary' : 'plane'];
   const tiltOf = () => (S.tilt[AC.id] !== undefined ? S.tilt[AC.id] : AC.camTilt || 0);
   const startOf = (id) => (ACS[id].starts.includes(S.start[id]) ? S.start[id] : ACS[id].starts[0]);
@@ -651,6 +658,9 @@
   const gust = [0, 0, 0];
   let armed = false, paused = false, userPaused = false, crashAt = 0, flightTime = 0, timerOn = false, launchHold = 0, acc = 0;
   let farWarned = false, crashAnnounced = false;
+  // what the aircraft knows: sensors, estimate, radio link, autopilot (src/nav.js)
+  nav = NAV.make();
+  let heldInp = { thr: 0, a: 0, e: 0, r: 0 }, obsT = 0, obs = { rc: 0, vid: 0 };
   // air and weather: density from the field conditions; weather at the aircraft and at each camera
   let atmo = null, wxBase = null;
   function updateAtmos() {
@@ -665,6 +675,7 @@
   function doReset() {
     const where = startOf(AC.id);
     FL.reset(st, AC, where, packStartC());
+    NAV.reset(nav, st); fsActive = false;
     armed = where === 'air';
     if (where === 'air') kb.thr = AC.kind === 'quad' ? AC.hoverThr : AC.kind === 'heli' ? AC.hoverThrCurve[S.curve] : AC.kind === 'wing' ? 0.55 : 0.6;
     else kb.thr = 0;
@@ -687,6 +698,7 @@
     ['pause', 'Pause / resume'],
     ['view-cycle', 'View: cycle'], ['view-los', 'View: line of sight'], ['view-fpv', 'View: FPV'], ['view-split', 'View: split'],
     ['mode-cycle', 'Flight mode: cycle'], ['mode-manual', 'Flight mode: manual / acro'], ['mode-horizon', 'Flight mode: horizon'], ['mode-trainer', 'Flight mode: trainer'], ['mode-stab', 'Flight mode: stabilised / angle'],
+    ['mode-althold', 'Autopilot: alt hold'], ['mode-loiter', 'Autopilot: loiter / position hold'], ['mode-rtl', 'Autopilot: return to launch (RTL)'],
     ['stab-toggle', 'Stabilised mode: toggle'], ['stab-hold', 'Stabilised mode: while held / switch on'],
     ['cut-toggle', 'Throttle cut / heli throttle hold: toggle'], ['cut-hold', 'Throttle cut / heli throttle hold: while held'],
     ['curve-toggle', 'Heli pitch curve: Normal / 3D'], ['curve-3d-hold', 'Heli pitch curve: 3D while held / switch on'],
@@ -867,6 +879,9 @@
       case 'mode-horizon': setMode('horizon'); break;
       case 'mode-trainer': setMode('trainer'); break;
       case 'mode-stab': setMode('stab'); break;
+      case 'mode-althold': setAp('althold'); break;
+      case 'mode-loiter': setAp('loiter'); break;
+      case 'mode-rtl': setAp('rtl'); break;
       case 'cut-toggle': cutOn = !cutOn; flash(`${AC.kind === 'heli' ? 'THROTTLE HOLD' : 'THROTTLE CUT'} ${cutOn ? 'ON' : 'OFF'}`); break;
       case 'curve-toggle': setCurve(S.curve === '3d' ? 'normal' : '3d'); break;
       case 'launch': if (st.held && armed) { FL.launch(st); timerOn = true; } break;
@@ -959,6 +974,9 @@
         else if (c === 'KeyF') toggleFull();
         else if (c === 'KeyL' && st.held && armed) { FL.launch(st); timerOn = true; }
         else if (c === 'KeyH') fire('cut-toggle');
+        else if (c === 'KeyJ') fire('mode-althold');
+        else if (c === 'KeyK') fire('mode-loiter');
+        else if (c === 'KeyG') fire('mode-rtl');
         else if (c === 'KeyI') fire('curve-toggle');
         else if (c === 'Digit1') setView('los'); else if (c === 'Digit2') setView('fpv'); else if (c === 'Digit3') setView('split');
       }
@@ -1371,7 +1389,7 @@
     $('#vAc').textContent = AC.name;
     $('#vView').textContent = VIEW_LABEL[S.view];
     $('#vMode').textContent = modeName(S.mode);
-    $('#bMode').classList.toggle('hot', S.mode !== 'manual');
+    $('#bMode').classList.toggle('hot', S.mode !== 'manual' || !!apMode());
     $('#vStart').textContent = START_LABEL[startOf(AC.id)];
     $('#vPause').textContent = paused ? 'Paused' : 'Running';
     $('#bPause').classList.toggle('hot', userPaused);
@@ -1381,7 +1399,17 @@
   }
   function setView(v) { S.view = v; saveS(); refreshBar(); syncSheet(); }
   function cycleView() { setView({ los: 'split', split: 'fpv', fpv: 'los' }[S.view]); }
-  function setMode(m) { if (!MODES.includes(m)) m = 'manual'; if (m !== S.mode) flash(modeName(m).toUpperCase()); S.mode = m; saveS(); refreshBar(); syncSheet(); }
+  function setMode(m) {
+    if (!MODES.includes(m)) m = 'manual';
+    const wasAp = apMode();
+    NAV.exit(nav); // any mode switch takes control back from the autopilot
+    if (m !== S.mode || wasAp) flash(baseName(m).toUpperCase());
+    S.mode = m; saveS(); refreshBar(); syncSheet();
+  }
+  function setAp(m) {
+    if (apMode() === m) return;
+    NAV.enter(nav, m, st); flash(AP_NAME[m].toUpperCase()); refreshBar();
+  }
   function cycleMode() { setMode(MODES[(MODES.indexOf(S.mode) + 1) % MODES.length]); }
   function setCurve(c) { c = c === '3d' ? '3d' : 'normal'; if (c !== S.curve && AC.kind === 'heli') flash(c === '3d' ? '3D CURVE' : 'NORMAL CURVE'); S.curve = c; saveS(); syncSheet(); }
   function setAircraft(id) { S.aircraft = id; AC = ACS[id]; saveS(); doReset(); refreshBar(); buildSheet(); }
@@ -1429,7 +1457,7 @@
         ...(AC.kind === 'heli' ? [seg('curve', 'Pitch curve', [['normal', 'Normal'], ['3d', '3D (idle up)']],
           `Normal: ${AC.rotor.curves.normal.join('° / ')}° at the bottom, middle and top of the stick; hover is at about ${Math.round(AC.hoverThrCurve.normal * 100)}%. 3D: ${AC.rotor.curves['3d'].join('° / ')}°, with zero pitch at mid stick so you can fly inverted; hover is at about ${Math.round(AC.hoverThrCurve['3d'] * 100)}%. The governor holds ${Math.round((AC.rotor.om0 * 60) / (2 * Math.PI))} rpm in both. Throttle hold (H, or a controller channel) stops the motor and leaves the collective live, for autorotations.`,
           () => S.curve, (v) => setCurve(v))] : []),
-        seg('mode', 'Flight mode', MODES.map((m) => [m, modeName(m)]), ROTARY(AC)
+        seg('mode', 'Flight mode', MODES.map((m) => [m, baseName(m)]), ROTARY(AC)
           ? 'Acro: sticks command rotation rates. Horizon: levels near centre stick and becomes acro at full stick, so hard stick means a flip. Acro trainer: acro, but stopped at the trainer limits. Angle: sticks command bank and pitch.'
           : 'Manual: sticks move the surfaces. Horizon: levels near centre stick and becomes manual at full stick, so hard stick means a roll. Trainer: manual, but held at the trainer limits. Stabilised: sticks command bank and pitch. None of them stop a stall.', () => S.mode, (v) => setMode(v)),
         rng('limBank', `${ROTARY(AC) ? 'Angle' : 'Stabilised'} bank limit`, 20, 85, 5, (v) => `${v}°`, null, () => limNow().bank, (v) => { limNow().bank = v; }),
@@ -1446,6 +1474,19 @@
       { tab: 'controller', title: 'Controller', items: [{ type: 'radio' },
         seg('stickMode', 'Stick mode (keyboard & touch)', [['2', 'Mode 2'], ['1', 'Mode 1']], 'With a radio the setup wizard maps channels, so this only affects keys and touch.'),
         seg('touch', 'Touch sticks', [['auto', 'Auto'], ['on', 'On'], ['off', 'Off']]),
+      ] },
+      { tab: 'link', title: 'Autopilot', items: [
+        { type: 'apinfo' },
+        rng('rtlAlt', `RTL altitude (${ROTARY(AC) ? 'multirotors & heli' : 'planes'})`, ROTARY(AC) ? 5 : 20, ROTARY(AC) ? 60 : 120, 1, (v) => U.alt(v), ROTARY(AC) ? 'Climbs to this first (or stays higher), flies home, lands and disarms. Set it above the trees between you and the search area.' : 'Climbs to this while turning for home, then circles overhead until you take over.', () => S.rtlAlt[ROTARY(AC) ? 'rotary' : 'plane'], (v) => { S.rtlAlt[ROTARY(AC) ? 'rotary' : 'plane'] = v; }),
+      ] },
+      { tab: 'link', title: 'Sensors', items: [
+        seg('lidar', 'Downward lidar', Object.entries(NAV.LIDARS).map(([k, l]) => [k, l.name]), 'Range to whatever is under the aircraft. Range drops with weaker reflectors: grass about half the rated range, dark asphalt about a third, wet asphalt less; snow reflects well. Beyond 35° of bank or out of range the estimate falls back to the barometer, which drifts and reads low at speed.'),
+      ] },
+      { tab: 'link', title: 'Radio & video', items: [
+        seg('rcLink', 'RC link', Object.entries(NAV.RCLINKS).map(([k, l]) => [k, l.name]), '900 MHz goes further and through trees better; 2.4 GHz has smaller antennas. A second without packets is a failsafe: RTL.'),
+        seg('vtx', 'Video transmitter', Object.entries(NAV.VTXS).map(([k, l]) => [k, l.name]), 'Analog video fades to snow, then tears and drops out. Flying low and far costs signal (ground bounce), and so does flying straight overhead (antenna null).'),
+        rng('rfNoise', 'Interference', 0, 100, 5, (v) => `${v}% · +${Math.round(0.3 * v)} dB`, 'Raises the noise floor for both links: a busy staging area, other pilots, a noisy BEC. The power line north of the field adds its own hiss when you fly near it.'),
+        { type: 'linkinfo' },
       ] },
       { tab: 'display', title: 'View', items: [
         seg('view', 'View', [['los', 'LOS'], ['split', 'Split'], ['fpv', 'FPV']], 'Split puts LOS on top and FPV below when the screen is upright, side by side when it is wide.', () => S.view, (v) => setView(v)),
@@ -1503,7 +1544,7 @@
     if (k === 'crashes') env.crashes = S.crashes;
     if (k === 'touch' || k === 'stickMode') refreshTouch();
     if (k === 'aa') toast('Smooth edges applies after you reload the page');
-    if (k === 'units') buildSheet();
+    if (k === 'units' || k === 'rcLink' || k === 'vtx' || k === 'rfNoise') buildSheet();
   }
   function daHtml() {
     const a = updateAtmos(), w0 = FL.weatherAt(wxBase, 10), wc = S.ceilFt > 0 ? FL.weatherAt(wxBase, S.ceilFt * 0.3048 + 5) : null;
@@ -1525,7 +1566,7 @@
     Object.assign(S, p[3]); S.wxPreset = id; saveS(); updateAtmos(); doReset(); buildSheet();
     toast(`${p[1]}: ${p[2]}`);
   }
-  const TABS = [['aircraft', 'Aircraft'], ['controller', 'Controller'], ['weather', 'Weather'], ['display', 'Display'], ['graphics', 'Graphics & sound'], ['model', 'Flight model']];
+  const TABS = [['aircraft', 'Aircraft'], ['controller', 'Controller'], ['weather', 'Weather'], ['link', 'Link & sensors'], ['display', 'Display'], ['graphics', 'Graphics & sound'], ['model', 'Flight model']];
   function setTab(t) { if (S.sheetTab !== t) { S.sheetTab = t; saveS(); $('#sheet').scrollTop = 0; } buildSheet(); }
   function buildSheet() {
     const body = $('#shBody');
@@ -1556,6 +1597,17 @@
           box.innerHTML = `<label for="${id}"><span>${it.label}</span><output id="${id}-o">${it.fmt(val0)}</output></label><input type="range" id="${id}" min="${it.min}" max="${it.max}" step="${it.step}" value="${val0}">${it.help ? `<div class="help">${it.help}</div>` : ''}`;
           const inpEl = box.querySelector('input'), out = box.querySelector('output');
           inpEl.addEventListener('input', () => { const v = Number(inpEl.value); if (it.set) it.set(v); else S[it.key] = v; out.textContent = it.fmt(v); saveS(); applySetting(it.key); });
+        } else if (it.type === 'apinfo') {
+          box.innerHTML = `<div class="help">Autopilot modes, ArduPilot-style. <b>J</b> alt hold (throttle stick climbs and sinks; ${ROTARY(AC) ? 'sticks still tilt' : 'roll stick banks, throttle sets speed'}), <b>K</b> loiter (${ROTARY(AC) ? 'holds a GPS position; sticks fly it around' : 'circles where you are'}), <b>G</b> RTL. Any flight-mode switch, or <b>M</b>, takes back control. Map them to radio switches under Controller. If the RC link drops for a second the aircraft starts an RTL by itself; when the link comes back it keeps going until you switch modes.</div>`;
+        } else if (it.type === 'linkinfo') {
+          const rc = NAV.RCLINKS[S.rcLink], vt = NAV.VTXS[S.vtx], n = 0.3 * S.rfNoise;
+          const rangeOf = (L, thr, h) => { let far = 0; for (let d = 20; d < 100000; d *= 1.04) if (NAV.received(L, d, h, Math.atan2(h, d), 0) > thr) far = d; return far; };
+          const km = (m) => (S.units === 'imp' ? `${(m / 1609.34).toFixed(1)} mi` : `${(m / 1000).toFixed(1)} km`);
+          box.innerHTML = `<div class="kv">
+            <span>RC range, 40 m up, clear line</span><span>${km(rangeOf(rc, rc.sens + n, 40))}</span>
+            <span>Video clean to</span><span>${km(rangeOf(vt, NAV.VIDEO_FLOOR + NAV.VIDEO_CLEAN + n, 40))} (40 m up) · ${km(rangeOf(vt, NAV.VIDEO_FLOOR + NAV.VIDEO_CLEAN + n, 3))} (3 m up)</span>
+            <span>Video gone at</span><span>${km(rangeOf(vt, NAV.VIDEO_FLOOR + n, 40))}</span>
+            <span>Each tree / building in the way</span><span>RC −${rc.f < 1000 ? 3 : 6} / −${rc.f < 1000 ? 10 : 18} dB · video −10 / −25 dB</span></div>`;
         } else if (it.type === 'wxpresets') {
           const cur = WX_PRESETS.find((x) => x[0] === S.wxPreset);
           box.innerHTML = `<div class="lab"><span>Presets</span></div><div class="seg wrap" id="wxPre" role="group" aria-label="Weather presets">${WX_PRESETS.map(([id, nm]) => `<button type="button" data-id="${id}" aria-pressed="${S.wxPreset === id}">${nm}</button>`).join('')}</div><div class="help">${cur ? esc(cur[2]) : 'Custom conditions. Pick a preset to start from, then adjust anything below.'}</div>`;
@@ -1595,7 +1647,7 @@
             e.addEventListener('input', () => { RE[obj][k] = Number(e.value); o.textContent = e.value + unit; RE.save(); });
           }
         } else if (it.type === 'notes') {
-          box.innerHTML = notesHtml() + weatherNotesHtml();
+          box.innerHTML = notesHtml() + weatherNotesHtml() + navNotesHtml();
         }
         el.appendChild(box);
       }
@@ -1644,6 +1696,18 @@ P0 = ρA(ΩR)³·σ·Cd0·(1 + 4.65μ²) / 8</span>
       <p><b>Vortex ring.</b> Descending straight down at about the hover induced velocity (1–2 m/s here) puts the rotor in its own wake: thrust drops up to 35% and the heli shakes until you add forward speed.</p>
       <p><b>Flybarless controller.</b> Rate PID on cyclic with feed-forward; the wanted moment becomes disc tilt through the hub stiffness and thrust offset. The tail chases a yaw-rate target and cancels the motor's reaction torque, with a ${Math.round(Ro.tauT * 1000)} ms lag, so a collective punch kicks the tail a little. Horizon, Trainer and Angle work as on the quad.</p>
       <p><b>Simplified.</b> Uniform inflow (no wake skew or blade-by-blade loads), no blade flapping dynamics beyond a short tilt lag and blowback, a stiff hub, and no tail-rotor stall.</p></div>`;
+  }
+  // sensors, link and autopilot, written so every number can be checked
+  function navNotesHtml() {
+    return `<div class="notes"><p><b>Sensors.</b> The OSD shows what the flight controller knows, not the truth. GPS: 10 Hz, 150 ms late, error wandering with σ ≈ 1 m × HDOP (45 s correlation). Baro: 0.12 m noise, a 0.4 m bias drifting over minutes, and the static-port error −0.0025·V² m (−1 m at 20 m/s). Downward lidar: ray along the body's down axis to the ground or whatever stands on it (trees, roofs, the water tower).</p>
+      <span class="eq">lidar return ∝ (ρ/0.9)·cos θ·(Rmax/r)²·e^(−2βr)   valid when ≥ 1 (probabilistic near the edge)
+noise σ = σ0 + 0.004·r (+ more near the edge)   false short returns in rain and snow
+height estimate: lidar when ≥ 75% of samples are good, tilt < 35°, r < 0.95·Rmax; else baro</span>
+      <p><b>Link budget.</b> Free-space loss, a ground-bounce penalty past the two-ray breakpoint (half the flat-earth slope), a dipole null overhead, ${NAV.LINK_MARGIN} dB for the airframe, polarisation and multipath, slow fading (σ 2.5 dB), obstructions on the line from your antenna to the aircraft, and the interference slider on the noise floor.</p>
+      <span class="eq">P_rx = P_tx + 2 + 2 − [20·log10(d_km) + 20·log10(f_MHz) + 32.44] − 10·log10(d/d_b) − 10·sin⁴(elev) − ${NAV.LINK_MARGIN} − obstructions
+d_b = 4·1.5 m·h_air/λ     packet success = 1/(1 + e^(−(margin − 1)/1.2))     failsafe after 1 s without packets
+video quality = (P_rx − (${NAV.VIDEO_FLOOR} dBm + noise)) / ${NAV.VIDEO_CLEAN} dB, clamped 0…1</span>
+      <p><b>Autopilot.</b> Flies on the estimates, so GPS wander, baro drift and the lidar↔baro handover show up as real position and height errors. Multirotors: height loop → vertical acceleration → tilt-compensated thrust; GPS position → velocity → acceleration → lean angle (≤ 35°). Planes: height through pitch (flight-path angle + trim + integrator), speed through throttle, L1-style course steering and a clockwise loiter of radius V²/(g·tan 30°). RTL climbs to the RTL altitude, returns, then lands and disarms (multirotors) or circles overhead (planes).</p></div>`;
   }
   // the weather model, written so every number can be checked
   function weatherNotesHtml() {
@@ -1853,6 +1917,9 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     else if (st.held) w.push(['THROTTLE UP TO LAUNCH', '#ffd36a']);
     else if (!armed) w.push(['THROTTLE DOWN TO ARM', '#ffd36a']);
     if (cutOn || cutHeld) w.push([AC.kind === 'heli' ? 'THROTTLE HOLD' : 'THROTTLE CUT', '#ff9d42']);
+    if (fsActive && blink % 1 < 0.65) w.push([apMode() === 'rtl' ? 'RC FAILSAFE · RTL' : 'RC FAILSAFE', '#ff6157']);
+    else if (!fsActive && nav.link.rcLq < 60) w.push([`RC LINK ${Math.round(nav.link.rcLq)}%`, '#ff9d42']);
+    if (apMode() === 'rtl' && !fsActive) w.push([`RTL · ${({ climb: 'CLIMBING', return: 'RETURNING', land: 'LANDING', loiter: 'CIRCLING HOME' })[nav.ap.phase] || ''}`, '#ffd36a']);
     if (AC.kind === 'heli' && !st.crashed) {
       if (armed && !(cutOn || cutHeld) && st.wow && st.om < 0.95 * AC.rotor.om0) w.push(['SPOOLING UP', '#ffd36a']);
       else if (!st.wow && st.om < 0.8 * AC.rotor.om0 && blink % 1 < 0.6) w.push(['LOW HEADSPEED', '#ff6157']);
@@ -1983,6 +2050,32 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     hudBox(cx - fs * 1.4, hy + fs * 1.05, fs * 2.8, fs * 1.15, String(Math.round(hdg) % 360).padStart(3, '0'), 'right', fs * 0.8);
   }
 
+  /* ---------- analog video breakup: snow, sync tearing, dropouts ---------- */
+  const NOISE = Array.from({ length: 4 }, () => {
+    const c = document.createElement('canvas'); c.width = 192; c.height = 144;
+    const g = c.getContext('2d'), im = g.createImageData(192, 144);
+    for (let i = 0; i < im.data.length; i += 4) { const v = Math.random() < 0.5 ? Math.random() * 90 : 150 + Math.random() * 105; im.data[i] = im.data[i + 1] = im.data[i + 2] = v; im.data[i + 3] = 255; }
+    g.putImageData(im, 0, 0); return c;
+  });
+  function drawStatic(v, q) {
+    if (q >= 0.98) return;
+    const bad = 1 - q, nz = NOISE[(Math.random() * NOISE.length) | 0];
+    ctx.save(); ctx.imageSmoothingEnabled = false;
+    ctx.globalAlpha = q <= 0.02 ? 1 : Math.min(0.92, Math.pow(bad, 1.6) * 0.95);
+    const ox = Math.random() * 40, oy = Math.random() * 30;
+    ctx.drawImage(nz, ox, oy, 192 - ox, 144 - oy, v.x, v.y, v.w * (1 + ox / 192), v.h * (1 + oy / 144));
+    if (q < 0.6) { // sync trouble: torn bands and rolling black bars
+      const nb = Math.round((0.6 - q) * 12);
+      for (let i = 0; i < nb; i++) {
+        const y = v.y + Math.random() * v.h, h = 3 + Math.random() * v.h * 0.06, sh = (Math.random() - 0.5) * v.w * 0.15;
+        ctx.globalAlpha = 0.5 + 0.5 * bad;
+        ctx.drawImage(nz, 0, Math.random() * 100, 192, 8, v.x + sh, y, v.w, h);
+        if (Math.random() < 0.3) { ctx.fillStyle = '#000'; ctx.fillRect(v.x, y + h, v.w, h * 0.6); }
+      }
+    }
+    ctx.restore();
+  }
+
   /* ---------- precipitation, lens water and frost (drawn on the OSD canvas, projected per view) ---------- */
   const PRN = 480, prt = Array.from({ length: PRN }, () => [Math.random(), Math.random(), Math.random(), Math.random()]);
   let wxClock = 0, osdDt = 0;
@@ -2050,7 +2143,8 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cssW, cssH);
     const eu = FL.eulerFromMat(FL.quatToMat(st.q));
-    const alt = -st.p[2], gs = Math.hypot(st.v[0], st.v[1]);
+    // what the flight controller reports: baro height above home, GPS ground speed and position
+    const alt = nav.baro.alt, gs = Math.hypot(nav.gps.v[0], nav.gps.v[1]);
     const W = warnings();
     for (const v of views) {
       ctx.save(); ctx.beginPath(); ctx.rect(v.x, v.y, v.w, v.h); ctx.clip();
@@ -2082,6 +2176,12 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
         }
         osdText(modeOsd(S.mode), v.x + m, topY, 'left', fs);
         osdText(fmtTime(flightTime), v.x + v.w - m, topY, 'right', fs);
+        if (full) { // link quality, signal, GPS, rangefinder
+          const lq = Math.round(nav.link.rcLq), col = lq < 60 ? '#ff6157' : lq < 90 ? '#ffd36a' : '#fff', y1 = topY + fs * 1.15;
+          osdText(`LQ ${lq} ${Math.round(nav.link.rcRssi)}dBm`, v.x + m, y1, 'left', fs * 0.72, col);
+          osdText(`GPS ${nav.gps.sats}`, v.x + v.w - m, y1, 'right', fs * 0.72);
+          if (S.lidar !== 'none') osdText(nav.rng.valid && nav.est.src === 'lidar' ? `RNG ${U.alt(nav.rng.d)}` : 'RNG ---', v.x + v.w - m, y1 + fs * 0.95, 'right', fs * 0.72, nav.est.src === 'lidar' ? '#93ffa6' : 'rgba(255,255,255,0.6)');
+        }
         if (!hud) {
           osdText(`ALT ${U.alt(alt)}`, v.x + m, cy, 'left', fs);
           osdText(`${U.spd(st.tele.V)}`, v.x + v.w - m, cy, 'right', fs);
@@ -2095,8 +2195,8 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
         if (S.battery) osdText(`${st.vb.toFixed(1)}V ${Math.round(st.mAh)}mAh`, v.x + m, by, 'left', fs);
         osdText(thrText(false), cx, by, 'center', fs);
         // home arrow + distance
-        const hd = Math.hypot(st.p[0], st.p[1]);
-        const brg = Math.atan2(-st.p[1], -st.p[0]) - eu.yaw;
+        const hd = Math.hypot(nav.gps.p[0], nav.gps.p[1]);
+        const brg = Math.atan2(-nav.gps.p[1], -nav.gps.p[0]) - eu.yaw;
         const ax = v.x + v.w - m - fs * 4.6, ay = by;
         ctx.save(); ctx.translate(ax, ay); ctx.rotate(brg);
         ctx.beginPath(); ctx.moveTo(0, -fs * 0.6); ctx.lineTo(fs * 0.42, fs * 0.45); ctx.lineTo(0, fs * 0.2); ctx.lineTo(-fs * 0.42, fs * 0.45); ctx.closePath();
@@ -2108,7 +2208,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
         ctx.font = `${s2}px "Share Tech Mono", ui-monospace, Menlo, Consolas, monospace`;
         const y2 = v.y + v.h - m - lift;
         osdText(`ALT ${U.alt(alt)}  SPD ${U.spd(st.tele.V)}  ${thrText(true)}${S.battery ? '  ' + st.vb.toFixed(1) + 'V' : ''}`, v.x + m, y2, 'left', s2);
-        osdText(`WIND ${U.wind(S.windSpd)} from ${compass(S.windDir)} · ${modeName(S.mode).toUpperCase()}`, v.x + m, y2 - s2 * 1.4, 'left', s2, 'rgba(255,255,255,0.85)');
+        osdText(`WIND ${U.wind(S.windSpd)} from ${compass(S.windDir)} · ${modeName(S.mode).toUpperCase()} · LQ ${Math.round(nav.link.rcLq)}%`, v.x + m, y2 - s2 * 1.4, 'left', s2, 'rgba(255,255,255,0.85)');
         const wl = wxLine();
         if (wl.length) { // one line if it fits, else two
           const one = wl.join(' · '), fits = ctx.measureText(one).width < v.w - 2 * m;
@@ -2123,6 +2223,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       if (osdFlash.t > 0) osdText(osdFlash.text, cx, cy - fs * 3, 'center', fs, '#cfe9f3');
       const ct = courseText();
       if (ct) osdText(ct, cx, v.kind === 'fpv' ? v.y + v.h - m - fs * 1.6 - lift : v.y + v.h - m - fs * 3.2 - lift, 'center', v.kind === 'fpv' ? fs : Math.max(11, fs * 0.8), '#ffd36a');
+      if (v.kind === 'fpv') drawStatic(v, nav.link.vidQ); // analog: the OSD is in the video signal, so it breaks up too
       ctx.restore();
     }
     // split divider
@@ -2269,6 +2370,68 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     const droop = (Math.PI / 2) * 0.92 * (1 - clamp(sp / 7, 0, 1));
     return M4.chain(M4.trans(SOCK_POS[0], SOCK_POS[1], SOCK_POS[2]), M4.rotY(Math.atan2(wn, we)), M4.rotZ(-droop));
   }
+  /* ---------- sensors, link and autopilot glue ---------- */
+  // what's under a point (NED north, east): top height and how well it reflects the lidar's 905 nm light
+  function surfaceAt(n, e) {
+    const x = e, z = -n, P = FL.PRECIP[S.precip], wet = P.liquid && P.R > 0 && atmo.Tc > 0;
+    const onRunway = Math.abs(x) <= 60 && z >= -17 && z <= -7;
+    let h = 0, refl = snowCover() > 0 ? 0.7 : onRunway ? 0.12 : 0.45;
+    for (const o of world.obstacles) {
+      if (o.k === 'cyl' && o.r >= 0.3 && o.y1 > h && (x - o.x) ** 2 + (z - o.z) ** 2 < o.r * o.r) { h = o.y1; refl = o.r > 2.5 ? 0.5 : 0.35; }
+      else if (o.k === 'box' && o.y1 > h && x >= o.x0 && x <= o.x1 && z >= o.z0 && z <= o.z1) { h = o.y1; refl = 0.25; }
+    }
+    if (wet && refl < 0.6) refl *= 0.6; // a film of water mirrors the beam away
+    return { h, refl };
+  }
+  // radio obstructions between your antenna (1.5 m up where you stand) and the aircraft: trees and buildings
+  function obstruction() {
+    const a = [0, 1.5, 0], b = [st.p[1], -st.p[2], -st.p[0]], d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let trees = 0, bldg = 0;
+    for (const o of world.obstacles) {
+      if (o.k === 'cyl' && o.r >= 0.5) {
+        const L2 = d[0] * d[0] + d[2] * d[2] || 1, t = clamp(((o.x - a[0]) * d[0] + (o.z - a[2]) * d[2]) / L2, 0, 1);
+        const px = a[0] + d[0] * t - o.x, pz = a[2] + d[2] * t - o.z, y = a[1] + d[1] * t;
+        if (px * px + pz * pz < o.r * o.r && y >= o.y0 && y <= o.y1 && t > 0.02 && t < 0.98) { if (o.r > 2.4) bldg++; else trees++; }
+      } else if (o.k === 'box' && o.y1 > 2.5) { // slab test along the segment
+        let t0 = 0, t1 = 1;
+        for (const [ai, di, lo, hi] of [[a[0], d[0], o.x0, o.x1], [a[1], d[1], o.y0, o.y1], [a[2], d[2], o.z0, o.z1]]) {
+          if (Math.abs(di) < 1e-9) { if (ai < lo || ai > hi) { t0 = 2; break; } continue; }
+          let u = (lo - ai) / di, v = (hi - ai) / di; if (u > v) [u, v] = [v, u];
+          t0 = Math.max(t0, u); t1 = Math.min(t1, v);
+        }
+        if (t0 < t1 && t0 < 0.98) bldg++;
+      }
+    }
+    const loss = (f) => Math.min(60, trees * (f < 1000 ? 3 : f < 3000 ? 6 : 10) + bldg * (f < 1000 ? 10 : f < 3000 ? 18 : 25));
+    return { rc: loss(NAV.RCLINKS[S.rcLink].f), vid: loss(NAV.VTXS[S.vtx].f), trees, bldg };
+  }
+  // noise floor rise: the interference slider (up to 30 dB) plus the power line's corona hiss nearby
+  const noiseRise = () => 0.3 * S.rfNoise + (Math.abs(st.p[0] - 330) < 30 ? 6 : 0);
+  let stallVsCache = { k: '', Vs: 10 };
+  function apCfg() {
+    if (!ROTARY(AC)) {
+      const k = `${AC.id}|${env.rho.toFixed(3)}`;
+      if (stallVsCache.k !== k) stallVsCache = { k, Vs: FL.stallSpeed(AC, env.rho).Vs };
+      const Vs = stallVsCache.Vs, Vc = clamp(1.9 * Vs, 12, 22);
+      return { kind: 'plane', rtlAlt: S.rtlAlt.plane, Vcruise: Vc, Vmin: 1.35 * Vs, Vmax: Math.min(28, 3 * Vs), loiterR: Math.max(30, (Vc * Vc) / (9.81 * Math.tan(30 * D2R))), aTrim: 2 * D2R, thrTrim: AC.kind === 'wing' ? 0.45 : 0.5 };
+    }
+    const heli = AC.kind === 'heli';
+    return { kind: AC.kind, rtlAlt: S.rtlAlt.rotary, hover: heli ? AC.hoverThrCurve[S.curve] : AC.hoverThr, curveK: S.curve === '3d' ? 0.18 : 0.3,
+      base0: heli ? 0 : AC.motor.idle + AC.hoverThr * (1 - AC.motor.idle), idle: heli ? 0 : AC.motor.idle };
+  }
+  let lastSrc = 'baro';
+  function navTick(dt) {
+    const P = FL.PRECIP[S.precip];
+    NAV.sensors(nav, st, { lidar: S.lidar, surface: surfaceAt, beta: (env.wx && env.wx.visM < 25000 ? 3.912 / env.wx.visM : 0), precipR: P.R, snowing: !P.liquid && atmo.Tc <= 2, V: st.tele.V }, dt);
+    if (nav.est.src !== lastSrc) { if (apMode()) flash(nav.est.src === 'lidar' ? 'RANGEFINDER' : 'BARO ALT'); lastSrc = nav.est.src; }
+    obsT -= dt; if (obsT <= 0) { obsT = 0.1; obs = obstruction(); }
+    NAV.link(nav, st, { rc: S.rcLink, vtx: S.vtx, obsRc: obs.rc, obsVid: obs.vid, noise: noiseRise() }, dt);
+    if (nav.link.fresh) heldInp = { thr: inp.thr, a: inp.a, e: inp.e, r: inp.r };
+    // RC failsafe: a second without packets → RTL; when the link returns, you take over with a mode switch
+    if (nav.link.rcFs && !fsActive) { fsActive = true; if (armed && !st.held && !st.wow) { NAV.enter(nav, 'rtl', st); } flash('RC FAILSAFE'); refreshBar(); }
+    else if (!nav.link.rcFs && fsActive) { fsActive = false; flash('RC LINK BACK'); refreshBar(); }
+  }
+
   // rates & expo: the active controller profile's when flying with a controller, else keyboard/touch
   function rateSource(forEdit) {
     const P = prof();
@@ -2279,6 +2442,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     return { rates: S.rates, expo: S.expo, label: 'keyboard and touch', save: saveS };
   }
   function controls() {
+    const inp = heldInp; // the receiver's view of your sticks: frozen while packets are being lost
     if (ROTARY(AC)) {
       const cut = cutOn || cutHeld, heli = AC.kind === 'heli';
       // heli: the left stick is collective, live even with the motor held; hold stops the motor only
@@ -2383,11 +2547,19 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       }
       updateWind(dt);
       env.wx = FL.weatherAt(wxBase, Math.max(0, -st.p[2]));
+      navTick(dt);
       acc += dt;
       const c = controls();
+      // autopilot: flies on the sensor estimate; the pilot's sticks (when the link is up) are its inputs
+      const apo = apMode() && armed && !st.held ? NAV.autopilot(nav, st, fsActive ? null : heldInp, apCfg(), dt) : null;
+      if (apo && apo.armed === false && armed) { armed = false; flash('LANDED · DISARMED'); }
+      const apLim = { bank: 50, pitch: 25, tBank: 60, tPitch: 45 };
       let steps = 0;
       while (acc >= DT && steps < 60) {
-        const cc = ROTARY(AC) || S.mode === 'manual' ? c : FL.planeAssist(S.mode, { a: c.sa, e: c.se }, c, st, AC, limNow());
+        let cc;
+        if (apo && ROTARY(AC)) cc = Object.assign({}, c, apo, { thr: apo.thr, armed: c.armed && apo.armed !== false });
+        else if (apo) cc = FL.planeAssist('stab', { a: apo.bank / (apLim.bank * D2R), e: apo.pitch / (apLim.pitch * D2R) }, { thr: cutOn || cutHeld ? 0 : apo.thr, r: 0, a: 0, e: 0 }, st, AC, apLim);
+        else cc = ROTARY(AC) || S.mode === 'manual' ? c : FL.planeAssist(S.mode, { a: c.sa, e: c.se }, c, st, AC, limNow());
         FL.step(st, AC, cc, env, DT);
         acc -= DT; steps++;
       }
@@ -2427,5 +2599,5 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   refreshBar(); refreshTouch(); refreshCtlStatus();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { gl.bindTexture(gl.TEXTURE_2D, runwayTex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, runwayTexture()); gl.generateMipmap(gl.TEXTURE_2D); });
   requestAnimationFrame((t) => { last = t; frame(t); });
-  window.__flightline = { st, S, env, AC: () => AC, doReset, FL, IN: () => IN, prof, ctl, world: () => world, course }; // debugging and tests
+  window.__flightline = { st, S, env, nav: () => nav, setAp: (m) => setAp(m), AC: () => AC, doReset, FL, IN: () => IN, prof, ctl, world: () => world, course }; // debugging and tests
 })();

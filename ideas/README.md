@@ -12,7 +12,7 @@ that are useful on their own, so those come first.
 
 ```
 foundation.md  ──┬── sensors (GPS, baro, downward lidar)
- (building now)  ├── link model (RC link quality, analog video, interference)
+ (done, v1)      ├── link model (RC link quality, analog video, interference)
                  └── autopilot core (alt hold, RTL, RC-loss failsafe)
                           │
         ┌─────────────────┼──────────────────────┬─────────────────────┐
@@ -25,14 +25,16 @@ foundation.md  ──┬── sensors (GPS, baro, downward lidar)
         └──────────────► aircraft.md ◄───────────┘
                          (camera-platform plane with flaps, gear, gimbal; match-my-aircraft)
 
- terrain-maps.md (lidar terrain; can start any time, independent)
+ terrain-maps.md + map-builder.md (lidar terrain, a map file, a builder and a shared library)
+ recovery-mission.md (13" winch-and-hook recovery; after the gimbal)
+ multiplayer.md (ghost racing first, then live racing)
  failures-and-weather-extras.md (ESC cut-off, GPS glitch, thermals, night …)
  validate-with-your-data.md (check the sim against your thrust-stand and flight logs)
 ```
 
 | Idea | Status | Size | Depends on |
 |---|---|---|---|
-| [Foundation: sensors, link, autopilot core](foundation.md) | building | large | — |
+| [Foundation: sensors, link, autopilot core](foundation.md) | done (v1) | large | — |
 | [Mission Planner-style mode](mission-planner-mode.md) | pinned | large | foundation |
 | [Gimbal and day / night / thermal cameras](gimbal-and-cameras.md) | pinned | medium | foundation (sensors) |
 | [Link loss and interference, advanced](link-and-failsafe.md) | pinned | medium | foundation (link) |
@@ -41,6 +43,9 @@ foundation.md  ──┬── sensors (GPS, baro, downward lidar)
 | [Terrain maps from lidar](terrain-maps.md) | pinned | large | — |
 | [Failures and weather extras](failures-and-weather-extras.md) | pinned | small each | some need foundation |
 | [Check the sim against your own data](validate-with-your-data.md) | pinned | small | — |
+| [Map builder and shared maps](map-builder.md) | pinned | medium | terrain maps (shares the map file) |
+| [13" quad recovery mission (winch and hook)](recovery-mission.md) | pinned | medium | foundation, gimbal |
+| [Multiplayer: ghost racing, then live racing](multiplayer.md) | pinned | small → large | — |
 
 Already built (for reference): Goblin, trainer, 5" / 4" LR / 7" LR / 13" quads, 450 heli; flight
 modes; obstacle course; weather (density altitude, turbulence, precipitation, fog, ceiling, icing,
