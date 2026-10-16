@@ -103,6 +103,30 @@ console.log('\n========  how the generator compares with the hand-built trainer 
   row('pack resistance Ω', gen.batt.R, real.batt.R, (x) => x.toFixed(3));
 }
 
+console.log('\n========  and with the hand-built 7-inch quad  ========');
+{
+  const sp = ACF.normSpec({
+    kind: 'quad', id: 'gen-q7', name: 'Generated 7-inch',
+    mass: 1050, propD: 7, wheelbase: 305, thrustPerMotor: 1733, blades: 2, camTilt: 20, rateMax: 480,
+    cellChem: 'liion', cellsS: 6, cellsP: 2, cellmAh: 3000, cellR: 23, pitchSpeed: 39,
+  }, { errors: [], warnings: [] });
+  const gen = FL.build(ACF.fromSpec(sp)), real = FL.build(FL.DEFS.q7);
+  const G = ACF.quadBench(gen), Rl = ACF.quadBench(real);
+  const row = (k, g, r, f0) => console.log(`  ${k.padEnd(26)} generated ${String(f0(g)).padStart(8)}   hand-built ${String(f0(r)).padStart(8)}`);
+  const f1 = (x) => x.toFixed(1);
+  row('thrust / weight', G.twFull, Rl.twFull, f1);
+  row('hover throttle %', G.hoverThr * 100, Rl.hoverThr * 100, (x) => x.toFixed(0));
+  row('hover current A', G.hoverI, Rl.hoverI, f1);
+  row('hover flight time min', G.hoverMin, Rl.hoverMin, (x) => x.toFixed(0));
+  row('punch current A', G.punchI, Rl.punchI, (x) => x.toFixed(0));
+  row('punch sag V/cell', G.punchVcell, Rl.punchVcell, (x) => x.toFixed(2));
+  row('cruise km/h', G.cruiseV * 3.6, Rl.cruiseV * 3.6, (x) => x.toFixed(0));
+  row('cruise range km', G.cruiseKm, Rl.cruiseKm, f1);
+  row('full-throttle watts', gen.batt.Imax * gen.batt.Vref, real.batt.Imax * real.batt.Vref, (x) => x.toFixed(0));
+  row('roll inertia kg·m²', gen.I[0], real.I[0], (x) => x.toFixed(5));
+  row('motor spool lag ms', gen.motor.tau * 1000, real.motor.tau * 1000, (x) => x.toFixed(0));
+}
+
 console.log('\n========  flaps and retracts  ========');
 {
   const sp = ACF.normSpec({ kind: 'plane', id: 'camtest', name: 'Flap test', mass: 3000, span: 2000, flapSpan: 70, ailSpan: 25, gear: 'retract', watts: 700, cellsS: 4, cellmAh: 5000 }, { errors: [], warnings: [] });

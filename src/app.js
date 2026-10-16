@@ -34,6 +34,7 @@
     turb: 15, rh: 40, altim: 29.92, precip: 'none', fogVis: 10000, ceilFt: 0, packWarm: false, iceCue: true, wxPreset: 'clear',
     battery: true, crashes: true, autoReset: true,
     quality: 1, scenery: 'med', aa: false, fps: false, eng: false, sound: true, units: 'imp',
+    author: '', // your name, written into aircraft files you export
     trim: {}, // user trims per aircraft, stick units, set from controller trim buttons
     course: true, best: {}, // gate course lap timer, best lap per aircraft (s)
     // racing: ghost source ('off' | 'best' = your best lap with this aircraft | 'pick' = the lap chosen in
@@ -53,7 +54,6 @@
     if (sv && typeof sv === 'object')
       for (const k of Object.keys(DEF)) if (k in sv) S[k] = DEF[k] && typeof DEF[k] === 'object' ? Object.assign({}, DEF[k], sv[k]) : sv[k];
   }
-  if (!FL.DEFS[S.aircraft]) S.aircraft = 'goblin';
   for (const g of ['plane', 'rotary']) S.lim[g] = Object.assign({}, DEF.lim[g], S.lim[g]);
   S.rtlAlt = Object.assign({}, DEF.rtlAlt, S.rtlAlt);
   const saveS = () => store(SKEY, S);
@@ -88,17 +88,37 @@
   const WX_KEYS = ['elevFt', 'windSpd', 'gust', 'turb', 'tempF', 'rh', 'altim', 'precip', 'fogVis', 'ceilFt'];
   const compass = (deg) => ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round((((deg % 360) + 360) % 360) / 45) % 8];
 
-  /* ---------------------------------------------------------------- aircraft */
-  const ACS = {};
-  for (const id of Object.keys(FL.DEFS)) ACS[id] = FL.build(FL.DEFS[id]);
-  let AC = ACS[S.aircraft];
+  /* ---------------------------------------------------------------- aircraft
+     The built-in aircraft plus any imported from a file. An imported aircraft
+     is kept in browser storage as the file it arrived as (so it can be
+     re-validated and re-exported), and rebuilt on every load. */
+  const AKEY = 'flightline.aircraft.v1';
+  const ACS = {};          // id -> built aircraft (strips, bench numbers)
+  const SRC = {};          // id -> { def, meta, spec, builtin } the file it came from
   const START_LABEL = { launch: 'Hand launch', runway: 'Runway', air: 'In the air', pad: 'Launch pad' };
   const ROTARY = (ac) => ac.kind === 'quad' || ac.kind === 'heli';
-  for (const id of Object.keys(ACS)) if (ACS[id].rates) { // rotorcraft rates live in settings so they persist
-    const def = ACS[id].rates, cur = S.fc[id] || {};
-    S.fc[id] = Object.fromEntries(Object.keys(def).map((k) => [k, Object.assign({}, def[k], cur[k])]));
-    ACS[id].rates = S.fc[id];
+  function installDef(def, meta, spec, builtin) {
+    const ac = FL.build(def);
+    ACS[def.id] = ac;
+    SRC[def.id] = { def, meta: meta || {}, spec: spec || null, builtin: !!builtin };
+    if (ac.rates) { // rotorcraft rates live in settings so they persist
+      const d0 = ac.rates, cur = S.fc[def.id] || {};
+      S.fc[def.id] = Object.fromEntries(Object.keys(d0).map((k) => [k, Object.assign({}, d0[k], cur[k])]));
+      ac.rates = S.fc[def.id];
+    }
+    return ac;
   }
+  for (const id of Object.keys(FL.DEFS)) installDef(FL.DEFS[id], { author: 'Flightline', version: '1' }, null, true);
+  const userFiles = (() => { const v = load(AKEY); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; })();
+  const importNotes = [];
+  for (const id of Object.keys(userFiles)) {
+    const r = ACF.read(userFiles[id]);
+    if (r.ok && !ACS[r.def.id]) installDef(r.def, r.meta, r.spec);
+    else importNotes.push(`${id}: ${r.ok ? 'id already taken' : r.errors.join('; ')}`);
+  }
+  const saveAircraft = () => store(AKEY, userFiles);
+  if (!ACS[S.aircraft]) S.aircraft = 'goblin';
+  let AC = ACS[S.aircraft];
   const MODES = ['manual', 'horizon', 'trainer', 'stab'];
   const AP_NAME = { althold: 'Alt hold', loiter: 'Loiter', rtl: 'RTL' }, AP_OSD = { althold: 'ALTH', loiter: 'LOIT', rtl: 'RTL' };
   let nav = null, fsActive = false; // set up with the sim state below
@@ -489,7 +509,7 @@
     const gd = new Geo(); gd.disc(rad, 24, discCol || [0.75, 0.77, 0.8]);
     return { blades: GLR.mesh(R, gb), disc: GLR.mesh(R, gd) };
   }
-  const flapDefl = (ac, st, s) => clamp(st.ka * s.sa + st.ke * s.se + st.kr * s.sr, -ac.defl.flapMax, ac.defl.flapMax);
+  const flapDefl = (ac, st, s) => clamp(st.ka * s.sa + st.ke * s.se + st.kr * s.sr + (st.kf || 0) * s.sf, -ac.defl.flapMax, ac.defl.flapMax);
 
   function buildGoblin(ac) {
     const X = (x) => x - ac.xShift; // definition x -> body x (CG at origin)
@@ -652,8 +672,125 @@
     const tail = { blades: tp.blades, disc: tp.disc, mat: M4.mul(M4.trans(-0.03, 0.03, 0.62), M4.rotY(Math.PI / 2)), spin: (s0) => s0.om / Ro.om0, dir: 1, ang: 0 };
     return { parts, props: [main, tail], cam: BR(ac.fpvCam) };
   }
+  /* A plane drawn from its definition: every lifting surface with its moving
+     control surfaces, a fuselage, landing gear (retracting if it has them) and
+     the prop. This is what an imported or just-built aircraft looks like; the
+     Goblin and the trainer keep their hand-made meshes. */
+  function buildPlane(ac) {
+    const X = (x) => x - ac.xShift; // definition x -> body x (CG at the origin)
+    const LK = ac.look || {}, C = (k, d) => LK[k] || d;
+    const top = C('top', [1, 0.52, 0.12]), bot = C('bottom', [0.16, 0.17, 0.2]), sideC = C('side', [0.85, 0.42, 0.1]);
+    const tipC = C('tip', [0.55, 0.95, 0.25]), fuseC = C('fuse', [0.93, 0.93, 0.91]), fuseB = C('fuseBottom', [0.12, 0.3, 0.68]);
+    const canopyC = C('canopy', [0.1, 0.16, 0.24]), dark = C('dark', [0.09, 0.09, 0.11]), metal = C('metal', [0.72, 0.74, 0.78]);
+    const accent = C('accent', [0.05, 0.05, 0.06]);
+    const g = new Geo(), parts = [], moving = [];
+    const plank = ac.kind === 'wing';
+
+    for (const sf of ac.surfaces) {
+      const vert = !!sf.vertical, sides = vert ? [0] : sf.mirror ? [1, -1] : [1];
+      const span = sf.y1 - sf.y0;
+      const at = (y) => (span > 1e-6 ? (y - sf.y0) / span : 0);
+      const le = (y) => lerp(sf.xLE0, sf.xLE1, at(y)), ch = (y) => lerp(sf.c0, sf.c1, at(y));
+      const thick = (y) => (sf.role === 'wing' ? 0.11 : 0.085) * ch(y);
+      const flaps = (sf.flaps || []).filter((fl) => fl.chord > 0);
+      // the fixed part stops at the hinge where there is a moving surface behind it
+      const hingeAt = (y) => { for (const fl of flaps) if (y > fl.y0 - 1e-9 && y < fl.y1 + 1e-9) return ch(y) - fl.chord; return ch(y); };
+      const cuts = [sf.y0, sf.y1];
+      for (const fl of flaps) for (const y of [fl.y0, fl.y1]) if (y > sf.y0 + 1e-6 && y < sf.y1 - 1e-6) cuts.push(y);
+      if (sf.role === 'wing' && span > 0.1) cuts.push(sf.y1 - 0.07 * span); // a tip band, for orientation
+      cuts.sort((p, q) => p - q);
+      const dih = (sf.dihedral || 0) * D2R;
+      for (const sd of sides) {
+        const frame = vert ? M4.ident() : M4.mul(M4.trans(0, -sf.z0, 0), M4.rotZ(sd * dih));
+        // P: a point on the surface's mid-plane, in that frame
+        const P = vert ? (y, x) => [0, y - sf.z0, -X(x)] : (y, x) => [sd * y, 0, -X(x)];
+        g.with(frame, () => {
+          for (let k = 0; k + 1 < cuts.length; k++) {
+            const ya = cuts[k], yb = cuts[k + 1];
+            if (yb - ya < 1e-6) continue;
+            const tip = Math.abs(yb - sf.y1) < 1e-9 && sf.role === 'wing' && span > 0.1;
+            const colT = tip ? tipC : top, colB = tip ? tipC : bot, colS = tip ? tipC : sideC;
+            slab(g, P(ya, le(ya)), P(yb, le(yb)), P(yb, le(yb) - hingeAt(yb)), P(ya, le(ya) - hingeAt(ya)),
+              thick(ya), thick(yb), colT, colB, colS, vert ? [1, 0, 0] : [0, 1, 0]);
+          }
+          // an orientation stripe on the right wing top, as on the built-in planes
+          if (sf.role === 'wing' && sd > 0 && !vert && span > 0.1) {
+            const y0 = sf.y0 + 0.35 * span, y1 = sf.y0 + 0.6 * span, t = thick(y0) / 2 + 0.0012;
+            g.quad(P(y0, le(y0) - 0.25 * ch(y0)).map((v, i) => v + (i === 1 ? t : 0)),
+              P(y1, le(y1) - 0.25 * ch(y1)).map((v, i) => v + (i === 1 ? t : 0)),
+              P(y1, le(y1) - 0.55 * ch(y1)).map((v, i) => v + (i === 1 ? t : 0)),
+              P(y0, le(y0) - 0.55 * ch(y0)).map((v, i) => v + (i === 1 ? t : 0)), accent);
+          }
+        });
+        // moving surfaces: their own mesh, hinged at the flap leading edge
+        for (const fl of flaps) {
+          const ya = Math.max(fl.y0, sf.y0), yb = Math.min(fl.y1, sf.y1);
+          if (yb - ya < 1e-6) continue;
+          const mid = (ya + yb) / 2, hingeX = le(mid) - (ch(mid) - fl.chord);
+          const gm = new Geo();
+          const Q = vert ? (y, dx) => [0, y - sf.z0, -(X(hingeX) + dx)] : (y, dx) => [sd * y, 0, -(X(hingeX) + dx)];
+          // local frame: the hinge line at the origin, so the animation is a rotation about it
+          const rel = (y, x) => { const p = Q(y, x - hingeX); return [p[0], p[1], p[2] + X(hingeX)]; };
+          slab(gm, rel(ya, hingeX), rel(yb, hingeX), rel(yb, hingeX - fl.chord), rel(ya, hingeX - fl.chord),
+            0.6 * thick(ya), 0.6 * thick(yb), top, bot, sideC, vert ? [1, 0, 0] : [0, 1, 0]);
+          const sgn = fl.side === 'mirror' ? sd : 1;
+          const stub = { ka: (fl.a || 0) * sgn, ke: fl.e || 0, kr: fl.r || 0, kf: fl.f || 0 };
+          const base = M4.mul(vert ? M4.ident() : M4.mul(M4.trans(0, -sf.z0, 0), M4.rotZ(sd * dih)), M4.trans(0, 0, -X(hingeX)));
+          moving.push({ mesh: GLR.mesh(R, gm), mat: base, anim: vert ? (s0) => M4.rotY(-flapDefl(ac, stub, s0)) : (s0) => M4.rotX(flapDefl(ac, stub, s0)) });
+        }
+      }
+    }
+
+    // --- fuselage ---
+    const wing = ac.surfaces.find((s) => s.role === 'wing') || ac.surfaces[0];
+    const sh = ac.shape || {};
+    // if the file says nothing, read the size back out of the body drag area (0.30·w·h, h ≈ 1.16·w)
+    const w = sh.fuseW || Math.sqrt(Math.max(1e-5, ac.body.CdA[0]) / 0.3 / 1.16), h = sh.fuseH || 1.16 * w;
+    let nose = X(ac.prop.r[0]) + (ac.prop.wash ? 0 : 0.5 * wing.c0), tail = X(wing.xLE0 - wing.c0);
+    for (const sf of ac.surfaces) tail = Math.min(tail, X(Math.min(sf.xLE0 - sf.c0, sf.xLE1 - sf.c1)));
+    const wingTE = X(wing.xLE0 - wing.c0);
+    if (plank) { // a pod on top of the wing, like the Goblin's
+      const f0 = X(wing.xLE0) + 0.13 * wing.c0, f1 = wingTE - 0.09 * wing.c0;
+      g.taper(-f0, w, h * 0.95, 0, -f1, w * 0.8, h * 0.62, 0.0015, { top: fuseC, bottom: fuseC, side: fuseC, front: dark, back: fuseC });
+      g.box(-w * 0.35, h * 0.45, -f0 + 0.02 * wing.c0, w * 0.35, h * 0.8, -f0 + 0.08 * wing.c0, canopyC);
+    } else {
+      const mid = Math.min(wingTE, nose - 0.25 * w);
+      g.taper(-nose, w * 0.7, h * 0.66, 0, -mid, w, h, 0, { top: fuseC, bottom: fuseB, side: fuseC, front: dark, back: fuseC });
+      g.taper(-mid, w, h, 0, -tail, w * 0.3, h * 0.36, -0.08 * h, { top: fuseC, bottom: fuseB, side: fuseC, back: fuseC });
+      g.box(-w * 0.38, 0.5 * h, -nose + 0.22 * (nose - mid), w * 0.38, 0.9 * h, -nose + 0.8 * (nose - mid), canopyC); // canopy
+      g.box(-w * 0.42, -0.42 * h, -nose - 0.01, w * 0.42, 0.42 * h, -nose + 0.02, dark); // cowl face
+    }
+    // --- landing gear: a strut and a wheel per contact wheel, retracting as a part ---
+    const rW = sh.wheelR || clamp(0.12 * Math.abs(ac.wheels.length ? ac.wheels[0].p[2] : 0.1) + 0.012, 0.012, 0.1);
+    for (const wh of ac.wheels) {
+      const p = BR(wh.p), legTop = Math.min(0, p[1] + 0.95 * Math.abs(p[1]));
+      const gw = ac.retract ? new Geo() : g;
+      const o = ac.retract ? [-p[0], -legTop, -p[2]] : [0, 0, 0]; // retracting legs are drawn about their pivot
+      const tx = (q) => [q[0] + o[0], q[1] + o[1], q[2] + o[2]];
+      gw.box(...tx([p[0] - rW * 0.22, p[1], p[2] - rW * 0.22]), ...tx([p[0] + rW * 0.22, legTop, p[2] + rW * 0.22]), metal);
+      gw.with(M4.trans(...tx([p[0], p[1], p[2]])), () => gw.with(M4.rotZ(Math.PI / 2), () => gw.cyl(0, -rW * 0.35, 0, rW, rW, rW * 0.7, 10, dark)));
+      if (ac.retract) {
+        const nosewheel = p[2] < -0.001 && Math.abs(p[0]) < 1e-6; // ahead of the CG on the centreline
+        const pivot = M4.trans(p[0], legTop, p[2]);
+        const axis = nosewheel ? (k) => M4.rotX(-1.45 * k) : (k) => M4.rotZ((p[0] > 0 ? -1.45 : 1.45) * k);
+        parts.push({ mesh: GLR.mesh(R, gw), mat: pivot, anim: (s0) => axis(1 - clamp(s0.gear, 0, 1)) });
+      }
+    }
+    // --- prop ---
+    const pz = -X(ac.prop.r[0]);
+    g.with(M4.trans(0, 0, pz + (ac.prop.wash ? 0.01 : -0.01)), () => g.with(M4.rotX(ac.prop.wash ? -Math.PI / 2 : Math.PI / 2), () => g.cyl(0, 0, 0, ac.prop.D * 0.09, ac.prop.D * 0.05, ac.prop.D * 0.12, 8, metal)));
+    const pm = propMeshes(g, (LK.blades || 2), ac.prop.D / 2, dark);
+    parts.unshift({ mesh: GLR.mesh(R, g), mat: M4.ident() });
+    return {
+      parts: parts.concat(moving),
+      props: [{ blades: pm.blades, disc: pm.disc, mat: M4.trans(0, 0, pz), spin: (s0) => s0.n, dir: 1, ang: 0 }],
+      cam: BR(ac.fpvCam),
+    };
+  }
   const MODELS = {};
-  for (const [id, ac] of Object.entries(ACS)) MODELS[id] = ac.kind === 'quad' ? buildQuad(ac) : ac.kind === 'heli' ? buildHeli(ac) : id === 'trainer' ? buildTrainer(ac) : buildGoblin(ac);
+  const modelFor = (ac) => (ac.kind === 'quad' ? buildQuad(ac) : ac.kind === 'heli' ? buildHeli(ac)
+    : ac.id === 'trainer' ? buildTrainer(ac) : ac.id === 'goblin' ? buildGoblin(ac) : buildPlane(ac));
+  for (const [id, ac] of Object.entries(ACS)) MODELS[id] = modelFor(ac);
 
   /* ---------------------------------------------------------------- sim state */
   const st = FL.makeState();
@@ -682,6 +819,7 @@
     armed = where === 'air';
     if (where === 'air') kb.thr = AC.kind === 'quad' ? AC.hoverThr : AC.kind === 'heli' ? AC.hoverThrCurve[S.curve] : AC.kind === 'wing' ? 0.55 : 0.6;
     else kb.thr = 0;
+    flapSet = 0; gearDown = where !== 'air'; st.gear = gearDown ? 1 : 0;
     crashAt = 0; crashAnnounced = false; flightTime = 0; timerOn = where === 'air'; launchHold = 0; acc = 0; farWarned = false;
     for (let i = 0; i < 3; i++) gust[i] = 0;
     courseReset(); obsPrev = null;
@@ -715,6 +853,8 @@
     ['osd-cycle', 'FPV OSD: full / minimal / off'],
     ['stallcue-toggle', 'Stall indicator: on / off'], ['eng-toggle', 'Engineering readout: on / off'],
     ['aircraft-cycle', 'Switch aircraft'], ['start-cycle', 'Start position: cycle'],
+    ['flaps-cycle', 'Flaps: up / takeoff / landing'], ['flaps-down', 'Flaps: one step down'], ['flaps-up', 'Flaps: one step up'],
+    ['gear-toggle', 'Landing gear: up / down'],
   ];
   const REPEATS = new Set(['trim-e-up', 'trim-e-down', 'trim-a-left', 'trim-a-right', 'trim-r-left', 'trim-r-right', 'tilt-up', 'tilt-down']);
   const AXES = [['thr', 'Throttle'], ['a', 'Roll'], ['e', 'Pitch'], ['r', 'Yaw']];
@@ -903,6 +1043,10 @@
       case 'stallcue-toggle': S.stallCue = !S.stallCue; saveS(); flash(`STALL INDICATOR ${S.stallCue ? 'ON' : 'OFF'}`); break;
       case 'eng-toggle': S.eng = !S.eng; saveS(); break;
       case 'start-cycle': cycleStart(); break;
+      case 'flaps-cycle': setFlaps(flapSet >= 1 ? 0 : flapSet + 0.5); break;
+      case 'flaps-down': setFlaps(flapSet + 0.5); break;
+      case 'flaps-up': setFlaps(flapSet - 0.5); break;
+      case 'gear-toggle': toggleGear(); break;
     }
     syncSheet();
   }
@@ -981,6 +1125,8 @@
         else if (c === 'KeyK') fire('mode-loiter');
         else if (c === 'KeyG') fire('mode-rtl');
         else if (c === 'KeyI') fire('curve-toggle');
+        else if (c === 'KeyC') fire('flaps-cycle');
+        else if (c === 'KeyU') fire('gear-toggle');
         else if (c === 'Digit1') setView('los'); else if (c === 'Digit2') setView('fpv'); else if (c === 'Digit3') setView('split');
       }
     }
@@ -1417,6 +1563,186 @@
   function setCurve(c) { c = c === '3d' ? '3d' : 'normal'; if (c !== S.curve && AC.kind === 'heli') flash(c === '3d' ? '3D CURVE' : 'NORMAL CURVE'); S.curve = c; saveS(); syncSheet(); }
   function setAircraft(id) { S.aircraft = id; AC = ACS[id]; saveS(); doReset(); ghostLoad(); refreshBar(); buildSheet(); }
   function cycleAircraft() { const ids = Object.keys(ACS); setAircraft(ids[(ids.indexOf(S.aircraft) + 1) % ids.length]); }
+  /* ---------------------------------------------------------------- aircraft files
+     Import, export and browser storage. Every read and write of storage, of a
+     file and of the network is wrapped, because any of them can fail: storage
+     can be switched off, a file can be anything at all, and at the field there
+     is no network. Nothing from a file is ever executed — see src/aircraft.js. */
+  let impMsg = null; // the result of the last import, shown in Settings → Aircraft
+  const uniqueId = (id) => { let x = id, k = 2; while (ACS[x]) x = `${id}-${k++}`; return x; };
+  function addAircraftFile(file, select) {
+    let r;
+    try { r = ACF.read(file); } catch (e) { return { ok: false, errors: ['could not read that file: ' + e.message], warnings: [] }; }
+    if (!r.ok) return r;
+    const was = r.def.id, id = uniqueId(was);
+    if (id !== was) { r.def.id = id; r.warnings.push(`another aircraft is already called “${was}”, so this one is “${id}”`); }
+    try {
+      installDef(r.def, r.meta, r.spec);
+      MODELS[id] = modelFor(ACS[id]);
+    } catch (e) {
+      delete ACS[id]; delete SRC[id]; delete MODELS[id];
+      return { ok: false, errors: ['that aircraft would not build: ' + e.message], warnings: r.warnings };
+    }
+    userFiles[id] = ACF.write(r.def, r.meta, r.spec).file;
+    saveAircraft();
+    if (select) setAircraft(id);
+    return { ok: true, id, def: r.def, errors: [], warnings: r.warnings };
+  }
+  function removeAircraft(id) {
+    if (!SRC[id] || SRC[id].builtin) return;
+    delete userFiles[id]; saveAircraft();
+    delete ACS[id]; delete SRC[id]; delete MODELS[id];
+    if (S.aircraft === id) setAircraft('goblin'); else buildSheet();
+  }
+  function exportAircraft(id) {
+    const s = SRC[id];
+    if (!s) return;
+    try {
+      const url = URL.createObjectURL(new Blob([ACF.text(s.def, s.meta, s.spec)], { type: 'application/json' }));
+      const a = document.createElement('a');
+      a.href = url; a.download = `${id}.json`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      toast(`${id}.json saved to your downloads`);
+    } catch (e) { toast('This browser would not save the file'); }
+  }
+  function importAircraftPick() {
+    try {
+      const inp = document.createElement('input');
+      inp.type = 'file'; inp.accept = '.json,application/json';
+      inp.addEventListener('change', () => {
+        const f = inp.files && inp.files[0];
+        if (!f) return;
+        if (f.size > 400000) { impMsg = { from: f.name, ok: false, errors: ['that file is bigger than 400 kB'], warnings: [] }; return syncSheet(); }
+        const rd = new FileReader();
+        rd.onerror = () => { impMsg = { from: f.name, ok: false, errors: ['could not read that file'], warnings: [] }; syncSheet(); };
+        rd.onload = () => { impMsg = Object.assign({ from: f.name }, addAircraftFile(String(rd.result), true)); syncSheet(); };
+        rd.readAsText(f);
+      });
+      inp.click();
+    } catch (e) { toast('This browser would not open a file picker'); }
+  }
+  // the aircraft/ folder next to the page (GitHub Pages or any web server, not file://)
+  const canFetch = () => location.protocol === 'http:' || location.protocol === 'https:';
+  let folder = null; // { items: [...] } or { error }
+  function fetchJson(url) {
+    return fetch(url, { cache: 'no-store' }).then((res) => {
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      return res.text();
+    });
+  }
+  function browseFolder() {
+    folder = { loading: true }; syncSheet();
+    fetchJson('aircraft/index.json')
+      .then((txt) => {
+        const j = JSON.parse(txt);
+        const list = Array.isArray(j) ? j : Array.isArray(j.aircraft) ? j.aircraft : [];
+        folder = { items: list.filter((x) => x && typeof x.file === 'string').slice(0, 60) };
+      })
+      .catch((e) => { folder = { error: e.message }; })
+      .then(() => syncSheet());
+  }
+  function loadAircraftUrl(url, select) {
+    impMsg = { from: url, loading: true }; syncSheet();
+    fetchJson(url)
+      .then((txt) => { impMsg = Object.assign({ from: url }, addAircraftFile(txt, select)); })
+      .catch((e) => { impMsg = { from: url, ok: false, errors: ['could not fetch that: ' + e.message], warnings: [] }; })
+      .then(() => syncSheet());
+  }
+
+  /* ---------------------------------------------------------------- flaps and gear */
+  let flapSet = 0, gearDown = true;
+  const hasFlaps = () => !ROTARY(AC) && !!(AC.defl && AC.defl.f);
+  const hasGear = () => !ROTARY(AC) && !!AC.retract;
+  const flapDeg = () => Math.round(flapSet * (AC.defl.f || 0) * R2D);
+  function setFlaps(v) {
+    if (!hasFlaps()) return;
+    flapSet = clamp(v, 0, 1);
+    flash(flapSet > 0 ? `FLAPS ${flapDeg()}°` : 'FLAPS UP');
+  }
+  function toggleGear() {
+    if (!hasGear()) return;
+    gearDown = !gearDown;
+    flash(gearDown ? 'GEAR DOWN' : 'GEAR UP');
+  }
+
+  /* ---------------------------------------------------------------- the builder
+     A build sheet (src/aircraft.js) edited as a form. Fields you have not
+     touched follow their default, so changing the span moves the chord, the
+     tail and the prop with it; a field you set stays put and is marked. The
+     bench numbers come from the same solver the Flight model tab uses, and
+     only run while this tab is open. */
+  const bld = { kind: 'plane', name: 'My aircraft', id: '', user: {}, spec: null, notes: null, bench: null, pending: 0, from: null };
+  function bldNorm() {
+    const out = { errors: [], warnings: [] };
+    const raw = Object.assign({ kind: bld.kind, name: bld.name }, bld.user);
+    bld.spec = ACF.normSpec(raw, out) || ACF.specDefaults(bld.kind);
+    bld.notes = out;
+    return bld.spec;
+  }
+  function bldDef() {
+    const sp = bld.spec || bldNorm();
+    const def = ACF.fromSpec(sp);
+    def.id = (bld.id || slug(bld.name) || 'custom');
+    def.name = bld.name || def.id;
+    def.blurb = bldBlurb();
+    return def;
+  }
+  const slug = (s0) => String(s0).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
+  function bldBlurb() {
+    const sp = bld.spec, b = bld.bench;
+    if (!sp) return '';
+    if (sp.kind === 'quad') return `${sp.propD}-inch quad, ${Math.round(sp.mass)} g, ${sp.cellsS}S${sp.cellsP > 1 ? sp.cellsP + 'P' : ''} ${sp.cellChem === 'liion' ? 'Li-ion' : 'LiPo'}${b ? `, about ${b.twSag.toFixed(1)}:1 thrust to weight` : ''}. Built in the aircraft builder.`;
+    return `${sp.span} mm ${sp.kind === 'wing' ? 'flying wing' : 'plane'}, ${Math.round(sp.mass)} g, ${sp.cellsS}S${sp.cellsP > 1 ? sp.cellsP + 'P' : ''}${b && b.Vs ? `, stalls at ${U.spd(b.Vs)}` : ''}. Built in the aircraft builder.`;
+  }
+  function bldOpen(fromId) {
+    const s = fromId && SRC[fromId];
+    if (s && s.spec) {
+      bld.kind = s.spec.kind; bld.name = s.def.name; bld.id = s.def.id; bld.from = fromId;
+      bld.user = {};
+      for (const fd of ACF.SPEC_FIELDS) if (ACF.wants(fd, s.spec.kind) && s.spec[fd.k] !== undefined) bld.user[fd.k] = s.spec[fd.k];
+      for (const k of ['gimbal', 'packTop', 'quadGear']) if (s.spec[k] !== undefined) bld.user[k] = s.spec[k];
+    } else if (!bld.spec) {
+      bld.kind = 'plane'; bld.user = {}; bld.name = 'My aircraft'; bld.id = ''; bld.from = null;
+    }
+    bld.bench = null;
+    bldNorm();
+    openSheet('builder');
+    bldQueue();
+  }
+  function bldKind(k) { bld.kind = k; bld.user = {}; bld.bench = null; bldNorm(); bldQueue(); buildSheet(); }
+  function bldField(k, v) {
+    if (v === null || v === '') delete bld.user[k]; else bld.user[k] = v;
+    bldNorm(); bld.bench = null; bldQueue();
+    const box = $('#bldBench'); if (box) box.innerHTML = '<div class="help">working…</div>';
+    buildSheet();
+  }
+  // the bench numbers, a moment after you stop typing (they cost 50–150 ms)
+  function bldQueue() { bld.pending = 0.28; }
+  function bldTick(dt) {
+    if (!(S.sheetTab === 'builder' && sheetOpen())) return;
+    if (bld.pending <= 0) return;
+    bld.pending -= dt;
+    if (bld.pending > 0) return;
+    try {
+      const ac = FL.build(ACF.autoTrim(bldDef()));
+      bld.bench = ac.kind === 'quad' ? Object.assign({ kind: 'quad', ac }, ACF.quadBench(ac, env.rho, packStartC())) : Object.assign({ kind: 'plane', ac }, ACF.planeBench(ac, env.rho));
+      bld.benchErr = null;
+    } catch (e) { bld.bench = null; bld.benchErr = e.message; }
+    const box = $('#bldBench');
+    if (box) box.innerHTML = bldBenchHtml();
+  }
+  function bldFly() {
+    const def = bldDef();
+    const file = ACF.write(ACF.autoTrim(def), { author: S.author || '', version: '1', source: 'Flightline aircraft builder' }, bld.spec).file;
+    if (bld.from && SRC[bld.from] && !SRC[bld.from].builtin) removeAircraft(bld.from);
+    const r = addAircraftFile(file, true);
+    if (!r.ok) { impMsg = Object.assign({ from: 'the builder' }, r); return syncSheet(); }
+    bld.from = r.id; bld.id = r.id;
+    closeSheet();
+    toast(`${def.name} is ready — ${START_LABEL[startOf(r.id)].toLowerCase()}`);
+  }
+
   function syncPause() { paused = userPaused || sheetOpen() || wiz.open || ctl.open; }
   function togglePause() { userPaused = !userPaused; syncPause(); if (userPaused) showBanner('Paused', 'Press P or tap here to resume.'); else hideBanner(); refreshBar(); }
   function toggleFull() {
@@ -1542,6 +1868,8 @@
       { tab: 'graphics', title: 'Sound', items: [
         seg('sound', 'Motor sound', [[true, 'On'], [false, 'Off']]),
       ] },
+      { tab: 'aircraft', title: 'Aircraft files', items: [{ type: 'files' }] },
+      { tab: 'builder', title: 'Build an aircraft', items: [{ type: 'builder' }] },
       { tab: 'model', title: `Flight model · ${AC.name}`, items: [{ type: 'notes' }] },
     ];
   }
@@ -1578,7 +1906,7 @@
     Object.assign(S, p[3]); S.wxPreset = id; saveS(); updateAtmos(); doReset(); buildSheet();
     toast(`${p[1]}: ${p[2]}`);
   }
-  const TABS = [['aircraft', 'Aircraft'], ['controller', 'Controller'], ['racing', 'Racing'], ['weather', 'Weather'], ['link', 'Link & sensors'], ['display', 'Display'], ['graphics', 'Graphics & sound'], ['model', 'Flight model']];
+  const TABS = [['aircraft', 'Aircraft'], ['builder', 'Builder'], ['controller', 'Controller'], ['racing', 'Racing'], ['weather', 'Weather'], ['link', 'Link & sensors'], ['display', 'Display'], ['graphics', 'Graphics & sound'], ['model', 'Flight model']];
   function setTab(t) { if (S.sheetTab !== t) { S.sheetTab = t; saveS(); $('#sheet').scrollTop = 0; } buildSheet(); }
   function buildSheet() {
     const body = $('#shBody');
@@ -1690,6 +2018,10 @@
           }));
           const fi = box.querySelector('#lapFile');
           if (fi) fi.addEventListener('change', () => { if (fi.files && fi.files[0]) lapImport(fi.files[0]); fi.value = ''; });
+        } else if (it.type === 'files') {
+          renderFiles(box);
+        } else if (it.type === 'builder') {
+          renderBuilder(box);
         } else if (it.type === 'notes') {
           box.innerHTML = notesHtml() + weatherNotesHtml() + navNotesHtml();
         }
@@ -1699,6 +2031,158 @@
     }
     refreshCtlStatus();
     $('#sheet').scrollTop = scroll;
+  }
+  /* ---------- Settings → Aircraft: files in and out ---------- */
+  function msgHtml(m) {
+    if (!m) return '';
+    if (m.loading) return `<div class="help">Loading ${esc(m.from)}…</div>`;
+    const bad = (m.errors || []).length ? `<div class="help" style="color:var(--bad)"><b>${esc(m.from)} did not load.</b> ${m.errors.map(esc).join(' · ')}</div>` : '';
+    const good = m.ok ? `<div class="help" style="color:var(--good)"><b>${esc(m.from)} loaded as “${esc(m.id)}”.</b></div>` : '';
+    const warn = (m.warnings || []).length ? `<div class="help" style="color:var(--warn)">${m.warnings.length} thing${m.warnings.length > 1 ? 's were' : ' was'} changed to keep the numbers sane: ${m.warnings.map(esc).join(' · ')}</div>` : '';
+    return good + bad + warn;
+  }
+  function renderFiles(box) {
+    const s = SRC[AC.id] || {}, mine = Object.keys(SRC).filter((id) => !SRC[id].builtin);
+    const meta = [s.meta && s.meta.author ? `by ${esc(s.meta.author)}` : '', s.meta && s.meta.version ? `v${esc(s.meta.version)}` : '', s.builtin ? 'built in' : 'imported'].filter(Boolean).join(' · ');
+    let h = `<div class="radio-box"><div class="name"><b>${esc(AC.name)}</b><br><span class="help">${meta}${s.spec ? ' · has a build sheet' : ''}</span></div>
+      <div class="setrow"><button class="btn small" id="acExp">Export this aircraft</button>
+      <button class="btn small" id="acImp">Import aircraft file</button>
+      <button class="btn small" id="acBld">${s.spec ? 'Edit in the builder' : 'Open the builder'}</button></div>
+      <div class="help">An aircraft file is JSON: a few hundred numbers, nothing that can run. Every number is checked and clamped on the way in, and anything that gets changed is listed here. The format is in <b>docs/aircraft-format.md</b>.</div>${msgHtml(impMsg)}</div>`;
+    if (mine.length) h += `<div class="laps" style="margin-top:10px">${mine.map((id) => `<div class="lap${id === AC.id ? ' on' : ''}"><b>${esc(ACS[id].kind === 'quad' ? 'QUAD' : ACS[id].kind === 'heli' ? 'HELI' : 'PLANE')}</b><span>${esc(ACS[id].name)}<br><span class="help">${esc(id)}${SRC[id].meta.author ? ' · by ' + esc(SRC[id].meta.author) : ''}</span></span><div class="acts">
+      <button class="btn small" data-fly="${esc(id)}">Fly</button><button class="btn small" data-exp="${esc(id)}">Export</button><button class="btn small" data-del="${esc(id)}">Remove</button></div></div>`).join('')}</div>`;
+    else h += '<div class="help" style="margin-top:8px">No imported aircraft yet. Import a file, load one from the aircraft folder, or build one in the builder.</div>';
+    // the aircraft/ folder beside the page, and any URL
+    if (canFetch()) {
+      h += `<div class="setrow" style="margin-top:12px"><button class="btn small" id="acDir">Aircraft from this site’s folder</button></div>`;
+      if (folder) {
+        if (folder.loading) h += '<div class="help">Loading aircraft/index.json…</div>';
+        else if (folder.error) h += `<div class="help" style="color:var(--warn)">aircraft/index.json: ${esc(folder.error)}. There may not be one yet.</div>`;
+        else if (!folder.items.length) h += '<div class="help">The folder list is empty.</div>';
+        else h += `<div class="laps" style="margin-top:6px">${folder.items.map((x) => `<div class="lap"><b>${esc((x.kind || '·').toUpperCase().slice(0, 5))}</b><span>${esc(x.name || x.file)}<br><span class="help">${esc(x.blurb || x.file)}</span></span><div class="acts"><button class="btn small" data-url="aircraft/${esc(x.file)}">Load</button></div></div>`).join('')}</div>`;
+      }
+      h += `<div class="setrow" style="margin-top:8px"><input class="txt" id="acUrl" type="text" placeholder="https://… a raw aircraft .json URL" style="flex:1 1 200px"><button class="btn small" id="acUrlGo">Load</button></div>
+        <div class="help">A URL only works if the other site allows cross-origin reads; GitHub’s <b>raw.githubusercontent.com</b> does.</div>`;
+    } else {
+      h += '<div class="help" style="margin-top:10px">Opened from a file, so loading by URL is off. The web version can read the site’s <b>aircraft/</b> folder.</div>';
+    }
+    box.innerHTML = h;
+    box.querySelector('#acExp').addEventListener('click', () => exportAircraft(AC.id));
+    box.querySelector('#acImp').addEventListener('click', importAircraftPick);
+    box.querySelector('#acBld').addEventListener('click', () => bldOpen(s.spec ? AC.id : null));
+    const dir = box.querySelector('#acDir'); if (dir) dir.addEventListener('click', browseFolder);
+    const go = box.querySelector('#acUrlGo');
+    if (go) go.addEventListener('click', () => { const u = box.querySelector('#acUrl').value.trim(); if (u) loadAircraftUrl(u, true); });
+    box.querySelectorAll('[data-fly]').forEach((b0) => b0.addEventListener('click', () => setAircraft(b0.dataset.fly)));
+    box.querySelectorAll('[data-exp]').forEach((b0) => b0.addEventListener('click', () => exportAircraft(b0.dataset.exp)));
+    box.querySelectorAll('[data-del]').forEach((b0) => b0.addEventListener('click', () => { const id = b0.dataset.del; if (confirm(`Remove ${ACS[id].name}? Export it first if you want to keep it.`)) removeAircraft(id); }));
+    box.querySelectorAll('[data-url]').forEach((b0) => b0.addEventListener('click', () => loadAircraftUrl(b0.dataset.url, true)));
+  }
+
+  /* ---------- Settings → Builder ---------- */
+  const GROUPS = ['Airframe', 'Wing', 'Tail', 'Fuselage', 'Controls', 'Power', 'Battery'];
+  function bldBenchHtml() {
+    const b = bld.bench;
+    if (bld.benchErr) return `<div class="help" style="color:var(--bad)">These numbers would not solve: ${esc(bld.benchErr)}</div>`;
+    if (!b) return '<div class="help">working…</div>';
+    const sp = (v) => U.spd(v);
+    if (b.kind === 'quad') {
+      const B = b.ac.batt;
+      return `<div class="kv">
+        <span>Thrust to weight (at the pack's nominal volts)</span><span>${b.twFull.toFixed(1)} : 1</span>
+        <span>Thrust to weight (full pack, with its sag)</span><span>${b.twSag.toFixed(1)} : 1</span>
+        <span>Hover throttle</span><span>${Math.round(b.hoverThr * 100)}%</span>
+        <span>Hover current · power</span><span>${b.hoverI.toFixed(1)} A · ${Math.round(b.hoverW)} W</span>
+        <span>Hover flight time (to 80% used)</span><span>${b.hoverMin.toFixed(0)} min</span>
+        <span>Punch-out: current · sag</span><span>${b.punchI.toFixed(0)} A · ${b.punchVcell.toFixed(2)} V/cell</span>
+        <span>Cruise (nose 19° down)</span><span>${sp(b.cruiseV)} on ${b.cruiseI.toFixed(1)} A</span>
+        <span>Cruise time · range</span><span>${b.cruiseMin.toFixed(0)} min · ${(S.units === 'imp' ? (b.cruiseKm / 1.609).toFixed(1) + ' mi' : b.cruiseKm.toFixed(1) + ' km')}</span>
+        <span>Pack</span><span>${esc(B.label)}, ${Math.round(B.R * 1000)} mΩ</span>
+        <span>Full throttle draws</span><span>${B.Imax.toFixed(0)} A (${Math.round(B.Imax * B.Vref)} W)</span></div>
+        <div class="help">Hover, punch and pack numbers come straight from the thrust and battery equations the sim steps through; cruise is flown for 18 seconds at the current air density (${env.rho.toFixed(3)} kg/m³) and pack temperature.</div>`;
+    }
+    const rows = b.rows.filter((r, i) => i % Math.max(1, Math.round(b.rows.length / 5)) === 0 || i === b.rows.length - 1)
+      .map((r) => `<tr><td>${sp(r.V)}</td><td>${(r.alpha * R2D).toFixed(1)}°</td><td>${Math.round(r.thr * 100)}%</td><td>${Math.round((r.e - (b.ac.trim.e || 0)) * 100)}%</td></tr>`).join('');
+    return `<div class="kv">
+      <span>Wing area · span</span><span>${Math.round(b.S * 1550)} in² · ${Math.round(b.b * 1000)} mm</span>
+      <span>Aspect ratio · strips</span><span>${b.AR.toFixed(1)} · ${b.strips}</span>
+      <span>Wing loading</span><span>${b.wl.toFixed(1)} g/dm²</span>
+      <span>Static margin</span><span>${(b.SM * 100).toFixed(1)}% MAC</span>
+      <span>1-g stall speed</span><span>${sp(b.Vs)}</span>
+      ${b.VsFlap ? `<span>1-g stall, full flap</span><span>${sp(b.VsFlap)} (CLmax ${b.CLmaxFlap.toFixed(2)})</span>` : ''}
+      <span>Max lift coefficient</span><span>${b.CLmax.toFixed(2)} at ${(b.alpha * R2D).toFixed(1)}°</span>
+      <span>Hands-off speed (trimmed)</span><span>${b.handsOff ? sp(b.handsOff) : '—'}</span>
+      <span>Top speed (level)</span><span>${b.Vmax ? sp(b.Vmax) : '—'}</span>
+      <span>Static thrust · thrust to weight</span><span>${(b.ac.prop.T0 / FL.G * 1000).toFixed(0)} g · ${(b.ac.prop.T0 / (b.ac.mass * FL.G)).toFixed(2)} : 1</span>
+      <span>Pack</span><span>${esc(b.ac.batt.label)}, ${Math.round(b.ac.batt.R * 1000)} mΩ</span></div>
+      <div class="tbl"><table><thead><tr><th>Level flight at</th><th>AoA</th><th>Throttle</th><th>Elevator</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="help">Solved from the same model you fly, at the current air density (${env.rho.toFixed(3)} kg/m³). Elevator is the stick needed on top of the trim the builder bakes in.</div>`;
+  }
+  function renderBuilder(box) {
+    const sp = bld.spec || bldNorm();
+    if (!bld.bench && bld.pending <= 0) bldQueue(); // opened from the tab bar
+    const kinds = [['plane', 'Plane'], ['wing', 'Flying wing'], ['quad', 'Quad']];
+    let h = `<div class="lab"><span>Type</span></div><div class="seg" role="group" aria-label="Type">${kinds.map(([v, l]) => `<button type="button" data-kind="${v}" aria-pressed="${v === bld.kind}">${l}</button>`).join('')}</div>
+      <div class="help">${bld.kind === 'wing' ? 'A plank or flying wing: elevons, no tail, usually a pusher and a hand launch.' : bld.kind === 'quad' ? 'Four motors in an X, Betaflight-style rates.' : 'Wing, stabiliser, fin, and whatever gear you give it.'}</div>
+      <div class="setrow" style="margin-top:8px"><input class="txt" id="bName" type="text" value="${esc(bld.name)}" placeholder="Name" style="flex:2 1 160px"><input class="txt" id="bAuthor" type="text" value="${esc(S.author || '')}" placeholder="Your name (author)" style="flex:1 1 120px"></div>`;
+    for (const grp of GROUPS) {
+      const fields = ACF.SPEC_FIELDS.filter((fd) => ACF.wants(fd, bld.kind) && fd.group === grp);
+      if (!fields.length) continue;
+      h += `<div class="bgrp">${grp}</div>`;
+      for (const fd of fields) {
+        const set = bld.user[fd.k] !== undefined;
+        if (fd.opts) {
+          h += `<div class="lab" style="margin-top:6px"><span>${esc(fd.label)}</span></div><div class="seg" role="group" aria-label="${esc(fd.label)}">${fd.opts.map(([v, l]) => `<button type="button" data-opt="${fd.k}" data-val="${esc(v)}" aria-pressed="${sp[fd.k] === v}">${esc(l)}</button>`).join('')}</div>`;
+          if (fd.help) h += `<div class="help">${esc(fd.help)}</div>`;
+        } else {
+          h += `<div class="brow"><label for="b-${fd.k}">${esc(fd.label)}${fd.unit ? `<i>${esc(fd.unit)}</i>` : ''}</label>
+            <input type="number" id="b-${fd.k}" data-num="${fd.k}" min="${fd.min}" max="${fd.max}" step="${fd.step}" value="${sp[fd.k]}">
+            <button type="button" class="tag${set ? ' set' : ''}" data-auto="${fd.k}" ${set ? 'title="Yours — click to go back to the default"' : 'disabled title="Worked out from the numbers above"'}>${set ? 'set' : 'auto'}</button>
+            ${fd.help ? `<div class="help">${esc(fd.help)}</div>` : ''}</div>`;
+        }
+      }
+    }
+    if (bld.kind === 'quad') {
+      const bools = [['quadGear', 'Landing gear', 'Skids under the frame, for a lifter.'], ['gimbal', 'Gimbal pod', 'A three-camera pod under the nose instead of an FPV camera.'], ['packTop', 'Pack on top', 'Off puts the battery underneath.']];
+      h += '<div class="bgrp">Fit</div>';
+      for (const [k, l, hp] of bools) {
+        const cur = sp[k] !== undefined ? sp[k] : (k === 'quadGear' ? sp.propD >= 10 : k === 'packTop');
+        h += `<div class="lab" style="margin-top:6px"><span>${l}</span></div><div class="seg" role="group" aria-label="${l}"><button type="button" data-bool="${k}" data-val="1" aria-pressed="${!!cur}">Yes</button><button type="button" data-bool="${k}" data-val="0" aria-pressed="${!cur}">No</button></div><div class="help">${hp}</div>`;
+      }
+    }
+    if (bld.notes && bld.notes.warnings.length) h += `<div class="help" style="color:var(--warn);margin-top:8px">${bld.notes.warnings.map(esc).join(' · ')}</div>`;
+    h += `<div class="bgrp">On the bench</div><div class="bench" id="bldBench">${bldBenchHtml()}</div>
+      <div class="setrow" style="margin-top:12px"><button class="btn primary" id="bFly">Fly it</button><button class="btn small" id="bSave">Save as a file</button>${bld.from ? `<button class="btn small" id="bReset">Start over</button>` : ''}</div>
+      <div class="help">“Fly it” saves the aircraft in this browser and switches to it; it stays in Settings → Aircraft, where you can export it as a file. The build sheet is saved with it, so you can come back and change it.</div>`;
+    box.innerHTML = h;
+    box.querySelectorAll('[data-kind]').forEach((b0) => b0.addEventListener('click', () => bldKind(b0.dataset.kind)));
+    box.querySelectorAll('[data-num]').forEach((el) => {
+      el.addEventListener('change', () => {
+        const k = el.dataset.num, v = Number(el.value);
+        bldField(k, el.value === '' || !Number.isFinite(v) ? null : v);
+      });
+    });
+    box.querySelectorAll('[data-auto]').forEach((b0) => b0.addEventListener('click', () => { if (bld.user[b0.dataset.auto] !== undefined) bldField(b0.dataset.auto, null); }));
+    box.querySelectorAll('[data-opt]').forEach((b0) => b0.addEventListener('click', () => bldField(b0.dataset.opt, b0.dataset.val)));
+    box.querySelectorAll('[data-bool]').forEach((b0) => b0.addEventListener('click', () => { bld.user[b0.dataset.bool] = b0.dataset.val === '1'; bldNorm(); bld.bench = null; bldQueue(); buildSheet(); }));
+    const nm = box.querySelector('#bName');
+    nm.addEventListener('change', () => { bld.name = nm.value.slice(0, 48) || 'My aircraft'; });
+    const au = box.querySelector('#bAuthor');
+    au.addEventListener('change', () => { S.author = au.value.slice(0, 60); saveS(); });
+    box.querySelector('#bFly').addEventListener('click', bldFly);
+    box.querySelector('#bSave').addEventListener('click', () => {
+      const def = ACF.autoTrim(bldDef());
+      try {
+        const url = URL.createObjectURL(new Blob([ACF.text(def, { author: S.author || '', version: '1', source: 'Flightline aircraft builder' }, bld.spec)], { type: 'application/json' }));
+        const a = document.createElement('a');
+        a.href = url; a.download = `${def.id}.json`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+        toast(`${def.id}.json saved to your downloads`);
+      } catch (e) { toast('This browser would not save the file'); }
+    });
+    const rs = box.querySelector('#bReset');
+    if (rs) rs.addEventListener('click', () => { bld.from = null; bld.id = ''; bld.user = {}; bld.name = 'My aircraft'; bldNorm(); bld.bench = null; bldQueue(); buildSheet(); });
   }
   function syncSheet() { if (sheetOpen()) buildSheet(); }
   function rotaryNotesHtml() {
@@ -1988,6 +2472,11 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     }
     if (S.battery && st.soc <= 0) w.push(['BATTERY EMPTY', '#ff6157']);
     else if (S.battery && st.vb / AC.batt.cells < (AC.batt.chem === 'liion' ? 3.1 : 3.45) && st.n > 0.05) w.push(['LOW BATTERY', '#ff9d42']);
+    if (hasFlaps() && st.sf > 0.01) w.push([`FLAPS ${Math.round((st.sf * R2D))}°`, '#9fd3ff']);
+    if (hasGear()) {
+      if (st.gear > 0.01 && st.gear < 0.99) w.push(['GEAR IN TRANSIT', '#ffd36a']);
+      else if (st.gear <= 0.01) w.push(['GEAR UP', -st.p[2] < 25 && st.v[2] > 0 && blink % 1 < 0.6 ? '#ff6157' : '#ffd36a']);
+    }
     const d = Math.hypot(st.p[0], st.p[1]);
     if (d > 400) w.push([`FAR · ${U.dist(d)}`, '#ff9d42']);
     if (-st.p[2] > 121.9) w.push(['ABOVE 400 FT', '#ff9d42']);
@@ -2540,6 +3029,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       e: FL.sat((ex(inp.e, RE.expo.e) * RE.rates.e) / 100 + T.e + ut.e),
       r: FL.sat((ex(inp.r, RE.expo.r) * RE.rates.r) / 100 + ut.r),
       sa: inp.a, se: inp.e,
+      f: hasFlaps() ? flapSet : 0, gear: gearDown,
     };
   }
   // the aircraft is a sphere of radius AC.colR (about half its size) for obstacle checks
@@ -2718,6 +3208,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     pollInput(dt);
     if (wiz.open) wizTick(Math.min(0.5, raw)); // setup timers use real time
     if (ctl.open) ctlTick(Math.min(0.5, raw));
+    bldTick(Math.min(0.5, raw));
     if (osdFlash.t > 0) osdFlash.t -= raw;
 
     if (!paused) {
@@ -2742,6 +3233,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
         if (apo && ROTARY(AC)) cc = Object.assign({}, c, apo, { thr: apo.thr, armed: c.armed && apo.armed !== false });
         else if (apo) cc = FL.planeAssist('stab', { a: apo.bank / (apLim.bank * D2R), e: apo.pitch / (apLim.pitch * D2R) }, { thr: cutOn || cutHeld ? 0 : apo.thr, r: 0, a: 0, e: 0 }, st, AC, apLim);
         else cc = ROTARY(AC) || S.mode === 'manual' ? c : FL.planeAssist(S.mode, { a: c.sa, e: c.se }, c, st, AC, limNow());
+        if (!ROTARY(AC) && cc !== c) { cc.f = c.f; cc.gear = c.gear; }
         FL.step(st, AC, cc, env, DT);
         acc -= DT; steps++;
       }

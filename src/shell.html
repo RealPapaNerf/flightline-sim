@@ -149,6 +149,19 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; heigh
 .rates label { display: grid; gap: 2px; }
 .rates output { font: 12px/1 var(--f-mono); color: var(--sky); }
 .rates.rates4 { grid-template-columns: auto 1fr 1fr 1fr; }
+/* ---------- aircraft builder: a build sheet as a form ---------- */
+.bgrp { margin: 12px 0 2px; font: 600 10px/1 var(--f-display); letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent); }
+.brow { display: grid; grid-template-columns: minmax(0, 1fr) 92px 46px; gap: 8px; align-items: center; font-size: 13px; padding: 3px 0; }
+.brow label { line-height: 1.25; overflow-wrap: anywhere; }
+.brow label i { display: block; font-style: normal; font-size: 11px; color: var(--muted); }
+.brow input { min-height: 32px; width: 100%; box-sizing: border-box; padding: 0 6px; border-radius: 5px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font: 13px var(--f-mono); text-align: right; }
+.brow .tag { min-height: 26px; padding: 0 4px; border-radius: 4px; border: 1px solid var(--line); background: transparent; font: 9px/1 var(--f-display); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.brow .tag[disabled] { opacity: 1; }
+.brow .tag.set { color: var(--accent); border-color: var(--accent); cursor: pointer; }
+.brow .help { grid-column: 1 / -1; font-size: 12px; color: var(--muted); line-height: 1.4; margin: -2px 0 4px; }
+.bench { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--panel-2); }
+.bench .kv { margin-bottom: 0; }
+.bench .kv + .tbl { margin-top: 10px; }
 /* ---------- racing: saved laps, rooms ---------- */
 .set input.txt { min-height: 34px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font: 13px var(--f-body); width: 100%; box-sizing: border-box; }
 .set input.txt::placeholder { color: var(--muted); opacity: 0.8; }

@@ -22,9 +22,8 @@
    A file may carry either or both. If it carries both, def wins and the
    spec is kept so the builder can reopen it.
    ===================================================================== */
-const ACF = (function () {
+const ACF = (function (FL) {
   'use strict';
-  const FL = typeof require === 'function' && typeof module !== 'undefined' ? require('./physics.js') : window.FL;
   const FORMAT = 1;
   const G = 9.80665, RHO0 = 1.225, D2R = Math.PI / 180, IN = 0.0254;
   const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
@@ -177,6 +176,9 @@ const ACF = (function () {
     }),
     steerMax: n(0, 1, 0),
     retract: opt(o({ drag: n(0, 0.5), time: n(0.3, 20) })),
+    // what the 3-D model needs that the flight model does not: the flight
+    // model takes its drag from body.CdA, not from these
+    shape: opt(o({ fuseW: n(0.01, 1.5), fuseH: n(0.01, 1.8), wheelR: opt(n(0.004, 0.4)) })),
     trim: o({ a: n(-1, 1, 0), e: n(-1, 1, 0), r: n(-1, 1, 0) }, { a: 0, e: 0, r: 0 }),
     stab: o({ kRoll: n(0, 8), dRoll: n(0, 2), kPitch: n(0, 8), dPitch: n(0, 2), turn: n(0, 3) }),
     look: PLANE_LOOK,
@@ -349,16 +351,25 @@ const ACF = (function () {
     f('blades', ALL, 'Power', 'Blades', '', 2, 4, 1, (p) => (p.kind === 'quad' ? (p.propD < 6 ? 3 : 2) : 2)),
     // ---- battery (before the power numbers that need pack voltage) ----
     fe('cellChem', ALL, 'Battery', 'Chemistry', [['lipo', 'LiPo'], ['liion', 'Li-ion']], 'lipo'),
-    f('cellsS', ALL, 'Battery', 'Cells in series', 'S', 1, 14, 1, 3),
+    f('cellsS', ALL, 'Battery', 'Cells in series', 'S', 1, 14, 1, (p) => (p.kind === 'quad' ? 6 : 3)),
     f('cellsP', ALL, 'Battery', 'Cells in parallel', 'P', 1, 8, 1, 1),
-    f('cellmAh', ALL, 'Battery', 'Capacity per parallel string', 'mAh', 100, 30000, 50, (p) => (p.cellChem === 'liion' ? 3000 : 2200)),
+    f('cellmAh', ALL, 'Battery', 'Capacity per parallel string', 'mAh', 100, 30000, 50, (p) => (p.cellChem === 'liion' ? 3000 : p.kind === 'quad' ? 1300 : 2200)),
     f('cellR', ALL, 'Battery', 'Internal resistance per cell', 'mΩ', 1, 200, 0.5, (p) => (p.cellChem === 'liion' ? 25 : 8), 'Li-ion: 25 mΩ for a P28A-class 18650, 13 mΩ for a P50B 21700. A good LiPo is 5–10 mΩ per cell.'),
-    f('watts', ALL, 'Power', 'Electrical power, full throttle', 'W', 5, 60000, 5, (p) => Math.round(0.25 * p.mass), 'Pack volts × current at full throttle. The default is 250 W per kg.'),
+    f('watts', ALL, 'Power', 'Electrical power, full throttle', 'W', 5, 60000, 5, (p) => (p.kind === 'quad' ? wattsForThrust(p) : Math.round(0.25 * p.mass)),
+      'Pack volts × current at full throttle. Planes default to 250 W per kg (the trainer runs 280). Quads work it back from the thrust you entered, by momentum theory — within about 15% of all four built-in quads.'),
     f('thrustStatic', FIXED, 'Power', 'Measured static thrust', 'g', 0, 60000, 10, 0, '0 = work it out from the power with momentum theory. Put your thrust-stand number here if you have one.'),
     f('motorKV', ALL, 'Power', 'Motor KV', 'rpm/V', 50, 20000, 10, (p) => Math.round(90000 / (p.propD * 0.85 * cellsV(p)) / 10) * 10, 'Default keeps prop tip speed roughly constant (90,000 rpm·inch).'),
     f('pitchSpeed', ALL, 'Power', 'Speed where the prop stops pulling', 'm/s', 0, 200, 1, 0, '0 = work it out from KV and pitch. This is the model\'s Vp: thrust falls to zero here at full rpm, so it lands near the full-throttle top speed.'),
   ];
   const cellsV = (p) => (p.cellsS || 3) * (p.cellChem === 'liion' ? 3.7 : 3.8);
+  /* The power four motors need for the thrust they are rated at: momentum
+     theory backwards, P_shaft = T^1.5 / (FOM·√(2ρA)), and 80% ESC-and-motor
+     efficiency on top. Against the built-in quads: 5-inch 2,560 W (rated
+     2,740), 7-inch 2,580 (2,660), 4-inch 660 (680), 13-inch 5,400 (7,100). */
+  function wattsForThrust(p) {
+    const D = p.propD * IN, A = (Math.PI * D * D) / 4, T = (p.thrustPerMotor / 1000) * G;
+    return Math.round((4 * Math.pow(T, 1.5)) / (0.55 * Math.sqrt(2 * RHO0 * A)) / 0.8 / 5) * 5;
+  }
   const SPEC_KINDS = ['plane', 'wing', 'quad'];
   const wants = (fd, kind) => fd.on === ALL || fd.on === kind || (fd.on === FIXED && kind !== 'quad');
 
@@ -518,6 +529,7 @@ const ACF = (function () {
       },
       defl,
       flexQ: BD.flexQ, servoRate: 8,
+      shape: { fuseW: round(w, 4), fuseH: round(h, 4), wheelR: round(0.035 * Math.pow(bS / 1.5, 0.8), 4) },
       prop: {
         r: [plank ? round(-1.15 * c0, 4) : round(noseLen, 4), 0, 0],
         T0, Vp: pitchSpeedOf(sp), D: round(propD, 4),
@@ -743,5 +755,6 @@ const ACF = (function () {
     read, write, text, validateDef, stripCount,
     fromSpec, autoTrim, planeBench, quadBench, packAt, fingerprint, slopeOf, thrustOf,
   };
-})();
+// node: require the model; browser: FL is the const the bundle declared before this file
+})(typeof module !== 'undefined' && typeof require === 'function' ? require('./physics.js') : FL);
 if (typeof module !== 'undefined') module.exports = ACF;
