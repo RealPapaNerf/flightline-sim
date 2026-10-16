@@ -174,6 +174,10 @@ const ACF = (function (FL) {
     prop: o({
       r: v(3, -8, 8), T0: n(0, 3000), Vp: n(1, 300), D: n(0.01, 2),
       tau: n(0.005, 2), Tmin: n(-20, 0), torque: n(-1, 1), wash: b(false), eta: opt(n(0, 1)),
+      // a reversing ESC: the middle of the throttle is zero and below it the prop
+      // turns backwards. revEff is how much thrust it makes that way, since the
+      // blade is the wrong way round - 0.6 unless the file says otherwise.
+      reverse: opt(b(false)), revEff: opt(n(0.1, 1)),
     }),
     steerMax: n(0, 1, 0),
     retract: opt(o({ drag: n(0, 0.5), time: n(0.3, 20) })),
@@ -217,6 +221,13 @@ const ACF = (function (FL) {
       vAir: n(1, 300),         // the speed a start in the air begins at, m/s
     }),
     shape: opt(o({ fuseW: n(0.01, 1.5), fuseH: n(0.01, 1.8), wheelR: opt(n(0.004, 0.4)) })),
+    /* Which axes the control surfaces fly, as the angular acceleration (rad/s²) at
+       which an axis asks for full deflection. An axis named here belongs to the
+       surfaces and the motor mixer leaves it alone. A twin-motor tail-sitter has
+       no motors above or below the centreline, so it flies roll and pitch on its
+       elevons and keeps yaw on differential thrust. */
+    surf: opt(o({ roll: n(0, 2000, 0), pitch: n(0, 2000, 0), yaw: n(0, 2000, 0) })),
+    washEta: opt(n(0, 1)),   // how much of the propwash reaches the surfaces behind the props
     rotorDrag: n(0, 0.2),
     look: PLANE_LOOK,
   });
@@ -257,8 +268,29 @@ const ACF = (function (FL) {
     const ns = stripCount(def);
     if (ns > MAX_STRIPS) { out.errors.push(`surfaces add up to ${ns} strips; the limit is ${MAX_STRIPS} (lower each surface's "n")`); return null; }
     if (kind !== 'quad' && kind !== 'heli' && !def.surfaces.some((sf) => sf.role === 'wing')) { out.errors.push('no surface has role "wing"'); return null; }
-    if ((kind === 'quad' || kind === 'vtol') && def.motors.length !== 4) { out.errors.push(`motors: ${def.motors.length} given; the model flies 4`); return null; }
-    if (kind === 'vtol' && !def.motors.some((m) => Math.abs(m[2]) > 1e-4)) { out.errors.push('motors: a tail-sitter needs motors above and below the centreline (the z of each) to pitch with'); return null; }
+    if (kind === 'quad' && def.motors.length !== 4) { out.errors.push(`motors: ${def.motors.length} given; the model flies 4`); return null; }
+    if (kind === 'vtol') {
+      /* A tail-sitter can be a four-motor cruciform or a twin-motor flying wing, so
+         the only hard rule is that every axis has something flying it. Thrust runs
+         along the nose, so motors offset in z pitch it and motors offset in y yaw
+         it; anything named in `surf` is flown by the control surfaces instead and
+         then wants deflection to fly it with. */
+      const n = def.motors.length;
+      if (n < 2 || n > 8) { out.errors.push(`motors: ${n} given; a tail-sitter flies 2 to 8`); return null; }
+      const SU = def.surf || {}, D = def.defl || {};
+      const off = (i) => def.motors.some((m) => Math.abs(m[i]) > 1e-4);
+      const axis = (name, surfKey, deflKey, motorAxis, how) => {
+        if (SU[surfKey] > 0) {
+          if (!(D[deflKey] > 0)) out.errors.push(`surf.${surfKey}: ${name} is given to the control surfaces, but defl.${deflKey} is 0, so nothing moves`);
+        } else if (motorAxis !== null && !off(motorAxis)) {
+          out.errors.push(`motors: nothing flies ${name} — ${how}, or give it to the surfaces with surf.${surfKey} and defl.${deflKey}`);
+        }
+      };
+      axis('pitch', 'pitch', 'e', 2, 'offset some motors above and below the centreline (the z of each)');
+      axis('yaw', 'yaw', 'r', 1, 'offset some motors left and right of the centreline (the y of each)');
+      axis('roll', 'roll', 'a', null, '');
+      if (out.errors.length) return null;
+    }
     if (!def.starts.length) def.starts = kind === 'wing' ? ['launch', 'air'] : kind === 'conventional' ? ['runway', 'air'] : ['pad', 'air'];
     if (kind === 'vtol') { // the tail-sitter's own bench numbers want a lifting surface and a pack that can feed it
       const S = def.surfaces.reduce((t, sf) => t + ((sf.c0 + sf.c1) / 2) * (sf.y1 - sf.y0) * (sf.mirror && !sf.vertical ? 2 : 1), 0);

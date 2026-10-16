@@ -328,6 +328,8 @@ origin is the CG and the geometry has to be right.
 | `starts` | list ≤ 4 of `launch`, `runway`, `air`, `pad` | **required** | where a reset can put you |
 | `fpvCam` | 3 × (-8 … 8) | **required** | FPV camera position, body metres |
 | `camTilt` | -40 … 70 | `0` | FPV camera tilt, degrees up |
+| `prop.reverse` | true / false | `false` | a reversing ESC: mid-throttle is zero, below it the prop turns backwards |
+| `prop.revEff` | 0.1 … 1 | `0.6` | how much thrust it makes backwards, since the blade is the wrong way round |
 
 `fpvCam` has to be in clear air. The FPV view draws your own aircraft, so a camera
 inside the fuselage looks out at the inside of its own nose, and a camera a little
@@ -457,6 +459,17 @@ somewhere clear by default.
 
 #### Tail-sitters only (`kind` `vtol`)
 
+Thrust runs along the nose, so motors offset in **z** pitch it, motors offset in
+**y** yaw it by running at different speeds, and roll about the nose is the
+propellers' own reaction torque. A four-motor cruciform has all three. A
+two-motor flying wing has no motors above or below the centreline at all: it
+yaws on differential thrust and flies pitch and roll on elevons sitting in the
+propwash. `surf` says which axes belong to the surfaces — the angular
+acceleration at which an axis asks for full deflection — and the motor mixer
+then leaves those axes alone rather than fighting the surfaces for them. The
+validator checks that every axis has something flying it, and that an axis given
+to the surfaces has the deflection to fly it with.
+
 | field | range | default | what it is |
 |---|---|---|---|
 | `pid.roll` | 5 × (-500 … 500) | **required** | rate PID: [P 1/s, I 1/s², feed-forward, I limit rad, D s] |
@@ -475,7 +488,7 @@ somewhere clear by default.
 | `rates.yaw.m` | 20 … 2000 | **required** | max rate at full stick, °/s |
 | `rates.yaw.e` | 0 … 1 | **required** | expo, 0…1 |
 | `kind` | `vtol` | **required** | `conventional` has a tail, `wing` is a plank or flying wing |
-| `motors` | list ≤ 8 of 4 numbers | **required** | one per motor. Quad: [x, y, spin], body metres, +1 for counter-clockwise seen from above. Tail-sitter: [x, y, z, spin], and the z offsets are what it pitches with |
+| `motors` | 2 … 8 lists of 4 numbers | **required** | one per motor. Quad: [x, y, spin], body metres, +1 for counter-clockwise seen from above. Tail-sitter: [x, y, z, spin] |
 | `motor.Tmax` | 0.05 … 900 | **required** | thrust per motor at full throttle and Vref volts, newtons |
 | `motor.tau` | 0.005 … 1 | **required** | spool-up time constant, s |
 | `motor.idle` | 0 … 0.3 | **required** | idle motor command when armed |
@@ -483,6 +496,10 @@ somewhere clear by default.
 | `motor.Vp` | 1 … 400 | **required** | airspeed where a motor stops pulling at full rpm, m/s |
 | `motor.D` | 0.01 … 1.5 | **required** | prop diameter, m |
 | `staticMargin` | -0.1 … 0.6 | *optional* | CG ahead of the neutral point, as a fraction of the mean chord. Leave it out to place the CG by geometry instead |
+| `surf.roll` | 0 … 2000 | `0` | rad/s² at which roll asks for full aileron. Non-zero gives roll to the surfaces and the motor mixer stops mixing for it |
+| `surf.pitch` | 0 … 2000 | `0` | the same for pitch and the elevator |
+| `surf.yaw` | 0 … 2000 | `0` | the same for yaw and the rudder |
+| `washEta` | 0 … 1 | `0.5` | how much of the propwash reaches a surface sitting behind a propeller |
 | `surfaces[].name` | text ≤ 24 | **required** | shown in the strip table |
 | `surfaces[].role` | `wing`, `tail`, `fin` | **required** | `wing` carries the weight, `tail` sees wing downwash, `fin` is left out of the neutral point |
 | `surfaces[].mirror` | true / false | *optional* | the same surface on both sides |

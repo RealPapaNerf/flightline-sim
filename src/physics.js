@@ -532,6 +532,10 @@ const FL = (function () {
             const dy = r[1] - ac.prop.r[1], dz = r[2] - ac.prop.r[2];
             st.wash = r[0] < ac.prop.r[0] && Math.hypot(dy, dz) < 0.6 * ac.prop.D;
           }
+          // a tail-sitter's elevons sit behind its propellers and live on the wash
+          if (ac.motors && ac.motor) for (const mo of ac.motors) {
+            if (r[0] < mo[0] && Math.hypot(r[1] - mo[1], r[2] - mo[2]) < 0.6 * ac.motor.D) st.wash = true;
+          }
           ac.strips.push(st);
         }
       }
@@ -976,15 +980,23 @@ const FL = (function () {
     if (ac.kind === 'heli') return stepHeli(s, ac, ctl, env, dt);
     if (ac.kind === 'vtol') return stepVtol(s, ac, ctl, env, dt);
 
-    // --- motor & battery ---
-    let thrCmd = s.crashed ? 0 : clamp(ctl.thr, 0, 1);
+    /* --- motor & battery ---
+       A reversing ESC (ctl.rev, on an aircraft whose prop.reverse says it has
+       one) makes the middle of the throttle zero and everything below it
+       reverse: s.n then runs −1 … +1 instead of 0 … 1. A reversing prop is
+       much less efficient backwards — the blade is the wrong way round — which
+       is what prop.revEff is for. */
+    const rev = !!(ctl.rev && P.reverse);
+    let thrCmd = s.crashed ? 0 : rev ? 2 * clamp(ctl.thr, 0, 1) - 1 : clamp(ctl.thr, 0, 1);
     if (env.battery && s.soc <= 0) thrCmd = 0;
     s.n += (thrCmd - s.n) * Math.min(1, dt / P.tau);
+    if (!rev && s.n < 0) s.n = 0;
     const rho = env.rho;
+    const an = Math.abs(s.n);
     const vbody = Math.hypot(s.v[0], s.v[1], s.v[2]);
-    const pice = iceSmall(s, env, vbody, 3.5 * P.Vp * s.n + vbody, 0.08 * P.D + 0.006, dt);
+    const pice = iceSmall(s, env, vbody, 3.5 * P.Vp * an + vbody, 0.08 * P.D + 0.006, dt);
     // motor current: power ∝ ρ·rpm³ for a fixed prop (thin air unloads it), more with an iced prop
-    battery(s, B, B.Iidle + B.Imax * s.n * s.n * s.n * (rho / RHO0) * pice.power, vbody, env, dt);
+    battery(s, B, B.Iidle + B.Imax * an * an * an * (rho / RHO0) * pice.power, vbody, env, dt);
 
     // --- servos ---
     s.sa = approach(s.sa, sat(ctl.a) * ac.defl.a, ac.servoRate * dt);
@@ -996,7 +1008,7 @@ const FL = (function () {
 
     if (s.held) { // in the pilot's hand: motor spins, nothing moves
       const rpm0 = s.n * clamp(s.vb / B.Vref, 0, 1.15);
-      s.tele.T = P.T0 * (rho / RHO0) * rpm0 * rpm0; s.tele.V = 0;
+      s.tele.T = P.T0 * (rho / RHO0) * rpm0 * Math.abs(rpm0); s.tele.V = 0;
       return;
     }
 
@@ -1009,7 +1021,9 @@ const FL = (function () {
     // --- propeller: static thrust ∝ rpm², falling off toward pitch speed ---
     const rpm = s.n * clamp(s.vb / B.Vref, 0, 1.15);
     const Vax = vb[0];
-    let T = P.T0 * (rho / RHO0) * (rpm * rpm - (rpm * Vax) / P.Vp);
+    // rpm·|rpm| keeps the sign when the prop is turning backwards
+    let T = P.T0 * (rho / RHO0) * (rpm * Math.abs(rpm) - (rpm * Vax) / P.Vp);
+    if (rpm < 0) T *= P.revEff || 0.6; // a propeller pushing backwards is a bad propeller
     T = Math.max(P.Tmin * (rho / RHO0) * Math.min(1, Math.abs(Vax) / P.Vp), T) * pice.thrust;
     let dWash = 0; // slipstream speed-up behind a tractor prop (momentum theory, part developed)
     if (P.wash && T > 0) {
@@ -1204,8 +1218,10 @@ const FL = (function () {
     s.fwd = approach(s.fwd, clamp(ctl.fwd === undefined ? 0 : +ctl.fwd, 0, 1), dt / ac.trans.time);
 
     // --- battery and motors, as on a multirotor ---
-    const m3 = (s.mot[0] ** 3 + s.mot[1] ** 3 + s.mot[2] ** 3 + s.mot[3] ** 3) / 4;
-    const vbody = Math.hypot(s.v[0], s.v[1], s.v[2]), mAvg = (s.mot[0] + s.mot[1] + s.mot[2] + s.mot[3]) / 4;
+    let m3 = 0, mAvg = 0;
+    for (let i = 0; i < ac.motors.length; i++) { m3 += s.mot[i] ** 3; mAvg += s.mot[i]; }
+    m3 /= ac.motors.length; mAvg /= ac.motors.length;
+    const vbody = Math.hypot(s.v[0], s.v[1], s.v[2]);
     const pice = iceSmall(s, env, vbody, 3.5 * M.Vp * mAvg + vbody, 0.09 * M.D, dt);
     const vprev = clamp((s.vb || B.Vref) / B.Vref, 0, 1.2);
     battery(s, B, B.Iidle + B.Imax * m3 * (rho / RHO0) * pice.power * vprev * vprev, vbody, env, dt);
@@ -1251,31 +1267,41 @@ const FL = (function () {
     const Iw = [I[0] * w[0], I[1] * w[1], I[2] * w[2]], gyro = cross(w, Iw);
     const Mx = I[0] * alpha[0] + gyro[0], My = I[1] * alpha[1] + gyro[1], Mz = I[2] * alpha[2] + gyro[2];
 
-    /* --- mixer. Thrust is along the nose, so the motors above and below the
-       centreline pitch it, the motors left and right yaw it, and roll about
-       the nose is left to the propellers' own reaction torque — which is why
-       a tail-sitter rolls lazily and pitches hard. --- */
-    const ay = Math.abs(ac.motors[0][1]) || 1, az = Math.abs(ac.motors[0][2]) || 1;
+    /* --- who flies which axis ---
+       Thrust is along the nose, so motors above and below the centreline pitch
+       it, motors left and right yaw it by running at different speeds, and
+       roll about the nose is the propellers' own reaction torque. A two-motor
+       tail-sitter has no motors above or below the centreline at all: it yaws
+       on differential thrust and flies pitch and roll on elevons sitting in
+       the propwash. That is what `surf` is for — the angular acceleration
+       (rad/s²) at which an axis asks for full control-surface deflection. An
+       axis `surf` names belongs to the surfaces, and the mixer leaves it alone
+       rather than fighting them for it. */
+    const nM = ac.motors.length;
+    const SU = ac.surf || { roll: 0, pitch: 0, yaw: 0 };
+    if (ac.defl) {
+      const put = (cur, demand, full, lim) => approach(cur, full > 0 ? clamp(demand / full, -1, 1) * lim : 0, ac.servoRate * dt);
+      s.sa = put(s.sa, alpha[0], SU.roll, ac.defl.a);
+      s.se = put(s.se, alpha[1], SU.pitch, ac.defl.e);
+      s.sr = put(s.sr, alpha[2], SU.yaw, ac.defl.r);
+      s.sf = approach(s.sf, clamp(ctl.f || 0, 0, 1) * (ac.defl.f || 0), ((ac.defl.f || 0) / 2) * dt);
+    }
+    const ay = Math.abs(ac.motors[0][1]), az = Math.abs(ac.motors[0][2]);
+    const mRoll = SU.roll > 0 ? 0 : Mx / M.kQ;              // the propellers' reaction torque
+    const mPitch = SU.pitch > 0 || az < 1e-4 ? 0 : My / az; // motors above and below the centreline
+    const mYaw = SU.yaw > 0 || ay < 1e-4 ? 0 : Mz / ay;     // motors left and right of it
     const base = M.idle + clamp(ctl.thr, 0, 1) * (1 - M.idle);
-    const Tc = 4 * Tmax * base * base;
-    const want = ac.motors.map(([x, y, z, q]) => (My / az) * Math.sign(z) / 4 - (Mz / ay) * Math.sign(y) / 4 + (Mx / M.kQ) * q / 4);
+    const Tc = nM * Tmax * base * base;
+    const want = ac.motors.map(([x, y, z, q]) => (mPitch * Math.sign(z) - mYaw * Math.sign(y) + mRoll * q) / nM);
     const lo = Tmax * M.idle * M.idle, hi = Tmax;
     const spread = Math.max(...want) - Math.min(...want);
-    if (spread > hi - lo) { const k = (hi - lo) / spread; for (let i = 0; i < 4; i++) want[i] *= k; }
-    let Ti = want.map((d) => Tc / 4 + d);
+    if (spread > hi - lo) { const k = (hi - lo) / spread; for (let i = 0; i < nM; i++) want[i] *= k; }
+    let Ti = want.map((d) => Tc / nM + d);
     const over = Math.max(...Ti) - hi, under = lo - Math.min(...Ti);
     if (over > 0) Ti = Ti.map((t) => t - over); else if (under > 0) Ti = Ti.map((t) => t + under);
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < nM; i++) {
       const cmd = armed ? Math.sqrt(clamp(Ti[i] / Tmax, 0, 1)) : 0;
       s.mot[i] += (cmd - s.mot[i]) * Math.min(1, dt / M.tau);
-    }
-
-    // --- control surfaces, if it has any ---
-    if (ac.defl) {
-      s.sa = approach(s.sa, sat(ctl.a) * ac.defl.a, ac.servoRate * dt);
-      s.se = approach(s.se, sat(ctl.e) * ac.defl.e, ac.servoRate * dt);
-      s.sr = approach(s.sr, sat(ctl.r) * ac.defl.r, ac.servoRate * dt);
-      s.sf = approach(s.sf, clamp(ctl.f || 0, 0, 1) * (ac.defl.f || 0), ((ac.defl.f || 0) / 2) * dt);
     }
 
     // --- thrust ---
@@ -1290,7 +1316,7 @@ const FL = (function () {
     s.buf[0] += (Math.random() * 2 - 1 - s.buf[0]) * Math.min(1, dt / 0.05);
     s.buf[1] += (Math.random() * 2 - 1 - s.buf[1]) * Math.min(1, dt / 0.05);
     let Ttot = 0;
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < nM; i++) {
       const mo = ac.motors[i], om = s.mot[i];
       // air going into the disc: forward speed plus what the rotation adds at this motor
       const vax = vb[0] + (w[1] * mo[2] - w[2] * mo[1]);
@@ -1306,15 +1332,23 @@ const FL = (function () {
       Mo[1] += mo[2] * T;
       Mo[2] += -mo[1] * T;
     }
-    const shake = (wash * 0.14 + s.shed * 0.12) * ((M.Tmax * az) / (13.5 * 0.078));
+    const shake = (wash * 0.14 + s.shed * 0.12) * ((M.Tmax * Math.max(ay, az, 0.02)) / (13.5 * 0.078));
     Mo[1] += shake * s.buf[0]; Mo[2] += shake * s.buf[1];
     // rotor drag acts in the disc plane, which here is across the aircraft
     F[1] -= ac.rotorDrag * Ttot * vb[1]; F[2] -= ac.rotorDrag * Ttot * vb[2];
     if (s.shed > 0) for (let k = 0; k < 3; k++) Mo[k] += (Math.random() * 2 - 1) * s.shed * 0.04 * ac.mass * ac.b;
 
-    // --- lifting surfaces and body drag ---
+    /* --- lifting surfaces and body drag ---
+       Strips behind a propeller see its slipstream, which is the only reason a
+       twin tail-sitter can hold its nose up at zero airspeed: its elevons are
+       flying in 15 m/s of their own making. */
+    let dWash = 0;
+    if (Ttot > 0) {
+      const A = (Math.PI * M.D * M.D) / 4, Vx = Math.max(0, vb[0]);
+      dWash = (ac.washEta || 0.5) * (Math.sqrt(Vx * Vx + (2 * (Ttot / nM)) / (rho * A)) - Vx);
+    }
     const gw = env.gw || [0, 0, 0], wa = [w[0] - gw[0], w[1] - gw[1], w[2] - gw[2]];
-    const sf = stripForces(s, ac, vb, wa, R, rho, env, 0, dt, F, Mo);
+    const sf = stripForces(s, ac, vb, wa, R, rho, env, dWash, dt, F, Mo);
     if (V > 0.1) {
       const Bd = ac.body, kq = 0.5 * rho * V;
       const fb = [-kq * Bd.CdA[0] * vb[0], -kq * Bd.CdA[1] * vb[1], -kq * Bd.CdA[2] * vb[2]];
