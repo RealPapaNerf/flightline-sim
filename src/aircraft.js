@@ -356,6 +356,8 @@ const ACF = (function (FL) {
     f('fuseW', FIXED, 'Fuselage', 'Fuselage width', 'mm', 20, 600, 5, (p) => Math.round((p.kind === 'wing' ? 0.086 : 0.08) * p.span)),
     f('fuseH', FIXED, 'Fuselage', 'Fuselage height', 'mm', 20, 700, 5, (p) => Math.round((p.kind === 'wing' ? 0.069 : 0.093) * p.span)),
     f('noseLen', 'plane', 'Fuselage', 'Nose length', 'mm', 40, 2000, 5, (p) => Math.round(0.25 * p.span), 'Wing leading edge forward to the prop.'),
+    f('camX', FIXED, 'Fuselage', 'FPV camera ahead of the wing', 'mm', -600, 3000, 5, (p) => (p.kind === 'wing' ? 0 : Math.round(0.93 * p.noseLen)), 'Measured from the wing leading edge. The FPV view draws your own aircraft, so a camera too far back looks out at the inside of its own canopy.'),
+    f('camZ', FIXED, 'Fuselage', 'FPV camera above the body centre', 'mm', -400, 400, 1, (p) => Math.round(0.5 * p.fuseH + (p.kind === 'wing' ? 18 : 22)), 'Half the fuselage height puts it on the skin; a little more puts it on a pod on top.'),
     fe('gear', FIXED, 'Fuselage', 'Landing gear', [['none', 'None (hand launch)'], ['tricycle', 'Fixed tricycle'], ['taildragger', 'Fixed taildragger'], ['retract', 'Retractable tricycle']], (p) => (p.kind === 'wing' ? 'none' : 'tricycle')),
     // ---- control surfaces ----
     f('ailSpan', FIXED, 'Controls', 'Aileron span', '% of half span', 10, 100, 1, (p) => (p.kind === 'wing' ? 80 : 50), 'Measured inward from the tip.'),
@@ -372,7 +374,7 @@ const ACF = (function (FL) {
     f('propD', ALL, 'Power', 'Prop diameter', 'in', 1.5, 40, 0.1, (p) => (p.kind === 'quad' ? 5 : round((0.16 * p.span) / 25.4, 1)), 'Planes: the default is span/6.3, the ratio both built-in planes use.'),
     f('wheelbase', 'quad', 'Airframe', 'Wheelbase (motor to motor)', 'mm', 60, 2000, 5, (p) => Math.round(44 * p.propD), 'Diagonal, corner to corner. 44 mm per inch of prop fits all four built-in quads.'),
     f('thrustPerMotor', 'quad', 'Power', 'Thrust per motor, full throttle', 'g', 30, 60000, 10, (p) => Math.round(1.25 * p.mass), 'From the motor manufacturer\'s thrust table, at your cell count and prop. The default is 5:1 thrust to weight.'),
-    f('camTilt', 'quad', 'Airframe', 'Camera tilt', '°', 0, 60, 1, (p) => (p.propD >= 10 ? 10 : 30)),
+    f('camTilt', ALL, 'Airframe', 'Camera tilt', '°', -20, 60, 1, (p) => (p.kind === 'quad' ? (p.propD >= 10 ? 10 : 30) : 0), 'Down from level. A camera platform flies with it at zero; a racer tilts it up by flying nose-down.'),
     f('rateMax', 'quad', 'Airframe', 'Max rotation rate', '°/s', 100, 1800, 10, (p) => Math.round(clamp(700 * Math.pow(0.127 / (p.propD * IN), 0.9), 200, 900))),
     // ---- power ----
     f('propPitch', ALL, 'Power', 'Prop pitch', 'in', 1, 20, 0.1, (p) => round(0.5 * p.propD, 1)),
@@ -619,7 +621,14 @@ const ACF = (function (FL) {
         ];
       }
     }
-    def.fpvCam = plank ? [X(0.17 * c0), 0, round(-sp.wingZ / 1000 - 0.005, 4)] : [X(0.8 * noseLen), 0, round(-0.71 * h, 4)];
+    /* The FPV camera has to end up in clear air: the model builder draws your own
+       fuselage in the FPV view, and a camera inside it looks out at the inside of
+       the nose. On a wing that means on top of the pod; on a plane with a tractor
+       prop it means on top of the nose, forward of where the canopy starts (the
+       canopy box begins 22% of the body length back from the nose). Measured from
+       the wing leading edge, like the prop above. test/camera_test.js checks it. */
+    def.fpvCam = [round(sp.camX / 1000, 4), 0, round(-sp.camZ / 1000, 4)];
+    def.camTilt = sp.camTilt;
     const look = {
       top: [1.0, 0.52, 0.12], bottom: [0.16, 0.17, 0.2], side: [0.85, 0.42, 0.1], tip: [0.55, 0.95, 0.25],
       fuse: [0.93, 0.93, 0.91], fuseBottom: [0.12, 0.3, 0.68], canopy: [0.1, 0.16, 0.24], dark: [0.09, 0.09, 0.11], metal: [0.72, 0.74, 0.78],

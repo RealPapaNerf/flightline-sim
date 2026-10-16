@@ -119,7 +119,7 @@ column the default is the same.
 |---|---|---|---|---|---|---|
 | `mass` | all | g | 30 … 60000 | `1000` | `1000` | `1000` |
 | `wheelbase` | quad | mm | 60 … 2000 | – | – | `220` |
-| `camTilt` | quad | ° | 0 … 60 | – | – | `30` |
+| `camTilt` | all | ° | -20 … 60 | `0` | `0` | `30` |
 | `rateMax` | quad | °/s | 100 … 1800 | – | – | `700` |
 
 #### Wing
@@ -155,6 +155,8 @@ column the default is the same.
 | `fuseW` | plane, wing | mm | 20 … 600 | `120` | `129` | – |
 | `fuseH` | plane, wing | mm | 20 … 700 | `140` | `104` | – |
 | `noseLen` | plane | mm | 40 … 2000 | `375` | – | – |
+| `camX` | plane, wing | mm | -600 … 3000 | `349` | `0` | – |
+| `camZ` | plane, wing | mm | -400 … 400 | `92` | `70` | – |
 | `gear` | plane, wing |  | `none`, `tricycle`, `taildragger`, `retract` | `tricycle` | `none` | – |
 
 #### Controls
@@ -326,6 +328,14 @@ origin is the CG and the geometry has to be right.
 | `starts` | list ≤ 4 of `launch`, `runway`, `air`, `pad` | **required** | where a reset can put you |
 | `fpvCam` | 3 × (-8 … 8) | **required** | FPV camera position, body metres |
 | `camTilt` | -40 … 70 | `0` | FPV camera tilt, degrees up |
+
+`fpvCam` has to be in clear air. The FPV view draws your own aircraft, so a camera
+inside the fuselage looks out at the inside of its own nose, and a camera a little
+way back and high up ends up inside the canopy, which is a box sitting on top of the
+nose from 22% to 80% of the body length back. `node test/camera_test.js` checks every
+built-in and every file in `aircraft/`, and the build sheet's `camX` and `camZ` put it
+somewhere clear by default.
+
 | `colR` | 0.02 … 4 | **required** | radius of the sphere used against trees, poles and wires, m |
 | `look.blades` | 2 … 6 | *optional* | how many blades to draw |
 

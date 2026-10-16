@@ -381,6 +381,10 @@ test/*.js        bench tests: fm_test (planes), perf (trim table), quad_test <id
 
 Edit `src/`, then run `python3 tools/build.py`. `index.html` is generated; commit it with
 the sources (GitHub Pages serves it directly). Run the tests with `node test/<name>.js`.
+`input_test` checks the controller recorder against synthetic switch and slider
+traces; `camera_test` checks that no aircraft's FPV camera is inside its own
+fuselage. Both lift the code they test straight out of `src/app.js` by its comment
+markers, so they cannot drift from what ships.
 
 ## License
 

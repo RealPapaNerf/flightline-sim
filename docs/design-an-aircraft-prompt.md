@@ -67,6 +67,9 @@ sensible default beats a number you made up.
                    staticMargin (%, 8-12 is normal, 5-7 for a plank)
                    tailArm, stabSpan, stabChord, finHeight, finChord (mm)
                    fuseW, fuseH, noseLen (mm)
+                   camX, camZ (mm) — where the FPV camera sits, from the wing
+                   leading edge and above the body centre. Leave them out and
+                   they follow the nose.
                    gear ("none" | "tricycle" | "taildragger" | "retract")
                    ailSpan, flapSpan (% of the half span)
                    ailChord, flapChord, elevChord, rudChord (% of chord)
@@ -77,7 +80,8 @@ sensible default beats a number you made up.
                    wheelbase (mm, motor to motor diagonally)
                    thrustPerMotor (g, at full throttle on my cell count,
                      from the motor maker's thrust table)
-                   rateMax (deg/s), camTilt (degrees)
+                   rateMax (deg/s)
+    all:           camTilt (degrees down from level)
                    quadGear, gimbal, packTop (true/false)
 
 Rules:

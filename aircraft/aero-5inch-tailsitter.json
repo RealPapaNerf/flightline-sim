@@ -7,7 +7,7 @@
     "id": "aero-5inch",
     "name": "Aero 5 Inch",
     "blurb": "Your 5-inch speed design: 263 mm carbon X-frame inside an aero shell, 400 mm body, launched off its tail. 1.1 kg, 6.6:1, and it runs out of pack before it runs out of speed.",
-    "notes": "Read off your 5 Inch Speed Design.step: carbon frame 186.5 mm square, so the motors sit 93 mm out on both axes and the diagonal wheelbase is 263 mm; the rear shell spans 384 mm across the arms and is 92 mm deep; the body parts (Vista mount, camera mounts, servo mount) run about 290 mm, and there is a Launcher part — which is why this is built as a tail-sitter. Assumed, because the file does not say: 1,100 g all-up; 1,800 gf per motor on 6S (a 2207-class motor on a 5-inch prop); 150 m/s pitch speed; 0.0016 m2 of head-on drag area, the same drag coefficient as the Peregreen-class file on an 85 mm body; 6S 1,300 race pack at 3 mOhm per cell. Weigh yours and put a real thrust figure in and the rest will follow.",
+    "notes": "Read off your 5 Inch Speed Design.step: carbon frame 186.5 mm square, so the motors sit 93 mm out on both axes and the diagonal wheelbase is 263 mm; the rear shell spans 384 mm across the arms and is 92 mm deep; the body parts (Vista mount, camera mounts, servo mount) run about 290 mm, and there is a Launcher part \u2014 which is why this is built as a tail-sitter. Assumed, because the file does not say: 1,100 g all-up; 1,800 gf per motor on 6S (a 2207-class motor on a 5-inch prop); 150 m/s pitch speed; 0.0016 m2 of head-on drag area, the same drag coefficient as the Peregreen-class file on an 85 mm body; 6S 1,300 race pack at 3 mOhm per cell. Weigh yours and put a real thrust figure in and the rest will follow.",
     "mass": 1.1,
     "I": [
       0.0075,
@@ -176,7 +176,7 @@
       "air"
     ],
     "fpvCam": [
-      0.21,
+      0.2242,
       0,
       0
     ],

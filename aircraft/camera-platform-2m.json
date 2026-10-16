@@ -7,7 +7,7 @@
     "kind": "plane",
     "name": "2 m camera platform",
     "id": "camera-2m",
-    "blurb": "Two-metre pod-and-boom camera plane, 3 kg, flaps over most of the span and retracts. Slow, steady and happy to be left alone — the Ranger 1980 / Skywalker 1900 idea.",
+    "blurb": "Two-metre pod-and-boom camera plane, 3 kg, flaps over most of the span and retracts. Slow, steady and happy to be left alone \u2014 the Ranger 1980 / Skywalker 1900 idea.",
     "mass": 3000,
     "span": 2000,
     "rootChord": 300,
@@ -55,7 +55,7 @@
   "def": {
     "id": "camera-2m",
     "name": "2 m camera platform",
-    "blurb": "Two-metre pod-and-boom camera plane, 3 kg, flaps over most of the span and retracts. Slow, steady and happy to be left alone — the Ranger 1980 / Skywalker 1900 idea.",
+    "blurb": "Two-metre pod-and-boom camera plane, 3 kg, flaps over most of the span and retracts. Slow, steady and happy to be left alone \u2014 the Ranger 1980 / Skywalker 1900 idea.",
     "mass": 3,
     "I": [
       0.3,
@@ -222,9 +222,9 @@
       "air"
     ],
     "fpvCam": [
-      0.2794,
+      0.4658,
       0,
-      -0.1136
+      -0.088
     ],
     "camTilt": 0,
     "colR": 0.74,

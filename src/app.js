@@ -1096,17 +1096,8 @@
     }
 
     // --- fuselage ---
+    const F = fuseExtent(ac), { w, h, nose, tail, wingTE } = F, sh = ac.shape || {};
     const wing = ac.surfaces.find((s) => s.role === 'wing') || ac.surfaces[0];
-    const sh = ac.shape || {};
-    // if the file says nothing, read the size back out of the body drag area (0.30·w·h, h ≈ 1.16·w)
-    const w = sh.fuseW || Math.sqrt(Math.max(1e-5, ac.body.CdA[0]) / 0.3 / 1.16), h = sh.fuseH || 1.16 * w;
-    let nose = ac.prop ? X(ac.prop.r[0]) + (ac.prop.wash ? 0 : 0.5 * wing.c0) : -1e9, tail = 1e9;
-    for (const sf of ac.surfaces) {
-      nose = Math.max(nose, X(Math.max(sf.xLE0, sf.xLE1)));
-      tail = Math.min(tail, X(Math.min(sf.xLE0 - sf.c0, sf.xLE1 - sf.c1)));
-    }
-    for (const pt of ac.points) { nose = Math.max(nose, pt.p[0]); tail = Math.min(tail, pt.p[0]); }
-    const wingTE = X(wing.xLE0 - wing.c0);
     if (tailsit) { // a body of revolution: a pointed nose, a parallel middle, a tapered tail
       const mid1 = nose - 0.35 * (nose - tail), mid2 = tail + 0.25 * (nose - tail);
       const col = { top: fuseC, bottom: fuseC, side: fuseC, front: dark, back: dark };
@@ -1161,7 +1152,7 @@
       parts.unshift({ mesh: GLR.mesh(R, g), mat: M4.ident() });
       return { parts: parts.concat(moving), props, cam: BR(ac.fpvCam) };
     }
-    const pz = -X(ac.prop.r[0]);
+    const pz = -ac.prop.r[0];
     g.with(M4.trans(0, 0, pz + (ac.prop.wash ? 0.01 : -0.01)), () => g.with(M4.rotX(ac.prop.wash ? -Math.PI / 2 : Math.PI / 2), () => g.cyl(0, 0, 0, ac.prop.D * 0.09, ac.prop.D * 0.05, ac.prop.D * 0.12, 8, metal)));
     const pm = propMeshes(g, (LK.blades || 2), ac.prop.D / 2, dark);
     parts.unshift({ mesh: GLR.mesh(R, g), mat: M4.ident() });
@@ -1171,6 +1162,56 @@
       cam: BR(ac.fpvCam),
     };
   }
+  /* ---- fuselage extent ----------------------------------------------------------
+     Where the drawn fuselage actually is, in body coordinates. Pulled out of the
+     model builder so test/camera_test.js can lift it out of this file verbatim and
+     check that no aircraft's FPV camera ends up inside its own nose or canopy.
+     ac.prop.r, ac.points and ac.fpvCam are already body coordinates (physics.js
+     shifts them so the CG is the origin); ac.surfaces are not, hence the xShift.  */
+  function fuseExtent(ac) {
+    const sh = ac.shape || {};
+    const X = (x) => x - ac.xShift;
+    // if the file says nothing, read the size back out of the body drag area (0.30·w·h, h ≈ 1.16·w)
+    const w = sh.fuseW || Math.sqrt(Math.max(1e-5, ac.body.CdA[0]) / 0.3 / 1.16), h = sh.fuseH || 1.16 * w;
+    const wing = ac.surfaces.find((s) => s.role === 'wing') || ac.surfaces[0];
+    let nose = ac.prop ? ac.prop.r[0] + (ac.prop.wash ? 0 : 0.5 * wing.c0) : -1e9, tail = 1e9;
+    for (const sf of ac.surfaces) {
+      nose = Math.max(nose, X(Math.max(sf.xLE0, sf.xLE1)));
+      tail = Math.min(tail, X(Math.min(sf.xLE0 - sf.c0, sf.xLE1 - sf.c1)));
+    }
+    for (const pt of ac.points) { nose = Math.max(nose, pt.p[0]); tail = Math.min(tail, pt.p[0]); }
+    return { w, h, nose, tail, wingTE: X(wing.xLE0 - wing.c0), c0: wing.c0, xLE0: X(wing.xLE0) };
+  }
+  /* How much of the drawn body is in the way of a camera at body point p, for the
+     three fuselage shapes the model builder draws. Returns the clearance in metres:
+     positive is clear air, negative is inside something. */
+  function camClearance(ac, p, kind) {
+    const F = fuseExtent(ac), { w, h, nose, tail, wingTE } = F;
+    const x = p[0], up = -p[2], side = Math.abs(p[1]);
+    const lerp = (x0, h0, x1, h1) => h0 + ((x - x0) / (x1 - x0)) * (h1 - h0);
+    const span = (a, b) => x <= Math.max(a, b) && x >= Math.min(a, b);
+    let out = Infinity;
+    if (kind === 'tailsit') {
+      const mid1 = nose - 0.35 * (nose - tail), mid2 = tail + 0.25 * (nose - tail);
+      if (span(nose, mid1)) out = Math.min(out, Math.max(up, side) - 0.5 * lerp(nose, h * 0.18, mid1, h));
+      else if (span(mid1, mid2)) out = Math.min(out, Math.max(up, side) - 0.5 * h);
+      else if (span(mid2, tail)) out = Math.min(out, Math.max(up, side) - 0.5 * lerp(mid2, h, tail, h * 0.55));
+    } else if (kind === 'plank') {
+      const f0 = F.xLE0 + 0.13 * F.c0, f1 = wingTE - 0.09 * F.c0;
+      if (span(f0, f1)) out = Math.min(out, Math.max(up, side) - 0.5 * lerp(f0, h * 0.95, f1, h * 0.62));
+      if (span(f0 + 0.02 * F.c0, f0 + 0.08 * F.c0) && side < w * 0.35) out = Math.min(out, up < h * 0.8 && up > h * 0.45 ? -(h * 0.8 - up) : up - h * 0.8);
+    } else {
+      const mid = Math.min(wingTE, nose - 0.25 * w);
+      if (span(nose, mid)) out = Math.min(out, Math.max(up, side) - 0.5 * lerp(nose, h * 0.66, mid, h));
+      else if (span(mid, tail)) out = Math.min(out, Math.max(up, side) - 0.5 * lerp(mid, h, tail, h * 0.36));
+      // the canopy: a box sitting on top of the nose, which is what a camera placed
+      // high and a little way back ends up inside
+      const c0 = nose - 0.22 * (nose - mid), c1 = nose - 0.8 * (nose - mid);
+      if (span(c0, c1) && side < w * 0.38 && up > 0.5 * h && up < 0.9 * h) out = Math.min(out, -Math.min(up - 0.5 * h, 0.9 * h - up, Math.abs(x - c0)));
+    }
+    return out;
+  }
+  /* ---- end fuselage extent ---- */
   const MODELS = {};
   const modelFor = (ac) => (ac.kind === 'quad' ? buildQuad(ac) : ac.kind === 'heli' ? buildHeli(ac)
     : ac.id === 'trainer' ? buildTrainer(ac) : ac.id === 'goblin' ? buildGoblin(ac) : buildPlane(ac));
@@ -4093,5 +4134,5 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   window.__flightline = { st, S, env, nav: () => nav, setAp: (m) => setAp(m), AC: () => AC, doReset, FL, IN: () => IN, prof, ctl, world: () => world, course, ghost, avatars, laps: LAPS, rec: () => rec, race, raceJoin, raceReady, NET, myId,
     terrain: () => terrain, mapInfo: () => mapInfo, openMap, closeMap, TERRAIN, MAPS,
     terrainStats: () => ({ tris: drawnTris, chunks: drawnChunks, lods: chunks ? chunks.map((c) => c.lod) : [] }),
-    agl }; // debugging and tests
+    agl, setView, setAircraft, acList: () => Object.keys(ACS), addFile: (t) => addAircraftFile(t, true) }; // debugging and tests
 })();

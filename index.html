@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<!-- built by tools/build.py from src/ (956d2dfd); edit the sources, not this file -->
+<!-- built by tools/build.py from src/ (c3bc87ac); edit the sources, not this file -->
 <title>Flightline RC Sim</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Browser RC flight trainer: Nano Goblin and trainer flight models, line of sight, FPV and split view, USB transmitter support.">
@@ -638,7 +638,7 @@ const FL = (function () {
       starts: ['launch', 'air'],
       trim: { a: 0.004, e: -0.06 }, // built-in mechanical trim (stick units): hands-off ≈ 36 mph
       stab: { kRoll: 1.2, dRoll: 0.04, kPitch: 1.1, dPitch: 0.05, turn: 0.4 },
-      fpvCam: [0.27, 0, -0.005], // nose camera, body FRD (definition x)
+      fpvCam: [0.25, 0, -0.0442], // nose camera, body FRD (definition x)
       colR: 0.25, // obstacle-collision radius, m
     },
 
@@ -694,7 +694,7 @@ const FL = (function () {
       starts: ['runway', 'air'],
       trim: { a: 0.004, e: -0.08 }, // built-in mechanical trim (stick units): hands-off ≈ 29 mph
       stab: { kRoll: 1.8, dRoll: 0.12, kPitch: 1.4, dPitch: 0.1, turn: 0.6 },
-      fpvCam: [0.3, 0, -0.1],
+      fpvCam: [0.4246, 0, -0.0872],
       colR: 0.55,
     },
 
@@ -2314,6 +2314,8 @@ const ACF = (function (FL) {
     f('fuseW', FIXED, 'Fuselage', 'Fuselage width', 'mm', 20, 600, 5, (p) => Math.round((p.kind === 'wing' ? 0.086 : 0.08) * p.span)),
     f('fuseH', FIXED, 'Fuselage', 'Fuselage height', 'mm', 20, 700, 5, (p) => Math.round((p.kind === 'wing' ? 0.069 : 0.093) * p.span)),
     f('noseLen', 'plane', 'Fuselage', 'Nose length', 'mm', 40, 2000, 5, (p) => Math.round(0.25 * p.span), 'Wing leading edge forward to the prop.'),
+    f('camX', FIXED, 'Fuselage', 'FPV camera ahead of the wing', 'mm', -600, 3000, 5, (p) => (p.kind === 'wing' ? 0 : Math.round(0.93 * p.noseLen)), 'Measured from the wing leading edge. The FPV view draws your own aircraft, so a camera too far back looks out at the inside of its own canopy.'),
+    f('camZ', FIXED, 'Fuselage', 'FPV camera above the body centre', 'mm', -400, 400, 1, (p) => Math.round(0.5 * p.fuseH + (p.kind === 'wing' ? 18 : 22)), 'Half the fuselage height puts it on the skin; a little more puts it on a pod on top.'),
     fe('gear', FIXED, 'Fuselage', 'Landing gear', [['none', 'None (hand launch)'], ['tricycle', 'Fixed tricycle'], ['taildragger', 'Fixed taildragger'], ['retract', 'Retractable tricycle']], (p) => (p.kind === 'wing' ? 'none' : 'tricycle')),
     // ---- control surfaces ----
     f('ailSpan', FIXED, 'Controls', 'Aileron span', '% of half span', 10, 100, 1, (p) => (p.kind === 'wing' ? 80 : 50), 'Measured inward from the tip.'),
@@ -2330,7 +2332,7 @@ const ACF = (function (FL) {
     f('propD', ALL, 'Power', 'Prop diameter', 'in', 1.5, 40, 0.1, (p) => (p.kind === 'quad' ? 5 : round((0.16 * p.span) / 25.4, 1)), 'Planes: the default is span/6.3, the ratio both built-in planes use.'),
     f('wheelbase', 'quad', 'Airframe', 'Wheelbase (motor to motor)', 'mm', 60, 2000, 5, (p) => Math.round(44 * p.propD), 'Diagonal, corner to corner. 44 mm per inch of prop fits all four built-in quads.'),
     f('thrustPerMotor', 'quad', 'Power', 'Thrust per motor, full throttle', 'g', 30, 60000, 10, (p) => Math.round(1.25 * p.mass), 'From the motor manufacturer\'s thrust table, at your cell count and prop. The default is 5:1 thrust to weight.'),
-    f('camTilt', 'quad', 'Airframe', 'Camera tilt', '°', 0, 60, 1, (p) => (p.propD >= 10 ? 10 : 30)),
+    f('camTilt', ALL, 'Airframe', 'Camera tilt', '°', -20, 60, 1, (p) => (p.kind === 'quad' ? (p.propD >= 10 ? 10 : 30) : 0), 'Down from level. A camera platform flies with it at zero; a racer tilts it up by flying nose-down.'),
     f('rateMax', 'quad', 'Airframe', 'Max rotation rate', '°/s', 100, 1800, 10, (p) => Math.round(clamp(700 * Math.pow(0.127 / (p.propD * IN), 0.9), 200, 900))),
     // ---- power ----
     f('propPitch', ALL, 'Power', 'Prop pitch', 'in', 1, 20, 0.1, (p) => round(0.5 * p.propD, 1)),
@@ -2577,7 +2579,14 @@ const ACF = (function (FL) {
         ];
       }
     }
-    def.fpvCam = plank ? [X(0.17 * c0), 0, round(-sp.wingZ / 1000 - 0.005, 4)] : [X(0.8 * noseLen), 0, round(-0.71 * h, 4)];
+    /* The FPV camera has to end up in clear air: the model builder draws your own
+       fuselage in the FPV view, and a camera inside it looks out at the inside of
+       the nose. On a wing that means on top of the pod; on a plane with a tractor
+       prop it means on top of the nose, forward of where the canopy starts (the
+       canopy box begins 22% of the body length back from the nose). Measured from
+       the wing leading edge, like the prop above. test/camera_test.js checks it. */
+    def.fpvCam = [round(sp.camX / 1000, 4), 0, round(-sp.camZ / 1000, 4)];
+    def.camTilt = sp.camTilt;
     const look = {
       top: [1.0, 0.52, 0.12], bottom: [0.16, 0.17, 0.2], side: [0.85, 0.42, 0.1], tip: [0.55, 0.95, 0.25],
       fuse: [0.93, 0.93, 0.91], fuseBottom: [0.12, 0.3, 0.68], canopy: [0.1, 0.16, 0.24], dark: [0.09, 0.09, 0.11], metal: [0.72, 0.74, 0.78],
@@ -5872,17 +5881,8 @@ if (typeof module !== 'undefined') module.exports = NET;
     }
 
     // --- fuselage ---
+    const F = fuseExtent(ac), { w, h, nose, tail, wingTE } = F, sh = ac.shape || {};
     const wing = ac.surfaces.find((s) => s.role === 'wing') || ac.surfaces[0];
-    const sh = ac.shape || {};
-    // if the file says nothing, read the size back out of the body drag area (0.30·w·h, h ≈ 1.16·w)
-    const w = sh.fuseW || Math.sqrt(Math.max(1e-5, ac.body.CdA[0]) / 0.3 / 1.16), h = sh.fuseH || 1.16 * w;
-    let nose = ac.prop ? X(ac.prop.r[0]) + (ac.prop.wash ? 0 : 0.5 * wing.c0) : -1e9, tail = 1e9;
-    for (const sf of ac.surfaces) {
-      nose = Math.max(nose, X(Math.max(sf.xLE0, sf.xLE1)));
-      tail = Math.min(tail, X(Math.min(sf.xLE0 - sf.c0, sf.xLE1 - sf.c1)));
-    }
-    for (const pt of ac.points) { nose = Math.max(nose, pt.p[0]); tail = Math.min(tail, pt.p[0]); }
-    const wingTE = X(wing.xLE0 - wing.c0);
     if (tailsit) { // a body of revolution: a pointed nose, a parallel middle, a tapered tail
       const mid1 = nose - 0.35 * (nose - tail), mid2 = tail + 0.25 * (nose - tail);
       const col = { top: fuseC, bottom: fuseC, side: fuseC, front: dark, back: dark };
@@ -5937,7 +5937,7 @@ if (typeof module !== 'undefined') module.exports = NET;
       parts.unshift({ mesh: GLR.mesh(R, g), mat: M4.ident() });
       return { parts: parts.concat(moving), props, cam: BR(ac.fpvCam) };
     }
-    const pz = -X(ac.prop.r[0]);
+    const pz = -ac.prop.r[0];
     g.with(M4.trans(0, 0, pz + (ac.prop.wash ? 0.01 : -0.01)), () => g.with(M4.rotX(ac.prop.wash ? -Math.PI / 2 : Math.PI / 2), () => g.cyl(0, 0, 0, ac.prop.D * 0.09, ac.prop.D * 0.05, ac.prop.D * 0.12, 8, metal)));
     const pm = propMeshes(g, (LK.blades || 2), ac.prop.D / 2, dark);
     parts.unshift({ mesh: GLR.mesh(R, g), mat: M4.ident() });
@@ -5947,6 +5947,56 @@ if (typeof module !== 'undefined') module.exports = NET;
       cam: BR(ac.fpvCam),
     };
   }
+  /* ---- fuselage extent ----------------------------------------------------------
+     Where the drawn fuselage actually is, in body coordinates. Pulled out of the
+     model builder so test/camera_test.js can lift it out of this file verbatim and
+     check that no aircraft's FPV camera ends up inside its own nose or canopy.
+     ac.prop.r, ac.points and ac.fpvCam are already body coordinates (physics.js
+     shifts them so the CG is the origin); ac.surfaces are not, hence the xShift.  */
+  function fuseExtent(ac) {
+    const sh = ac.shape || {};
+    const X = (x) => x - ac.xShift;
+    // if the file says nothing, read the size back out of the body drag area (0.30·w·h, h ≈ 1.16·w)
+    const w = sh.fuseW || Math.sqrt(Math.max(1e-5, ac.body.CdA[0]) / 0.3 / 1.16), h = sh.fuseH || 1.16 * w;
+    const wing = ac.surfaces.find((s) => s.role === 'wing') || ac.surfaces[0];
+    let nose = ac.prop ? ac.prop.r[0] + (ac.prop.wash ? 0 : 0.5 * wing.c0) : -1e9, tail = 1e9;
+    for (const sf of ac.surfaces) {
+      nose = Math.max(nose, X(Math.max(sf.xLE0, sf.xLE1)));
+      tail = Math.min(tail, X(Math.min(sf.xLE0 - sf.c0, sf.xLE1 - sf.c1)));
+    }
+    for (const pt of ac.points) { nose = Math.max(nose, pt.p[0]); tail = Math.min(tail, pt.p[0]); }
+    return { w, h, nose, tail, wingTE: X(wing.xLE0 - wing.c0), c0: wing.c0, xLE0: X(wing.xLE0) };
+  }
+  /* How much of the drawn body is in the way of a camera at body point p, for the
+     three fuselage shapes the model builder draws. Returns the clearance in metres:
+     positive is clear air, negative is inside something. */
+  function camClearance(ac, p, kind) {
+    const F = fuseExtent(ac), { w, h, nose, tail, wingTE } = F;
+    const x = p[0], up = -p[2], side = Math.abs(p[1]);
+    const lerp = (x0, h0, x1, h1) => h0 + ((x - x0) / (x1 - x0)) * (h1 - h0);
+    const span = (a, b) => x <= Math.max(a, b) && x >= Math.min(a, b);
+    let out = Infinity;
+    if (kind === 'tailsit') {
+      const mid1 = nose - 0.35 * (nose - tail), mid2 = tail + 0.25 * (nose - tail);
+      if (span(nose, mid1)) out = Math.min(out, Math.max(up, side) - 0.5 * lerp(nose, h * 0.18, mid1, h));
+      else if (span(mid1, mid2)) out = Math.min(out, Math.max(up, side) - 0.5 * h);
+      else if (span(mid2, tail)) out = Math.min(out, Math.max(up, side) - 0.5 * lerp(mid2, h, tail, h * 0.55));
+    } else if (kind === 'plank') {
+      const f0 = F.xLE0 + 0.13 * F.c0, f1 = wingTE - 0.09 * F.c0;
+      if (span(f0, f1)) out = Math.min(out, Math.max(up, side) - 0.5 * lerp(f0, h * 0.95, f1, h * 0.62));
+      if (span(f0 + 0.02 * F.c0, f0 + 0.08 * F.c0) && side < w * 0.35) out = Math.min(out, up < h * 0.8 && up > h * 0.45 ? -(h * 0.8 - up) : up - h * 0.8);
+    } else {
+      const mid = Math.min(wingTE, nose - 0.25 * w);
+      if (span(nose, mid)) out = Math.min(out, Math.max(up, side) - 0.5 * lerp(nose, h * 0.66, mid, h));
+      else if (span(mid, tail)) out = Math.min(out, Math.max(up, side) - 0.5 * lerp(mid, h, tail, h * 0.36));
+      // the canopy: a box sitting on top of the nose, which is what a camera placed
+      // high and a little way back ends up inside
+      const c0 = nose - 0.22 * (nose - mid), c1 = nose - 0.8 * (nose - mid);
+      if (span(c0, c1) && side < w * 0.38 && up > 0.5 * h && up < 0.9 * h) out = Math.min(out, -Math.min(up - 0.5 * h, 0.9 * h - up, Math.abs(x - c0)));
+    }
+    return out;
+  }
+  /* ---- end fuselage extent ---- */
   const MODELS = {};
   const modelFor = (ac) => (ac.kind === 'quad' ? buildQuad(ac) : ac.kind === 'heli' ? buildHeli(ac)
     : ac.id === 'trainer' ? buildTrainer(ac) : ac.id === 'goblin' ? buildGoblin(ac) : buildPlane(ac));
@@ -8869,7 +8919,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   window.__flightline = { st, S, env, nav: () => nav, setAp: (m) => setAp(m), AC: () => AC, doReset, FL, IN: () => IN, prof, ctl, world: () => world, course, ghost, avatars, laps: LAPS, rec: () => rec, race, raceJoin, raceReady, NET, myId,
     terrain: () => terrain, mapInfo: () => mapInfo, openMap, closeMap, TERRAIN, MAPS,
     terrainStats: () => ({ tris: drawnTris, chunks: drawnChunks, lods: chunks ? chunks.map((c) => c.lod) : [] }),
-    agl }; // debugging and tests
+    agl, setView, setAircraft, acList: () => Object.keys(ACS), addFile: (t) => addAircraftFile(t, true) }; // debugging and tests
 })();
 
 </script>
