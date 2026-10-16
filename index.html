@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<!-- built by tools/build.py from src/ (bf7be296); edit the sources, not this file -->
+<!-- built by tools/build.py from src/ (7f4dbabf); edit the sources, not this file -->
 <title>Flightline RC Sim</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Browser RC flight trainer: Nano Goblin and trainer flight models, line of sight, FPV and split view, USB transmitter support.">
@@ -8167,25 +8167,34 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     race.watch = ids[(i + 1) % ids.length];
     flash(`WATCHING ${(race.r.peers.get(race.watch).name || 'PILOT').toUpperCase()}`);
   }
-  // the panel over the view: who is in the room, who is ready, and the lap times
+  // the panel over the view: who is in the room before a race, and the order during one
   function refreshRace() {
     const el = $('#race');
     if (!el) return;
     if (!race.r) { hide(el); return; }
     show(el);
-    const R = race.r, peers = [...R.peers.values()];
-    const ping = (p) => (p.rtt == null ? '—' : `${p.rtt} ms`);
-    const mark = (p) => (p.course && p.course !== world.courseId ? 'another course'
-      : p.spec ? 'watching' : p.ready ? 'ready' : p.lap != null ? fmtLap(p.best != null ? p.best : p.lap) : 'waiting');
-    const rows = [`<div class="rc-row me"><b style="color:${colOf(S.net.col)[0]}">${esc(myName())}</b><span>${S.net.spec ? 'watching' : S.best[AC.id] ? fmtLap(S.best[AC.id]) : race.phase === 'race' ? 'racing' : R.me.ready ? 'ready' : 'waiting'}</span><span>you</span></div>`]
-      .concat(peers.map((p) => `<div class="rc-row"><b style="color:${colOf(p.col)[0]}">${esc(p.name || 'Pilot')}</b><span>${mark(p)}</span><span>${ping(p)}</span></div>`));
-    const st2 = R.status === 'open' ? `${peers.length + 1} in the room` : race.note || R.status;
-    const bw = `${(R.stats.upBps / 1024).toFixed(1)}/${(R.stats.downBps / 1024).toFixed(1)} KB/s`;
+    const R = race.r, racing = race.phase === 'race' || race.phase === 'done';
+    const rows = [{ id: myId, name: myName(), col: S.net.col, spec: S.net.spec, ready: R.me.ready, me: true,
+      course: world.courseId, laps: race.laps, best: S.best[AC.id] || null, rtt: null }]
+      .concat([...R.peers.values()].map((p) => ({ id: p.id, name: p.name || 'Pilot', col: p.col, spec: p.spec, ready: p.ready,
+        course: p.course, laps: p.laps || 0, best: p.best != null ? p.best : p.lap, rtt: p.rtt, stale: p.stale })));
+    // during a race the order is the order of the race: laps done, then best lap
+    if (racing) rows.sort((a, b) => (b.spec ? -1 : 0) - (a.spec ? -1 : 0) || b.laps - a.laps || (a.best || 1e9) - (b.best || 1e9));
+    const what = (r) => {
+      if (r.spec) return 'watching';
+      if (r.course && r.course !== world.courseId) return 'another course';
+      if (racing) return `${Math.min(r.laps, race.target)}/${race.target}${r.best ? ' · ' + fmtLap(r.best) : ''}`;
+      if (r.ready) return 'ready';
+      return r.best ? fmtLap(r.best) : 'waiting';
+    };
+    const html = rows.map((r, i) => `<div class="rc-row${r.me ? ' me' : ''}"><b style="color:${colOf(r.col)[0]}">${racing && !r.spec ? (i + 1) + '. ' : ''}${esc(r.name)}</b><span>${what(r)}</span><span>${r.me ? 'you' : r.stale ? 'quiet' : r.rtt == null ? '—' : r.rtt + ' ms'}</span></div>`);
+    const st2 = R.status === 'open' ? `${R.peers.size + 1} in the room` : race.note || R.status;
     $('#rcRoom').textContent = `ROOM ${R.room}`;
-    $('#rcNet').textContent = `${st2} · ${bw}`;
-    $('#rcList').innerHTML = rows.join('');
+    $('#rcNet').textContent = `${st2} · ${(R.stats.upBps / 1024).toFixed(1)}/${(R.stats.downBps / 1024).toFixed(1)} KB/s`;
+    $('#rcList').innerHTML = html.join('');
     const rb = $('#rcReady');
-    rb.textContent = race.phase === 'race' ? `Lap ${Math.min(race.laps + 1, race.target)}/${race.target}` : race.phase === 'count' ? 'Get set' : R.me.ready ? 'Not ready' : 'Ready';
+    rb.textContent = race.phase === 'race' ? `Lap ${Math.min(race.laps + 1, race.target)}/${race.target}`
+      : race.phase === 'count' ? 'Get set' : race.phase === 'done' ? 'Race again' : R.me.ready ? 'Not ready' : 'Ready';
     rb.disabled = S.net.spec || race.phase === 'count' || race.phase === 'race';
     $('#rcSpec').textContent = S.net.spec ? (race.watch ? 'Next pilot' : 'Watch') : 'Spectate';
   }

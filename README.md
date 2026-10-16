@@ -275,7 +275,8 @@ Settings → Racing → *Race other people*:
 
 The panel over the view shows who is in the room, their ping and their best lap, with
 **Ready**. When everyone is ready there is a shared countdown, then everyone's course resets
-together and the lap timer starts.
+together and the lap timer starts. From the countdown on, the panel is the race order: laps
+done, then best lap.
 
 **Relays.**
 - *This browser* needs nothing at all: two tabs or two windows of the same browser race each
