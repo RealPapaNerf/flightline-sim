@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<!-- built by tools/build.py from src/ (50d8f17f); edit the sources, not this file -->
+<!-- built by tools/build.py from src/ (956d2dfd); edit the sources, not this file -->
 <title>Flightline RC Sim</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Browser RC flight trainer: Nano Goblin and trainer flight models, line of sight, FPV and split view, USB transmitter support.">
@@ -97,6 +97,11 @@ button { font: inherit; color: inherit; }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
 .btn.small { min-height: 32px; padding: 0 12px; font-size: 12px; }
 .note { font-size: 12px; color: var(--muted); line-height: 1.5; }
+details.help { margin: 10px 0 0; border-top: 1px solid var(--line); padding-top: 8px; }
+details.help > summary { cursor: pointer; font: 600 11px/1 var(--f-display); letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent); padding: 2px 0; }
+details.help > summary::marker { color: var(--muted); }
+details.help .note { margin: 8px 0 0; }
+details.help b { color: var(--fg); }
 
 /* ---------- wizard ---------- */
 .prog { height: 6px; background: var(--ink); border-radius: 3px; overflow: hidden; }
@@ -351,6 +356,13 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; heigh
     <p class="note" id="ctlRecHint"></p>
     <div id="ctlLast" class="last" hidden></div>
     <div id="ctlList" class="chlist"></div>
+    <details class="help">
+      <summary>Switches on a transmitter</summary>
+      <p class="note">On a RadioMaster, Jumper, Radiomaster-alike or any other EdgeTX radio, the sim only sees a switch if the radio is <b>sending</b> it. A fresh model mixes the four sticks and nothing else, so every switch is silent until you add it. Two ways, in <b>Model &rarr; USB Joystick</b>:</p>
+      <p class="note"><b>Advanced mode</b> (EdgeTX 2.8 and later, on radios with 1&nbsp;MB or more of flash) is the one to use. Set Mode to <b>Advanced</b>, then for each switch set its channel to <b>SWEmu</b>. Each switch position then arrives as its own button, with no mixer lines at all. Set the four stick channels to <b>Normal</b> so they stay axes.</p>
+      <p class="note"><b>Classic mode</b> sends channels 1&ndash;8 as axes and channels 9&ndash;32 as buttons, so a switch needs a mixer line. Put each switch on a channel from <b>9 upward</b> (Model &rarr; Mixes, add CH9 = SA, CH10 = SB, and so on) and it arrives as a button. A switch left on channels 1&ndash;8 arrives as an axis instead: that works too &mdash; record it and it gets one channel per position &mdash; but a 3-position switch on a channel above 8 only reads on/off, because a button has no middle.</p>
+      <p class="note">Either way, <b>unplug and replug the USB cable</b> after changing the mode: the radio only tells the Chromebook what it has when it connects. Keep the RF module off while it is plugged in.</p>
+    </details>
   </section>
 
   <aside id="sheet" aria-label="Settings">
@@ -6147,8 +6159,11 @@ if (typeof module !== 'undefined') module.exports = NET;
   function chLabel(ch) {
     if (ch.kind === 'button') return `Button ${ch.i + 1}`;
     if (ch.kind === 'axisDir') return `Axis ${ch.i} ${ch.dir > 0 ? '+' : '−'}`;
-    const r = Math.round(ch.v * 7), arrow = POV[r] || '';
-    return `Axis ${ch.i} = ${ch.v.toFixed(2)}${arrow ? ' (hat ' + arrow + ')' : ''}`;
+    // Name the position, so three rows from one 3-position switch are told apart.
+    // The ends and the middle are checked first: those are where a switch sits, and
+    // a hat's diagonals are the only values that belong to a hat alone.
+    const pos = Math.abs(ch.v) < 0.12 ? 'middle' : Math.abs(ch.v - 1) < 0.12 ? 'high' : Math.abs(ch.v + 1) < 0.12 ? 'low' : POV[Math.round(ch.v * 7)] ? 'hat ' + POV[Math.round(ch.v * 7)] : '';
+    return `Axis ${ch.i} = ${ch.v.toFixed(2)}${pos ? ' (' + pos + ')' : ''}`;
   }
   const chTitle = (ch) => ch.name || chLabel(ch);
 
@@ -6579,8 +6594,8 @@ if (typeof module !== 'undefined') module.exports = NET;
     rb.setAttribute('aria-pressed', String(ctl.rec));
     rb.textContent = ctl.rec ? '■ Stop recording' : '● Record buttons';
     $('#ctlRecHint').textContent = ctl.rec
-      ? 'Recording: press buttons and hats one at a time. Each press jumps to its channel so you can name it. Names save as you type.'
-      : 'Every button already has a channel. Press Record, then press each button to find and name it. Hats and switches that Chrome reports as axes are added when you record them.';
+      ? 'Recording: work one control at a time. Press a button, or flip a switch through every position and pause a moment in each - a 3-position switch makes three channels, including the middle. Each one jumps to its channel so you can name it. Names save as you type.'
+      : 'Every button already has a channel. Press Record, then work each control to find and name it. A switch your radio sends as an axis gets one channel per position; flip it through all of them. If a switch does nothing at all, your radio is not sending it: see Switches on a transmitter below.';
     // channel list
     ctl.rows.clear();
     let html = '';
@@ -6641,7 +6656,28 @@ if (typeof module !== 'undefined') module.exports = NET;
     if (r) r.row.scrollIntoView({ block: 'nearest' });
     return lab;
   }
-  const discrete = (v) => { const r = Math.round(v * 7); return Math.abs(v * 7 - r) < 0.25 && Math.abs(r) % 2 === 1; };
+  /* ---- switch-on-an-axis detector ---------------------------------------------
+     EdgeTX radios hand their switches over as axis values, not buttons: a 3-position
+     switch reads -1 / 0 / +1 on one axis. A switch or hat steps to a value and holds
+     it; a slider sweeps. So a jump of more than a third of the range that settles
+     inside a quarter of a second, then sits still for three frames, is a switch position - including the middle of a
+     3-position switch, and including the way back to where it started.
+     axisStep is pure so test/input_test.js can lift it out of this file verbatim.   */
+  const snapAx = (v) => Math.round(v * 100) / 100;
+  function axisStep(a, v, dt) {
+    const moving = Math.abs(v - a.val) > 0.03;
+    if (moving) { if (a.move === 0) a.from = a.val; a.move += dt; a.held = 0; }
+    else a.held += dt;
+    a.val = v;
+    let hit = null;
+    if (!moving && a.move > 0 && a.held >= 0.05) {
+      if (a.move <= 0.25 && Math.abs(v - a.from) > 0.33 && (a.at === null || Math.abs(v - a.at) > 0.15)) { a.at = v; hit = snapAx(v); }
+      a.move = 0;
+    }
+    return hit;
+  }
+  const axisStart = (v) => ({ val: v, from: v, held: 0, move: 0, at: null });
+  /* ---- end switch-on-an-axis detector ---- */
   function ctlTick(dt) {
     // live values
     for (const [k, el] of ctl.axisRows) {
@@ -6674,15 +6710,9 @@ if (typeof module !== 'undefined') module.exports = NET;
         if (isFlightAxis(dev, i)) return;
         const key = devKey(dev, i);
         let a = ctl.axState.get(key);
-        if (!a) { ctl.axState.set(key, { rest: v, last: v, fired: false, jumped: false }); return; }
-        const off = Math.abs(v - a.rest);
-        if (off < 0.1) { a.fired = false; a.jumped = false; }
-        else {
-          if (Math.abs(a.last - a.rest) < 0.1 && off > 0.4) a.jumped = true; // left rest in one step, like a hat
-          // a hat jumps straight to a discrete value and stays; an analog axis sweeps through values
-          if (!a.fired && a.jumped && discrete(v) && Math.abs(v - a.last) < 0.02) { a.fired = true; recordHit({ dev, kind: 'axisVal', i, v: Math.round(v * 7) / 7 }); }
-        }
-        a.last = v;
+        if (!a) { ctl.axState.set(key, axisStart(v)); return; }
+        const hit = axisStep(a, v, dt);
+        if (hit !== null) recordHit({ dev, kind: 'axisVal', i, v: hit });
       });
     }
   }

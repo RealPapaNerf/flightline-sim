@@ -1383,8 +1383,11 @@
   function chLabel(ch) {
     if (ch.kind === 'button') return `Button ${ch.i + 1}`;
     if (ch.kind === 'axisDir') return `Axis ${ch.i} ${ch.dir > 0 ? '+' : '−'}`;
-    const r = Math.round(ch.v * 7), arrow = POV[r] || '';
-    return `Axis ${ch.i} = ${ch.v.toFixed(2)}${arrow ? ' (hat ' + arrow + ')' : ''}`;
+    // Name the position, so three rows from one 3-position switch are told apart.
+    // The ends and the middle are checked first: those are where a switch sits, and
+    // a hat's diagonals are the only values that belong to a hat alone.
+    const pos = Math.abs(ch.v) < 0.12 ? 'middle' : Math.abs(ch.v - 1) < 0.12 ? 'high' : Math.abs(ch.v + 1) < 0.12 ? 'low' : POV[Math.round(ch.v * 7)] ? 'hat ' + POV[Math.round(ch.v * 7)] : '';
+    return `Axis ${ch.i} = ${ch.v.toFixed(2)}${pos ? ' (' + pos + ')' : ''}`;
   }
   const chTitle = (ch) => ch.name || chLabel(ch);
 
@@ -1815,8 +1818,8 @@
     rb.setAttribute('aria-pressed', String(ctl.rec));
     rb.textContent = ctl.rec ? '■ Stop recording' : '● Record buttons';
     $('#ctlRecHint').textContent = ctl.rec
-      ? 'Recording: press buttons and hats one at a time. Each press jumps to its channel so you can name it. Names save as you type.'
-      : 'Every button already has a channel. Press Record, then press each button to find and name it. Hats and switches that Chrome reports as axes are added when you record them.';
+      ? 'Recording: work one control at a time. Press a button, or flip a switch through every position and pause a moment in each - a 3-position switch makes three channels, including the middle. Each one jumps to its channel so you can name it. Names save as you type.'
+      : 'Every button already has a channel. Press Record, then work each control to find and name it. A switch your radio sends as an axis gets one channel per position; flip it through all of them. If a switch does nothing at all, your radio is not sending it: see Switches on a transmitter below.';
     // channel list
     ctl.rows.clear();
     let html = '';
@@ -1877,7 +1880,28 @@
     if (r) r.row.scrollIntoView({ block: 'nearest' });
     return lab;
   }
-  const discrete = (v) => { const r = Math.round(v * 7); return Math.abs(v * 7 - r) < 0.25 && Math.abs(r) % 2 === 1; };
+  /* ---- switch-on-an-axis detector ---------------------------------------------
+     EdgeTX radios hand their switches over as axis values, not buttons: a 3-position
+     switch reads -1 / 0 / +1 on one axis. A switch or hat steps to a value and holds
+     it; a slider sweeps. So a jump of more than a third of the range that settles
+     inside a quarter of a second, then sits still for three frames, is a switch position - including the middle of a
+     3-position switch, and including the way back to where it started.
+     axisStep is pure so test/input_test.js can lift it out of this file verbatim.   */
+  const snapAx = (v) => Math.round(v * 100) / 100;
+  function axisStep(a, v, dt) {
+    const moving = Math.abs(v - a.val) > 0.03;
+    if (moving) { if (a.move === 0) a.from = a.val; a.move += dt; a.held = 0; }
+    else a.held += dt;
+    a.val = v;
+    let hit = null;
+    if (!moving && a.move > 0 && a.held >= 0.05) {
+      if (a.move <= 0.25 && Math.abs(v - a.from) > 0.33 && (a.at === null || Math.abs(v - a.at) > 0.15)) { a.at = v; hit = snapAx(v); }
+      a.move = 0;
+    }
+    return hit;
+  }
+  const axisStart = (v) => ({ val: v, from: v, held: 0, move: 0, at: null });
+  /* ---- end switch-on-an-axis detector ---- */
   function ctlTick(dt) {
     // live values
     for (const [k, el] of ctl.axisRows) {
@@ -1910,15 +1934,9 @@
         if (isFlightAxis(dev, i)) return;
         const key = devKey(dev, i);
         let a = ctl.axState.get(key);
-        if (!a) { ctl.axState.set(key, { rest: v, last: v, fired: false, jumped: false }); return; }
-        const off = Math.abs(v - a.rest);
-        if (off < 0.1) { a.fired = false; a.jumped = false; }
-        else {
-          if (Math.abs(a.last - a.rest) < 0.1 && off > 0.4) a.jumped = true; // left rest in one step, like a hat
-          // a hat jumps straight to a discrete value and stays; an analog axis sweeps through values
-          if (!a.fired && a.jumped && discrete(v) && Math.abs(v - a.last) < 0.02) { a.fired = true; recordHit({ dev, kind: 'axisVal', i, v: Math.round(v * 7) / 7 }); }
-        }
-        a.last = v;
+        if (!a) { ctl.axState.set(key, axisStart(v)); return; }
+        const hit = axisStep(a, v, dt);
+        if (hit !== null) recordHit({ dev, kind: 'axisVal', i, v: hit });
       });
     }
   }
