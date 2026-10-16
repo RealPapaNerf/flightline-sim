@@ -42,9 +42,12 @@ GitHub Pages is switched on under Repo → Settings → Pages → Deploy from a 
 | **13″ lifter** | 3.7 kg, landing gear, three-camera pod | 12S2P 21700 Li-ion |
 | **450 heli** | flybarless, 2,900 rpm governor, Normal and 3D pitch curves | 6S 1300 LiPo |
 
+Plus whatever you load: the [`aircraft/`](aircraft/) folder here, a file someone sends
+you, or one you build in the sim. See **Your own aircraft** below.
+
 Li-ion packs can't feed a full punch on the bigger quads: the voltage dives and the
 thrust goes with it. Bench numbers for each aircraft come from `node test/quad_test.js
-<id>`, `node test/heli_test.js` and `node test/fm_test.js`.
+<id>`, `node test/heli_test.js`, `node test/fm_test.js` and `node test/aircraft_test.js`.
 
 **How the planes stall.** The Goblin mushes: full up elevon gives a nose-high bob and
 sink, and a hard pull at speed stalls it at about 6 g. The trainer stalls root-first and
@@ -54,6 +57,49 @@ stall–spin.
 **The heli.** Throttle hold (`H`) stops the motor and leaves the collective live. Lower
 the collective and the air coming up through the disc keeps the rotor turning. Flare and
 cushion with the stored headspeed. Leave the collective up and the rotor dies.
+
+## Your own aircraft
+
+Every aircraft in the sim is a few hundred numbers in a JSON file — wing geometry,
+airfoil coefficients, prop, pack, throws, and the points that can hit the ground. You
+can export them, import them, and build new ones without leaving the page.
+
+**Settings → Aircraft** has *Export this aircraft* (the built-in ones too, so the
+quickest way to a new design is to export the trainer and edit it), *Import aircraft
+file*, a list of what you have imported, and a button that reads the
+[`aircraft/`](aircraft/) folder on this site. You can load a file from any URL as well,
+which is how you fly something a friend has put in their own repository.
+
+**Settings → Builder** is a build sheet as a form: type, span, weight, CG, motor and
+prop, battery chemistry and cell layout, surfaces and throws. A field you have not
+touched follows its default and is marked *auto*, so changing the span moves the chord,
+the tail, the prop and the gear with it; a field you type is marked *set* and stays put.
+Underneath it, the bench numbers, worked out from the same model you fly and updated as
+you type:
+
+- **planes:** wing area, aspect ratio, wing loading, static margin, stall speed clean
+  and at full flap, hands-off speed, top speed, static thrust, and a table of throttle
+  and elevator against speed
+- **quads:** thrust to weight at nominal volts and with the pack's own sag, hover
+  throttle, hover current and flight time, punch-out current and sag, cruise speed,
+  endurance and range
+
+Then **Fly it**. The aircraft is saved in the browser with its build sheet, so you can
+come back and change it, and exported as a file when you want to keep or share it.
+
+**Flaps and retracts** come with the format: `C` cycles the flaps up → takeoff →
+landing, `U` raises and lowers the gear, and both can go on a radio switch. The OSD
+shows the flap setting and warns when the gear is up.
+
+Nothing in an aircraft file is ever executed. It is read with `JSON.parse` and copied
+field by field against a table of rules: every number range-checked and clamped, every
+clamp reported in words, anything unrecognised dropped and listed.
+
+- [`docs/aircraft-format.md`](docs/aircraft-format.md) — every field, every formula the
+  build sheet uses, and where each number comes from
+- [`docs/design-an-aircraft-prompt.md`](docs/design-an-aircraft-prompt.md) — a prompt to
+  paste into a Claude chat: give it your build list (frame, motor KV, prop, cells,
+  all-up weight) and it writes the file for you
 
 ## Flight modes
 
@@ -163,6 +209,8 @@ mode, a HOTAS, or a gamepad.
 | `J` `K` `G` | Alt hold, loiter, RTL |
 | `H` | Throttle cut (heli: throttle hold) |
 | `I` | Heli Normal / 3D pitch curve |
+| `C` | Flaps: up / takeoff / landing |
+| `U` | Landing gear up / down (retracts) |
 | `L` | Throw the Goblin |
 | `P` or `Space` | Pause |
 | `F` | Full screen |
@@ -260,6 +308,7 @@ Planned features, with their order and dependencies, live in [`ideas/`](ideas/RE
 
 ```
 src/physics.js   flight models: strip-theory wings, quads, heli, weather, icing, batteries (no DOM)
+src/aircraft.js  aircraft file format: validator, build sheet → definition, bench numbers (no DOM)
 src/nav.js       sensors, link budget, autopilot (no DOM)
 src/render.js    small WebGL 1 renderer
 src/ghost.js     lap recording, quantisation, playback and storage (no DOM)
@@ -269,8 +318,10 @@ src/shell.html   page markup and styles
 src/sw.js        offline cache for the installed app
 tools/build.py   assembles index.html (and dist/artifact.html) from src/
 tools/relay.js   a dependency-free WebSocket relay for live racing: node tools/relay.js
+docs/            the aircraft file format, and a prompt that writes one
+aircraft/        aircraft files anyone can load, with an index.json
 test/*.js        bench tests: fm_test (planes), perf (trim table), quad_test <id>, heli_test,
-                 modes_test, weather_test, nav_test, ghost_test, net_test;
+                 modes_test, weather_test, nav_test, ghost_test, net_test, aircraft_test;
                  race_test drives two pages through a relay in headless Chromium (needs playwright)
 ```
 

@@ -4,6 +4,8 @@
    is accepted, so it is safe to run as a check. */
 const FL = require('../src/physics.js');
 const ACF = require('../src/aircraft.js');
+const fs = require('fs');
+const path = require('path');
 
 let fails = 0;
 const ok = (cond, what, extra) => { console.log(`${cond ? ' ok ' : 'FAIL'}  ${what}${extra ? '  ' + extra : ''}`); if (!cond) fails++; };
@@ -152,6 +154,29 @@ console.log('\n========  flaps and retracts  ========');
   const V0 = Math.max(up[0].V, dn[0].V) + 4;
   const tU = up.find((r) => r.V === V0), tD = dn.find((r) => r.V === V0);
   ok(tD.thr > tU.thr, 'gear down costs throttle', `at ${V0} m/s (${mph(V0)} mph): ${Math.round(tU.thr * 100)}% up → ${Math.round(tD.thr * 100)}% down; top speed ${up[up.length - 1].V} m/s up, ${dn[dn.length - 1].V} m/s down`);
+}
+
+console.log('\n========  the aircraft/ folder  ========');
+{
+  const dir = path.join(__dirname, '..', 'aircraft');
+  let listed = [];
+  try {
+    const idx = JSON.parse(fs.readFileSync(path.join(dir, 'index.json'), 'utf8'));
+    listed = idx.aircraft || [];
+    ok(Array.isArray(listed), 'index.json lists aircraft', `${listed.length} in the list`);
+  } catch (err) { ok(false, 'index.json reads', err.message); }
+  const onDisk = fs.readdirSync(dir).filter((f) => f.endsWith('.json') && f !== 'index.json');
+  for (const f of onDisk) {
+    const r = ACF.read(fs.readFileSync(path.join(dir, f), 'utf8'));
+    ok(r.ok, `aircraft/${f}`, r.ok ? `${r.def.name} · ${r.warnings.length} warnings` : r.errors.join('; '));
+    if (r.ok && r.def.kind !== 'quad' && r.def.kind !== 'heli') {
+      const B = ACF.planeBench(FL.build(r.def));
+      console.log(`      ${Math.round(r.def.mass * 1000)} g, ${Math.round(B.b * 1000)} mm, ${B.wl.toFixed(0)} g/dm², ${B.strips} strips, stall ${mph(B.Vs)} mph` +
+        `${B.VsFlap ? ` (${mph(B.VsFlap)} with flap)` : ''}, top ${mph(B.Vmax)} mph`);
+    }
+    ok(listed.some((x) => x.file === f), `aircraft/${f} is in index.json`);
+  }
+  for (const x of listed) ok(onDisk.includes(x.file), `index.json lists a file that exists: ${x.file}`);
 }
 
 console.log(`\n${fails ? fails + ' CHECK(S) FAILED' : 'all checks passed'}`);

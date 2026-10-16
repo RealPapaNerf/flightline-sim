@@ -2091,6 +2091,7 @@
     $('#sheet').scrollTop = scroll;
   }
   /* ---------- Settings → Aircraft: files in and out ---------- */
+  const KIND_TAG = { conventional: 'PLANE', wing: 'WING', quad: 'QUAD', heli: 'HELI' };
   function msgHtml(m) {
     if (!m) return '';
     if (m.loading) return `<div class="help">Loading ${esc(m.from)}…</div>`;
@@ -2107,7 +2108,7 @@
       <button class="btn small" id="acImp">Import aircraft file</button>
       <button class="btn small" id="acBld">${s.spec ? 'Edit in the builder' : 'Open the builder'}</button></div>
       <div class="help">An aircraft file is JSON: a few hundred numbers, nothing that can run. Every number is checked and clamped on the way in, and anything that gets changed is listed here. The format is in <b>docs/aircraft-format.md</b>.</div>${msgHtml(impMsg)}</div>`;
-    if (mine.length) h += `<div class="laps" style="margin-top:10px">${mine.map((id) => `<div class="lap${id === AC.id ? ' on' : ''}"><b>${esc(ACS[id].kind === 'quad' ? 'QUAD' : ACS[id].kind === 'heli' ? 'HELI' : 'PLANE')}</b><span>${esc(ACS[id].name)}<br><span class="help">${esc(id)}${SRC[id].meta.author ? ' · by ' + esc(SRC[id].meta.author) : ''}</span></span><div class="acts">
+    if (mine.length) h += `<div class="laps" style="margin-top:10px">${mine.map((id) => `<div class="lap${id === AC.id ? ' on' : ''}"><b>${KIND_TAG[ACS[id].kind] || 'PLANE'}</b><span>${esc(ACS[id].name)}<br><span class="help">${esc(id)}${SRC[id].meta.author ? ' · by ' + esc(SRC[id].meta.author) : ''}</span></span><div class="acts">
       <button class="btn small" data-fly="${esc(id)}">Fly</button><button class="btn small" data-exp="${esc(id)}">Export</button><button class="btn small" data-del="${esc(id)}">Remove</button></div></div>`).join('')}</div>`;
     else h += '<div class="help" style="margin-top:8px">No imported aircraft yet. Import a file, load one from the aircraft folder, or build one in the builder.</div>';
     // the aircraft/ folder beside the page, and any URL
@@ -2117,7 +2118,7 @@
         if (folder.loading) h += '<div class="help">Loading aircraft/index.json…</div>';
         else if (folder.error) h += `<div class="help" style="color:var(--warn)">aircraft/index.json: ${esc(folder.error)}. There may not be one yet.</div>`;
         else if (!folder.items.length) h += '<div class="help">The folder list is empty.</div>';
-        else h += `<div class="laps" style="margin-top:6px">${folder.items.map((x) => `<div class="lap"><b>${esc((x.kind || '·').toUpperCase().slice(0, 5))}</b><span>${esc(x.name || x.file)}<br><span class="help">${esc(x.blurb || x.file)}</span></span><div class="acts"><button class="btn small" data-url="aircraft/${esc(x.file)}">Load</button></div></div>`).join('')}</div>`;
+        else h += `<div class="laps" style="margin-top:6px">${folder.items.map((x) => `<div class="lap"><b>${KIND_TAG[x.kind] || '·'}</b><span>${esc(x.name || x.file)}<br><span class="help">${esc(x.blurb || x.file)}</span></span><div class="acts"><button class="btn small" data-url="aircraft/${esc(x.file)}">Load</button></div></div>`).join('')}</div>`;
       }
       h += `<div class="setrow" style="margin-top:8px"><input class="txt" id="acUrl" type="text" placeholder="https://… a raw aircraft .json URL" style="flex:1 1 200px"><button class="btn small" id="acUrlGo">Load</button></div>
         <div class="help">A URL only works if the other site allows cross-origin reads; GitHub’s <b>raw.githubusercontent.com</b> does.</div>`;

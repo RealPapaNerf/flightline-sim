@@ -1,0 +1,13 @@
+{
+  "format": "flightline-aircraft-index/1",
+  "name": "Flightline aircraft",
+  "aircraft": [
+    {
+      "file": "camera-platform-2m.json",
+      "name": "2 m camera platform",
+      "kind": "conventional",
+      "blurb": "Two-metre pod-and-boom camera plane, 3 kg, flaps over most of the span and retracts. Slow, steady and happy to be left alone — the Ranger 1980 / Skywalker 1900 idea.",
+      "author": "Flightline"
+    }
+  ]
+}

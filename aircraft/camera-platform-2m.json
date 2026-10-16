@@ -1,0 +1,448 @@
+{
+  "format": "flightline-aircraft/1",
+  "author": "Flightline",
+  "version": "1",
+  "source": "Ranger 1980 / Skywalker 1900 class: published span, weight and power system",
+  "spec": {
+    "kind": "plane",
+    "name": "2 m camera platform",
+    "id": "camera-2m",
+    "blurb": "Two-metre pod-and-boom camera plane, 3 kg, flaps over most of the span and retracts. Slow, steady and happy to be left alone — the Ranger 1980 / Skywalker 1900 idea.",
+    "mass": 3000,
+    "span": 2000,
+    "rootChord": 300,
+    "tipChord": 300,
+    "sweep": 0,
+    "dihedral": 4,
+    "washout": 1,
+    "wingZ": 110,
+    "airfoil": "flat",
+    "build": "foam",
+    "staticMargin": 10,
+    "tailArm": 940,
+    "stabSpan": 660,
+    "stabChord": 170,
+    "stabInc": -1.5,
+    "finHeight": 230,
+    "finChord": 150,
+    "fuseW": 130,
+    "fuseH": 160,
+    "noseLen": 500,
+    "gear": "retract",
+    "ailSpan": 25,
+    "ailChord": 22,
+    "flapSpan": 70,
+    "flapChord": 25,
+    "elevChord": 38,
+    "rudChord": 45,
+    "throwA": 16,
+    "throwE": 18,
+    "throwR": 25,
+    "throwF": 35,
+    "propD": 12,
+    "propPitch": 6,
+    "blades": 2,
+    "cellChem": "lipo",
+    "cellsS": 4,
+    "cellsP": 1,
+    "cellmAh": 5000,
+    "cellR": 6,
+    "watts": 650,
+    "thrustStatic": 0,
+    "motorKV": 650,
+    "pitchSpeed": 0
+  },
+  "def": {
+    "id": "camera-2m",
+    "name": "2 m camera platform",
+    "blurb": "Two-metre pod-and-boom camera plane, 3 kg, flaps over most of the span and retracts. Slow, steady and happy to be left alone — the Ranger 1980 / Skywalker 1900 idea.",
+    "mass": 3,
+    "I": [
+      0.3,
+      0.349933,
+      0.58494
+    ],
+    "body": {
+      "r": [
+        0.04,
+        0,
+        0.02
+      ],
+      "CdA": [
+        0.00624,
+        0.07213,
+        0.07116
+      ]
+    },
+    "batt": {
+      "chem": "lipo",
+      "cells": 4,
+      "mAh": 5000,
+      "R": 0.027,
+      "Imax": 42.8,
+      "Iidle": 0.48,
+      "Vref": 15.2,
+      "label": "4S 5,000 LiPo",
+      "cool": [
+        0.145,
+        0.058
+      ]
+    },
+    "wheels": [
+      {
+        "p": [
+          0.2994,
+          0,
+          0.1824
+        ],
+        "steer": true
+      },
+      {
+        "p": [
+          -0.1866,
+          -0.23,
+          0.1824
+        ]
+      },
+      {
+        "p": [
+          -0.1866,
+          0.23,
+          0.1824
+        ]
+      }
+    ],
+    "points": [
+      {
+        "p": [
+          0.3994,
+          0,
+          0
+        ],
+        "name": "nose",
+        "impact": 2.5,
+        "slide": 7,
+        "prop": true
+      },
+      {
+        "p": [
+          -0.2706,
+          -0.9976,
+          -0.1798
+        ],
+        "name": "left wingtip",
+        "impact": 2.5,
+        "slide": 7
+      },
+      {
+        "p": [
+          -0.2706,
+          0.9976,
+          -0.1798
+        ],
+        "name": "right wingtip",
+        "impact": 2.5,
+        "slide": 7
+      },
+      {
+        "p": [
+          -1.2106,
+          0,
+          0.08
+        ],
+        "name": "tail",
+        "impact": 3,
+        "slide": 99
+      },
+      {
+        "p": [
+          -1.1556,
+          0,
+          -0.34
+        ],
+        "name": "fin",
+        "impact": 1.5,
+        "slide": 2
+      },
+      {
+        "p": [
+          -0.2256,
+          0,
+          0.08
+        ],
+        "name": "belly",
+        "impact": 3.5,
+        "slide": 25
+      },
+      {
+        "p": [
+          -0.0756,
+          0,
+          -0.13
+        ],
+        "name": "wing",
+        "impact": 1.5,
+        "slide": 2
+      },
+      {
+        "p": [
+          -1.1456,
+          -0.33,
+          0
+        ],
+        "name": "stabiliser",
+        "impact": 2.5,
+        "slide": 9
+      },
+      {
+        "p": [
+          -1.1456,
+          0.33,
+          0
+        ],
+        "name": "stabiliser",
+        "impact": 2.5,
+        "slide": 9
+      }
+    ],
+    "contact": {
+      "kW": 5700,
+      "cW": 81,
+      "kB": 7500,
+      "cB": 96,
+      "muRoll": 0.05,
+      "muLat": 0.9,
+      "muBody": 0.6
+    },
+    "crash": {
+      "wheelImpact": 4.5
+    },
+    "starts": [
+      "runway",
+      "air"
+    ],
+    "fpvCam": [
+      0.2794,
+      0,
+      -0.1136
+    ],
+    "camTilt": 0,
+    "colR": 0.74,
+    "kind": "conventional",
+    "staticMargin": 0.1,
+    "surfaces": [
+      {
+        "name": "wing",
+        "role": "wing",
+        "mirror": true,
+        "n": 7,
+        "y0": 0,
+        "y1": 1,
+        "xLE0": 0,
+        "xLE1": 0,
+        "c0": 0.3,
+        "c1": 0.3,
+        "z0": -0.11,
+        "dihedral": 4,
+        "inc0": 0,
+        "inc1": -1,
+        "sweepLoad": 0,
+        "foil": {
+          "a": 4.551,
+          "CL0": 0.25,
+          "CLmax": 1.25,
+          "CLmin": -0.7,
+          "M": 30,
+          "CD0": 0.0136,
+          "e": 0.8,
+          "Cm0": -0.06,
+          "CN90": 1.6
+        },
+        "flaps": [
+          {
+            "y0": 0.75,
+            "y1": 0.98,
+            "chord": 0.066,
+            "a": -1,
+            "side": "mirror"
+          },
+          {
+            "y0": 0.05,
+            "y1": 0.7,
+            "chord": 0.075,
+            "f": 1,
+            "side": "both"
+          }
+        ]
+      },
+      {
+        "name": "stab",
+        "role": "tail",
+        "mirror": true,
+        "n": 2,
+        "y0": 0,
+        "y1": 0.33,
+        "xLE0": -0.94,
+        "xLE1": -0.94,
+        "c0": 0.17,
+        "c1": 0.17,
+        "z0": 0,
+        "dihedral": 0,
+        "inc0": -1.5,
+        "inc1": -1.5,
+        "sweepLoad": 0,
+        "foil": {
+          "a": 3.909,
+          "CL0": 0,
+          "CLmax": 1.1,
+          "CLmin": -1.1,
+          "M": 30,
+          "CD0": 0.0136,
+          "e": 0.8,
+          "Cm0": 0,
+          "CN90": 1.6
+        },
+        "flaps": [
+          {
+            "y0": 0,
+            "y1": 0.33,
+            "chord": 0.0646,
+            "e": -1,
+            "side": "both"
+          }
+        ]
+      },
+      {
+        "name": "fin",
+        "role": "fin",
+        "vertical": true,
+        "n": 2,
+        "y0": 0,
+        "y1": 0.23,
+        "xLE0": -0.96,
+        "xLE1": -0.9975,
+        "c0": 0.15,
+        "c1": 0.0975,
+        "z0": -0.12,
+        "foil": {
+          "a": 3.267,
+          "CL0": 0,
+          "CLmax": 1.1,
+          "CLmin": -1.1,
+          "M": 30,
+          "CD0": 0.0136,
+          "e": 0.8,
+          "Cm0": 0,
+          "CN90": 1.6
+        },
+        "flaps": [
+          {
+            "y0": 0,
+            "y1": 0.23,
+            "chord": 0.0675,
+            "r": -1
+          }
+        ]
+      }
+    ],
+    "defl": {
+      "a": 0.2793,
+      "e": 0.3142,
+      "r": 0.4363,
+      "flapMax": 0.7025,
+      "f": 0.6109
+    },
+    "flexQ": 1200,
+    "servoRate": 8,
+    "prop": {
+      "r": [
+        0.5,
+        0,
+        0
+      ],
+      "T0": 23.68,
+      "Vp": 32,
+      "D": 0.3048,
+      "tau": 0.096,
+      "Tmin": -0.947,
+      "torque": -0.06,
+      "wash": true,
+      "eta": 0.5
+    },
+    "steerMax": 0.3,
+    "retract": {
+      "drag": 0.00267,
+      "time": 3
+    },
+    "shape": {
+      "fuseW": 0.13,
+      "fuseH": 0.16,
+      "wheelR": 0.0441
+    },
+    "trim": {
+      "a": 0.0069,
+      "e": -0.1461,
+      "r": 0
+    },
+    "stab": {
+      "kRoll": 2.1,
+      "dRoll": 0.16,
+      "kPitch": 1.54,
+      "dPitch": 0.134,
+      "turn": 0.7
+    },
+    "look": {
+      "top": [
+        1,
+        0.52,
+        0.12
+      ],
+      "bottom": [
+        0.16,
+        0.17,
+        0.2
+      ],
+      "side": [
+        0.85,
+        0.42,
+        0.1
+      ],
+      "tip": [
+        0.55,
+        0.95,
+        0.25
+      ],
+      "accent": [
+        0.05,
+        0.05,
+        0.06
+      ],
+      "fuse": [
+        0.93,
+        0.93,
+        0.91
+      ],
+      "fuseBottom": [
+        0.12,
+        0.3,
+        0.68
+      ],
+      "canopy": [
+        0.1,
+        0.16,
+        0.24
+      ],
+      "dark": [
+        0.09,
+        0.09,
+        0.11
+      ],
+      "metal": [
+        0.72,
+        0.74,
+        0.78
+      ],
+      "blades": 2
+    }
+  }
+}
