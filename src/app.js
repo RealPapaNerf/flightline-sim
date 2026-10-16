@@ -38,6 +38,7 @@
     course: true, best: {}, // gate course lap timer, best lap per aircraft (s)
     curve: 'normal', // helicopter pitch curve: 'normal' or '3d' (idle up)
     sheetTab: 'aircraft', // last settings tab
+    hud: 'hud', // FPV OSD style: 'hud' (pitch ladder and tapes) or 'classic'
   };
   const load = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
   const store = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage blocked */ } };
@@ -1429,6 +1430,7 @@
       ] },
       { tab: 'display', title: 'OSD & readouts', items: [
         seg('osd', 'FPV OSD', [['full', 'Full'], ['min', 'Minimal'], ['off', 'Off']]),
+        seg('hud', 'FPV OSD style', [['hud', 'HUD'], ['classic', 'Classic']], 'HUD: pitch ladder that rolls with the horizon, airspeed tape on the left, altitude tape and vario on the right, heading tape on top, bank scale and a flight-path marker showing where the aircraft is actually going. Classic: horizon line and numbers.'),
         seg('losInfo', 'LOS readout', [[true, 'On'], [false, 'Off']]),
         seg('course', 'Gate course', [[true, 'Timer on'], [false, 'Off']], 'Eight gates on an oval north of the runway. Fly them in order; an orange marker floats over the next one. Laps run from gate 1 back to gate 1.', null, (v) => { S.course = v; saveS(); courseReset(); }),
         seg('stallCue', 'Stall indicator', [[false, 'Off'], [true, 'On']], 'Flashes STALL when a wing panel is stalled. Off is realistic; turn it on while you learn what a stall looks like.'),
@@ -1845,6 +1847,116 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     }
     return w;
   }
+  /* ---------- HUD: pitch ladder, flight-path marker, speed / altitude / heading tapes, bank scale ---------- */
+  const HUDC = '#93ffa6';
+  function hudStroke(path, w = 1.6) {
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(0,0,0,0.75)'; ctx.lineWidth = w + 2.4; path(); ctx.stroke();
+    ctx.strokeStyle = HUDC; ctx.lineWidth = w; path(); ctx.stroke();
+  }
+  function hudBox(x, y, w, h, text, align, fs) {
+    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(x, y - h / 2, w, h);
+    hudStroke(() => { ctx.beginPath(); ctx.rect(x, y - h / 2, w, h); }, 1.4);
+    osdText(text, align === 'right' ? x + w - 4 : x + 4, y, align, fs, HUDC);
+  }
+  // vertical tape: value in display units, ticks every `step`, labels every `lab`, `span` units over height h
+  function vTape(x, cy, h, value, step, lab, span, side, fs, title) {
+    const k = h / span, top = cy - h / 2, bot = cy + h / 2, dir = side === 'left' ? -1 : 1;
+    ctx.save(); ctx.beginPath(); ctx.rect(x - 80, top, 160, h); ctx.clip();
+    const v0 = Math.floor((value - span / 2) / step) * step;
+    hudStroke(() => {
+      ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bot);
+      for (let u = v0; u <= value + span / 2 + step; u += step) {
+        const y = cy - (u - value) * k, big = Math.abs(u / lab - Math.round(u / lab)) < 1e-6;
+        ctx.moveTo(x, y); ctx.lineTo(x + dir * (big ? fs * 0.6 : fs * 0.3), y);
+      }
+    }, 1.4);
+    for (let u = Math.ceil((value - span / 2) / lab) * lab; u <= value + span / 2; u += lab) {
+      const y = cy - (u - value) * k;
+      if (Math.abs(y - cy) > fs * 0.9) osdText(String(Math.round(u)), x + dir * fs * 0.85, y, side === 'left' ? 'right' : 'left', fs * 0.72, HUDC);
+    }
+    ctx.restore();
+    if (title) osdText(title, x, top - fs * 0.7, 'center', fs * 0.62, HUDC);
+  }
+  function drawHud(v, fs, cx, cy, eu, alt, gs, m, topY) {
+    if (!v.cam) return;
+    const f = v.h / 2 / Math.tan(v.cam.fovy / 2), tilt = tiltOf() * D2R, pc = eu.pitch + tilt;
+    const imp = S.units === 'imp';
+    // pitch ladder, clipped to a central window
+    const W = Math.min(v.w, v.h) * 0.42, step = f * Math.tan(5 * D2R) > fs * 1.6 ? 5 : 10; // 5° rungs only when they're far enough apart
+    ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, Math.min(v.w * 0.3, v.h * 0.34), 0, Math.PI * 2); ctx.clip();
+    ctx.translate(cx, cy); ctx.rotate(-eu.roll);
+    const L1 = W * 0.42, gap = fs * 2.2;
+    for (let d = -90; d <= 90; d += step) {
+      const rel = pc - d * D2R;
+      if (Math.abs(rel) > 32 * D2R && d !== 0) continue;
+      const y = f * Math.tan(rel);
+      if (Math.abs(y) > v.h * 0.6) continue;
+      if (d === 0) { hudStroke(() => { ctx.beginPath(); ctx.moveTo(-W * 1.2, y); ctx.lineTo(-gap, y); ctx.moveTo(gap, y); ctx.lineTo(W * 1.2, y); }, 2); continue; }
+      const len = d % 10 === 0 ? L1 * 0.55 : L1 * 0.3, tick = (d > 0 ? 1 : -1) * fs * 0.45;
+      hudStroke(() => {
+        ctx.beginPath();
+        if (d < 0) ctx.setLineDash([fs * 0.45, fs * 0.3]);
+        ctx.moveTo(-gap - len, y + tick); ctx.lineTo(-gap - len, y); ctx.lineTo(-gap, y);
+        ctx.moveTo(gap, y); ctx.lineTo(gap + len, y); ctx.lineTo(gap + len, y + tick);
+      }, 1.4);
+      ctx.setLineDash([]);
+      if (d % 10 === 0) { osdText(String(Math.abs(d)), -gap - len - fs * 0.25, y, 'right', fs * 0.62, HUDC); osdText(String(Math.abs(d)), gap + len + fs * 0.25, y, 'left', fs * 0.62, HUDC); }
+    }
+    ctx.restore();
+    // waterline (where the camera points) and flight-path marker (where the aircraft is going)
+    hudStroke(() => { ctx.beginPath(); ctx.moveTo(cx - fs * 1.6, cy); ctx.lineTo(cx - fs * 0.7, cy); ctx.lineTo(cx - fs * 0.35, cy + fs * 0.35); ctx.lineTo(cx, cy); ctx.lineTo(cx + fs * 0.35, cy + fs * 0.35); ctx.lineTo(cx + fs * 0.7, cy); ctx.lineTo(cx + fs * 1.6, cy); }, 1.8);
+    const R0 = FL.quatToMat(st.q), vb = FL.mulMtV(R0, st.v), sp = Math.hypot(vb[0], vb[1], vb[2]);
+    if (sp > 2) {
+      const fw = vb[0] * Math.cos(tilt) - vb[2] * Math.sin(tilt), dn = vb[0] * Math.sin(tilt) + vb[2] * Math.cos(tilt);
+      if (fw > 0.2) {
+        const px = cx + (f * vb[1]) / fw, py = cy + (f * dn) / fw, r = fs * 0.42;
+        if (Math.abs(px - cx) < v.w * 0.42 && Math.abs(py - cy) < v.h * 0.4)
+          hudStroke(() => { ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.moveTo(px - r, py); ctx.lineTo(px - r * 2.2, py); ctx.moveTo(px + r, py); ctx.lineTo(px + r * 2.2, py); ctx.moveTo(px, py - r); ctx.lineTo(px, py - r * 1.9); }, 1.6);
+      }
+    }
+    // bank scale: arc with ticks at 10/20/30/45/60°, pointer at the current bank
+    const BR0 = Math.min(v.w, v.h) * 0.36, by0 = cy;
+    hudStroke(() => {
+      ctx.beginPath();
+      for (const a of [-60, -45, -30, -20, -10, 0, 10, 20, 30, 45, 60]) {
+        const t = (a - 90) * D2R, l = a % 30 === 0 ? fs * 0.6 : fs * 0.35;
+        ctx.moveTo(cx + BR0 * Math.cos(t), by0 + BR0 * Math.sin(t)); ctx.lineTo(cx + (BR0 + l) * Math.cos(t), by0 + (BR0 + l) * Math.sin(t));
+      }
+    }, 1.3);
+    const tb = clamp(-eu.roll, -70 * D2R, 70 * D2R) - Math.PI / 2;
+    hudStroke(() => {
+      const px = cx + (BR0 - 2) * Math.cos(tb), py = by0 + (BR0 - 2) * Math.sin(tb), nx = Math.cos(tb), ny = Math.sin(tb);
+      ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px - nx * fs * 0.55 - ny * fs * 0.32, py - ny * fs * 0.55 + nx * fs * 0.32); ctx.lineTo(px - nx * fs * 0.55 + ny * fs * 0.32, py - ny * fs * 0.55 - nx * fs * 0.32); ctx.closePath();
+    }, 1.4);
+    // speed tape (left) and altitude tape (right)
+    const th = v.h * 0.46, sx = v.x + m + fs * 3.6, ax = v.x + v.w - m - fs * 3.6;
+    const spd = imp ? st.tele.V * 2.23694 : st.tele.V * 3.6, altU = imp ? alt * 3.2808 : alt;
+    vTape(sx, cy, th, spd, 1, imp ? 10 : 10, imp ? 40 : 60, 'left', fs, imp ? 'MPH' : 'KM/H');
+    vTape(ax, cy, th, altU, imp ? 10 : 2, imp ? 50 : 10, imp ? 200 : 60, 'right', fs, imp ? 'FT' : 'M');
+    hudBox(sx - fs * 3.2, cy, fs * 3.0, fs * 1.3, String(Math.round(spd)), 'right', fs);
+    hudBox(ax + fs * 0.2, cy, fs * 3.4, fs * 1.3, String(Math.round(altU)), 'left', fs);
+    // vario: a bar beside the altitude tape (full scale ±5 m/s) and the number under it
+    const vs = -st.v[2], vh = clamp(vs / 5, -1, 1) * th * 0.45;
+    hudStroke(() => { ctx.beginPath(); ctx.moveTo(ax + fs * 3.9, cy); ctx.lineTo(ax + fs * 3.9, cy - vh); ctx.moveTo(ax + fs * 3.6, cy - vh); ctx.lineTo(ax + fs * 4.2, cy - vh); }, 2.4);
+    osdText(`${vs >= 0 ? '↑' : '↓'}${imp ? Math.abs(vs * 3.28).toFixed(0) : Math.abs(vs).toFixed(1)}`, ax + fs * 1.6, cy + th / 2 + fs * 0.8, 'center', fs * 0.8, HUDC);
+    osdText(`GS ${Math.round(imp ? gs * 2.23694 : gs * 3.6)}`, sx - fs * 1.4, cy + th / 2 + fs * 0.8, 'center', fs * 0.8, HUDC);
+    // heading tape (top)
+    const hdg = ((eu.yaw * R2D) % 360 + 360) % 360, tw = Math.min(v.w * 0.5, fs * 16), hy = topY + fs * 0.3, kx = tw / 60;
+    ctx.save(); ctx.beginPath(); ctx.rect(cx - tw / 2, hy - fs, tw, fs * 2.4); ctx.clip();
+    hudStroke(() => {
+      ctx.beginPath(); ctx.moveTo(cx - tw / 2, hy); ctx.lineTo(cx + tw / 2, hy);
+      for (let d = Math.floor((hdg - 35) / 5) * 5; d <= hdg + 35; d += 5) { const x = cx + (d - hdg) * kx; ctx.moveTo(x, hy); ctx.lineTo(x, hy + (d % 10 === 0 ? fs * 0.45 : fs * 0.25)); }
+    }, 1.3);
+    for (let d = Math.ceil((hdg - 30) / 30) * 30; d <= hdg + 30; d += 30) {
+      const n = ((d % 360) + 360) % 360, lab = { 0: 'N', 90: 'E', 180: 'S', 270: 'W' }[n] || String(n / 10).padStart(2, '0');
+      const x = cx + (d - hdg) * kx;
+      if (Math.abs(x - cx) > fs * 1.3) osdText(lab, x, hy + fs * 1.05, 'center', fs * 0.7, HUDC);
+    }
+    ctx.restore();
+    hudBox(cx - fs * 1.4, hy + fs * 1.05, fs * 2.8, fs * 1.15, String(Math.round(hdg) % 360).padStart(3, '0'), 'right', fs * 0.8);
+  }
+
   /* ---------- precipitation, lens water and frost (drawn on the OSD canvas, projected per view) ---------- */
   const PRN = 480, prt = Array.from({ length: PRN }, () => [Math.random(), Math.random(), Math.random(), Math.random()]);
   let wxClock = 0, osdDt = 0;
@@ -1924,11 +2036,12 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       drawPrecip(v);
       if (v.kind === 'fpv') drawLens(v, osdDt);
       if (v.kind === 'fpv' && S.osd !== 'off') {
-        const full = S.osd === 'full';
+        const full = S.osd === 'full', hud = full && S.hud === 'hud';
+        if (hud) drawHud(v, fs, cx, cy, eu, alt, gs, m, topY);
         // crosshair and artificial horizon
         ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(cx - fs * 1.2, cy); ctx.lineTo(cx - fs * 0.4, cy); ctx.moveTo(cx + fs * 0.4, cy); ctx.lineTo(cx + fs * 1.2, cy); ctx.moveTo(cx, cy - fs * 0.4); ctx.lineTo(cx, cy - fs * 0.15); ctx.stroke();
-        if (full && v.cam) {
+        if (!hud) { ctx.beginPath(); ctx.moveTo(cx - fs * 1.2, cy); ctx.lineTo(cx - fs * 0.4, cy); ctx.moveTo(cx + fs * 0.4, cy); ctx.lineTo(cx + fs * 1.2, cy); ctx.moveTo(cx, cy - fs * 0.4); ctx.lineTo(cx, cy - fs * 0.15); ctx.stroke(); }
+        if (full && !hud && v.cam) {
           const f = v.h / 2 / Math.tan(v.cam.fovy / 2);
           const pc = eu.pitch + tiltOf() * D2R;
           if (Math.abs(pc) < 1.2) {
@@ -1943,9 +2056,11 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
         }
         osdText(modeOsd(S.mode), v.x + m, topY, 'left', fs);
         osdText(fmtTime(flightTime), v.x + v.w - m, topY, 'right', fs);
-        osdText(`ALT ${U.alt(alt)}`, v.x + m, cy, 'left', fs);
-        osdText(`${U.spd(st.tele.V)}`, v.x + v.w - m, cy, 'right', fs);
-        if (full) {
+        if (!hud) {
+          osdText(`ALT ${U.alt(alt)}`, v.x + m, cy, 'left', fs);
+          osdText(`${U.spd(st.tele.V)}`, v.x + v.w - m, cy, 'right', fs);
+        }
+        if (full && !hud) {
           const vs = -st.v[2];
           osdText(`${vs >= 0 ? '↑' : '↓'}${S.units === 'imp' ? Math.abs(vs * 3.28).toFixed(0) + ' ft/s' : Math.abs(vs).toFixed(1) + ' m/s'}`, v.x + m, cy + fs * 1.3, 'left', fs * 0.85);
           osdText(`GS ${U.spd(gs)}`, v.x + v.w - m, cy + fs * 1.3, 'right', fs * 0.85);
