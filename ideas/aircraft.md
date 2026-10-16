@@ -43,10 +43,15 @@ prop today, not a curve.
 - **The helicopter in a file.** It imports and exports, but the build sheet has no `heli` kind.
 - **A measured thrust curve** instead of static thrust plus pitch speed.
 - **Slotted and Fowler flaps.** The flap channel is a plain hinged surface.
-- **A VTOL (quadplane)**, which needs both sets of equations at once and transition logic.
+- **A quadplane.** The tail-sitter (`kind: "vtol"`) is built — it pitches the whole
+  airframe over and flies on its own body. One that keeps its wing level and tilts only
+  its motors, or carries separate lift and cruise motors, needs a second thrust axis the
+  format does not have.
+- **An autopilot that knows about transitions.** ALT HOLD, LOITER and RTL are off on a
+  tail-sitter today.
 
 ## Others mentioned or worth having
 
-- your forward-flying lifting-body quad — the build sheet cannot tilt a motor or add a wing to a
-  multirotor yet
+- your forward-flying lifting-body quad — closer than it was: a tail-sitter already has
+  wings on a four-motor airframe, so this is a build sheet away
 - your helicopter, once it flies

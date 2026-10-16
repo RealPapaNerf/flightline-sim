@@ -42,8 +42,10 @@ GitHub Pages is switched on under Repo → Settings → Pages → Deploy from a 
 | **13″ lifter** | 3.7 kg, landing gear, three-camera pod | 12S2P 21700 Li-ion |
 | **450 heli** | flybarless, 2,900 rpm governor, Normal and 3D pitch curves | 6S 1300 LiPo |
 
-Plus whatever you load: the [`aircraft/`](aircraft/) folder here, a file someone sends
-you, or one you build in the sim. See **Your own aircraft** below.
+Plus whatever you load: the [`aircraft/`](aircraft/) folder here — which has the
+Goblin with an ArduPilot stack, three of the quads, a 2 m camera plane and a
+657 km/h-class tail-sitter — a file someone sends you, or one you build in the sim.
+See **Your own aircraft** below.
 
 Li-ion packs can't feed a full punch on the bigger quads: the voltage dives and the
 thrust goes with it. Bench numbers for each aircraft come from `node test/quad_test.js
@@ -90,6 +92,14 @@ come back and change it, and exported as a file when you want to keep or share i
 **Flaps and retracts** come with the format: `C` cycles the flaps up → takeoff →
 landing, `U` raises and lowers the gear, and both can go on a radio switch. The OSD
 shows the flap setting and warns when the gear is up.
+
+**Tail-sitters** stand on their tail, hover on the props, then pitch over and fly
+horizontally — the shape the fastest drones in the world are built in.
+[`aircraft/speed-tailsitter.json`](aircraft/speed-tailsitter.json) is one in the class
+of the Peregreen V4: it leaves the pad at 300 km/h straight up, transitions in 2.5
+seconds on `T`, and runs at 653 km/h until the pack gives out about forty seconds
+later. The OSD says HOVER, TRANSITION or FORWARD FLIGHT; Angle is the mode to hover
+in. `node test/vtol_test.js` flies the whole sortie and prints the numbers.
 
 Nothing in an aircraft file is ever executed. It is read with `JSON.parse` and copied
 field by field against a table of rules: every number range-checked and clamped, every
@@ -211,6 +221,7 @@ mode, a HOTAS, or a gamepad.
 | `I` | Heli Normal / 3D pitch curve |
 | `C` | Flaps: up / takeoff / landing |
 | `U` | Landing gear up / down (retracts) |
+| `T` | Tail-sitter: hover ↔ forward flight |
 | `L` | Throw the Goblin |
 | `P` or `Space` | Pause |
 | `F` | Full screen |
@@ -361,7 +372,7 @@ tools/relay.js   a dependency-free WebSocket relay for live racing: node tools/r
 docs/            the aircraft file format and the map format, and a prompt that writes an aircraft
 aircraft/        aircraft files anyone can load, with an index.json
 test/*.js        bench tests: fm_test (planes), perf (trim table), quad_test <id>, heli_test,
-                 modes_test, weather_test, nav_test, ghost_test, net_test, aircraft_test;
+                 vtol_test, modes_test, weather_test, nav_test, ghost_test, net_test, aircraft_test;
                  race_test drives two pages through a relay in headless Chromium (needs playwright);
                  terrain_test covers the height query, terrain rays, chunk LOD and contact on
                  slopes; fixture_map writes a synthetic map and screenshot renders it in

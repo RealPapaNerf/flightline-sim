@@ -8,6 +8,10 @@ imported ones in browser storage so they are there next time.
 
 A file can describe an aircraft in two ways, and may carry both:
 
+There are five kinds: `conventional` (wing, stabiliser, fin), `wing` (a plank
+or flying wing with elevons), `quad`, `heli`, and `vtol` — a tail-sitter, which
+has its own section below.
+
 | | what it is | units | who writes it |
 |---|---|---|---|
 | `spec` | a **build sheet**: about thirty numbers you can read off a bench or a product page | mm, g, degrees, inches, mΩ | you, the builder panel, or a chat |
@@ -335,6 +339,7 @@ origin is the CG and the geometry has to be right.
 | `surfaces[].role` | `wing`, `tail`, `fin` | **required** | `wing` carries the weight, `tail` sees wing downwash, `fin` is left out of the neutral point |
 | `surfaces[].mirror` | true / false | *optional* | the same surface on both sides |
 | `surfaces[].vertical` | true / false | *optional* | a fin: its span runs up, not out |
+| `surfaces[].hidden` | true / false | *optional* | an aerodynamic stand-in — the model does not draw it (a lifting body) |
 | `surfaces[].n` | 1 … 14 | **required** | strips per side. 5–7 on a wing, 2 on a tail |
 | `surfaces[].y0` | 0 … 6 | **required** | inboard station, m from the centreline |
 | `surfaces[].y1` | 0.01 … 6 | **required** | outboard station (tip), m |
@@ -343,7 +348,7 @@ origin is the CG and the geometry has to be right.
 | `surfaces[].c0` | 0.01 … 2.5 | **required** | chord at y0, m |
 | `surfaces[].c1` | 0.01 … 2.5 | **required** | chord at y1, m |
 | `surfaces[].z0` | -3 … 3 | **required** | height of the surface at y0, body z (negative is above the CG) |
-| `surfaces[].dihedral` | -25 … 45 | *optional* | degrees up from the root to the tip |
+| `surfaces[].dihedral` | -60 … 60 | *optional* | degrees up from the root to the tip |
 | `surfaces[].inc0` | -15 … 15 | *optional* | incidence at the root, degrees |
 | `surfaces[].inc1` | -15 … 15 | *optional* | incidence at the tip; less than inc0 is washout |
 | `surfaces[].sweepLoad` | -1 … 1 | *optional* | how much sweep pushes the lift outboard (0.25 on a swept plank) |
@@ -425,7 +430,7 @@ origin is the CG and the geometry has to be right.
 | `rates.yaw.m` | 20 … 2000 | **required** | max rate at full stick, °/s |
 | `rates.yaw.e` | 0 … 1 | **required** | expo, 0…1 |
 | `kind` | `quad` | **required** | `conventional` has a tail, `wing` is a plank or flying wing |
-| `motors` | list ≤ 8 of 3 numbers | **required** | one [x, y, spin] per motor: body metres and +1 for counter-clockwise seen from above |
+| `motors` | list ≤ 8 of 3 numbers | **required** | one per motor. Quad: [x, y, spin], body metres, +1 for counter-clockwise seen from above. Tail-sitter: [x, y, z, spin], and the z offsets are what it pitches with |
 | `motor.Tmax` | 0.05 … 600 | **required** | thrust per motor at full throttle and Vref volts, newtons |
 | `motor.tau` | 0.005 … 1 | **required** | spool-up time constant, s |
 | `motor.idle` | 0 … 0.3 | **required** | idle motor command when armed |
@@ -439,6 +444,93 @@ origin is the CG and the geometry has to be right.
 | `look.rear` | 3 × (0…1) | *optional* | quad: rear props |
 | `look.frame` | 3 × (0…1) | *optional* | quad: arms and plates |
 | `look.wrap` | 3 × (0…1) | *optional* | quad: battery wrap |
+
+#### Tail-sitters only (`kind` `vtol`)
+
+| field | range | default | what it is |
+|---|---|---|---|
+| `pid.roll` | 5 × (-500 … 500) | **required** | rate PID: [P 1/s, I 1/s², feed-forward, I limit rad, D s] |
+| `pid.pitch` | 5 × (-500 … 500) | **required** | as above |
+| `pid.yaw` | 5 × (-500 … 500) | **required** | as above |
+| `angle.max` | 5 … 89 | **required** | Angle mode bank and pitch limit, degrees |
+| `angle.k` | 0.5 … 30 | **required** | self-level gain, 1/s |
+| `angle.rate` | 20 … 2000 | **required** | fastest levelling rate, °/s |
+| `rates.roll.c` | 1 … 600 | **required** | Betaflight Actual rates: centre sensitivity, °/s |
+| `rates.roll.m` | 20 … 2000 | **required** | max rate at full stick, °/s |
+| `rates.roll.e` | 0 … 1 | **required** | expo, 0…1 |
+| `rates.pitch.c` | 1 … 600 | **required** | Betaflight Actual rates: centre sensitivity, °/s |
+| `rates.pitch.m` | 20 … 2000 | **required** | max rate at full stick, °/s |
+| `rates.pitch.e` | 0 … 1 | **required** | expo, 0…1 |
+| `rates.yaw.c` | 1 … 600 | **required** | Betaflight Actual rates: centre sensitivity, °/s |
+| `rates.yaw.m` | 20 … 2000 | **required** | max rate at full stick, °/s |
+| `rates.yaw.e` | 0 … 1 | **required** | expo, 0…1 |
+| `kind` | `vtol` | **required** | `conventional` has a tail, `wing` is a plank or flying wing |
+| `motors` | list ≤ 8 of 4 numbers | **required** | one per motor. Quad: [x, y, spin], body metres, +1 for counter-clockwise seen from above. Tail-sitter: [x, y, z, spin], and the z offsets are what it pitches with |
+| `motor.Tmax` | 0.05 … 900 | **required** | thrust per motor at full throttle and Vref volts, newtons |
+| `motor.tau` | 0.005 … 1 | **required** | spool-up time constant, s |
+| `motor.idle` | 0 … 0.3 | **required** | idle motor command when armed |
+| `motor.kQ` | 0.0005 … 0.5 | **required** | yaw torque per newton of thrust, m |
+| `motor.Vp` | 1 … 400 | **required** | airspeed where a motor stops pulling at full rpm, m/s |
+| `motor.D` | 0.01 … 1.5 | **required** | prop diameter, m |
+| `staticMargin` | -0.1 … 0.6 | *optional* | CG ahead of the neutral point, as a fraction of the mean chord. Leave it out to place the CG by geometry instead |
+| `surfaces[].name` | text ≤ 24 | **required** | shown in the strip table |
+| `surfaces[].role` | `wing`, `tail`, `fin` | **required** | `wing` carries the weight, `tail` sees wing downwash, `fin` is left out of the neutral point |
+| `surfaces[].mirror` | true / false | *optional* | the same surface on both sides |
+| `surfaces[].vertical` | true / false | *optional* | a fin: its span runs up, not out |
+| `surfaces[].hidden` | true / false | *optional* | an aerodynamic stand-in — the model does not draw it (a lifting body) |
+| `surfaces[].n` | 1 … 14 | **required** | strips per side. 5–7 on a wing, 2 on a tail |
+| `surfaces[].y0` | 0 … 6 | **required** | inboard station, m from the centreline |
+| `surfaces[].y1` | 0.01 … 6 | **required** | outboard station (tip), m |
+| `surfaces[].xLE0` | -8 … 8 | **required** | leading edge at y0, body x |
+| `surfaces[].xLE1` | -8 … 8 | **required** | leading edge at y1 — smaller means swept back |
+| `surfaces[].c0` | 0.01 … 2.5 | **required** | chord at y0, m |
+| `surfaces[].c1` | 0.01 … 2.5 | **required** | chord at y1, m |
+| `surfaces[].z0` | -3 … 3 | **required** | height of the surface at y0, body z (negative is above the CG) |
+| `surfaces[].dihedral` | -60 … 60 | *optional* | degrees up from the root to the tip |
+| `surfaces[].inc0` | -15 … 15 | *optional* | incidence at the root, degrees |
+| `surfaces[].inc1` | -15 … 15 | *optional* | incidence at the tip; less than inc0 is washout |
+| `surfaces[].sweepLoad` | -1 … 1 | *optional* | how much sweep pushes the lift outboard (0.25 on a swept plank) |
+| `surfaces[].foil.a` | 0.5 … 7 | **required** | lift-curve slope for this surface's aspect ratio, per radian |
+| `surfaces[].foil.CL0` | -1 … 1 | **required** | lift coefficient at zero angle of attack (camber) |
+| `surfaces[].foil.CLmax` | 0.2 … 2.2 | **required** | section maximum lift coefficient |
+| `surfaces[].foil.CLmin` | -2.2 … -0.1 | **required** | the same upside down (negative) |
+| `surfaces[].foil.M` | 5 … 80 | **required** | how sharply it stalls: 30 foam, 40 built-up, 45 composite |
+| `surfaces[].foil.CD0` | 0.003 … 0.12 | **required** | section profile drag coefficient |
+| `surfaces[].foil.e` | 0.4 … 1.1 | **required** | span efficiency, for induced drag |
+| `surfaces[].foil.Cm0` | -0.4 … 0.4 | **required** | section pitching moment about the quarter chord |
+| `surfaces[].foil.CN90` | 0.8 … 2.5 | **required** | normal-force coefficient once it is a flat plate |
+| `surfaces[].flaps[].y0` | 0 … 6 | **required** | inboard end of this moving surface, m |
+| `surfaces[].flaps[].y1` | 0 … 6 | **required** | outboard end, m |
+| `surfaces[].flaps[].chord` | 0.002 … 1 | **required** | how deep the moving part is, m |
+| `surfaces[].flaps[].a` | -1 … 1 | *optional* | how much aileron stick moves it: −1, 0 or 1 |
+| `surfaces[].flaps[].e` | -1 … 1 | *optional* | how much elevator stick moves it |
+| `surfaces[].flaps[].r` | -1 … 1 | *optional* | how much rudder stick moves it |
+| `surfaces[].flaps[].f` | -1 … 1 | *optional* | how much the flap channel moves it |
+| `surfaces[].flaps[].side` | `mirror`, `both` | *optional* | `mirror` flips the sign on the left (ailerons), `both` does not (elevator, flaps) |
+| `defl.a` | 0 … 1.2 | **required** | full aileron stick, radians |
+| `defl.e` | 0 … 1.2 | **required** | full elevator stick, radians |
+| `defl.r` | 0 … 1.2 | **required** | full rudder stick, radians |
+| `defl.flapMax` | 0 … 1.4 | **required** | total travel any one surface can reach, radians |
+| `defl.f` | 0 … 1.2 | *optional* | full flaps, radians. Leave it out and there is no flap channel |
+| `flexQ` | 0 … 1000000 | `0` | control effectiveness is divided by (1 + q/flexQ): foam wings wash out at speed. 0 = rigid |
+| `servoRate` | 0.5 … 60 | `8` | servo speed, radians per second |
+| `trans.time` | 0.2 … 30 | **required** | seconds to swing the nose between vertical and level |
+| `trans.pitch` | -0.4 … 0.4 | **required** | the attitude it holds in cruise, radians nose-up |
+| `trans.vAir` | 1 … 300 | **required** | the speed a start in the air begins at, m/s |
+| `shape.fuseW` | 0.01 … 1.5 | **required** | fuselage width, m — only used to draw it |
+| `shape.fuseH` | 0.01 … 1.8 | **required** | fuselage height, m — only used to draw it |
+| `shape.wheelR` | 0.004 … 0.4 | *optional* | wheel radius, m — only used to draw it |
+| `rotorDrag` | 0 … 0.2 | **required** | in-plane rotor drag, N per N of thrust per m/s |
+| `look.top` | 3 × (0…1) | *optional* | wing and tail upper surfaces |
+| `look.bottom` | 3 × (0…1) | *optional* | their undersides |
+| `look.side` | 3 × (0…1) | *optional* | their edges |
+| `look.tip` | 3 × (0…1) | *optional* | the outer tenth of each wing, for orientation |
+| `look.accent` | 3 × (0…1) | *optional* | the stripe on the right wing |
+| `look.fuse` | 3 × (0…1) | *optional* | fuselage sides and top |
+| `look.fuseBottom` | 3 × (0…1) | *optional* | fuselage underside |
+| `look.canopy` | 3 × (0…1) | *optional* | canopy |
+| `look.dark` | 3 × (0…1) | *optional* | prop, cowl and tyres |
+| `look.metal` | 3 × (0…1) | *optional* | spinner and gear legs |
 
 #### Helicopters only (`kind` `heli`)
 
@@ -488,6 +580,61 @@ origin is the CG and the geometry has to be right.
 | `look.rear` | 3 × (0…1) | *optional* | quad: rear props |
 | `look.frame` | 3 × (0…1) | *optional* | quad: arms and plates |
 | `look.wrap` | 3 × (0…1) | *optional* | quad: battery wrap |
+
+## Tail-sitters
+
+`kind: "vtol"` is four motors thrusting along the nose and wings in the cruise
+frame: it stands on its tail, hovers on the props, pitches over, and flies
+horizontally. `aircraft/speed-tailsitter.json` is one, in the class of the
+Peregreen V4 that holds the Guinness record at 657.59 km/h.
+
+**The one idea.** There is no hover controller and no forward controller.
+There is one attitude the aircraft should be holding, which starts vertical and
+ends level, and the ordinary multirotor controller flies *level in that frame*:
+
+```
+tilt = (1 − fwd)·90° + fwd·trans.pitch        fwd: 0 on its tail … 1 flying level
+Rf   = R · Ry(−tilt)                          the control frame
+setpoints = the same multirotor controller, given Rf
+```
+
+The transition is that frame rotating, with `fwd` running 0 → 1 over
+`trans.time` seconds when you press `T`. Acro, Horizon, Angle and Acro-trainer
+all work in both regimes, and because the frame is near level at both ends the
+Euler angles the controller works in never reach the 90° singularity a
+tail-sitter otherwise lives on.
+
+**What is different from a quad**
+
+| | quad | tail-sitter |
+|---|---|---|
+| thrust | along −z, out of the top | along +x, out of the nose |
+| `motors` | `[x, y, spin]` | `[x, y, z, spin]` |
+| pitch | from the x offsets | from the **z** offsets |
+| yaw | from the prop torque | from the **y** offsets |
+| roll | from the y offsets | from the **prop torque** — so it rolls lazily and pitches hard |
+| thrust at speed | falls to a quarter and stops there | falls to **zero** at the pitch speed, which is what sets the top speed |
+| lift | none | the strip model, in the cruise frame |
+
+It needs motors above and below the centreline to pitch with, and some wing
+area to fly on; the validator checks both.
+
+**Giving it lift.** A speed machine's lift comes from its fuselage and its arm
+fairings, so the aircraft file says so directly: the body is one surface with a
+low aspect ratio, a slow lift curve and a late stall, and the four arms are two
+mirrored pairs at ±45° of dihedral — a cruciform wing. A surface with
+`"hidden": true` is not drawn by the 3-D model, which is how the fuselage can
+be a lifting body to the physics and a fuselage to your eyes.
+
+**What this does not do.** The autopilot has no transition in it, so ALT HOLD,
+LOITER and RTL are off on a tail-sitter. There is no compressibility anywhere
+in this model: the record aircraft cruises at Mach 0.53 with its prop tips past
+Mach 1, so treat the top end as optimistic. And the build sheet has no `vtol`
+kind yet — write the definition, or start from the file in `aircraft/`.
+
+`node test/vtol_test.js [file.json]` flies one: off the pad, a hover, the
+transition, the top speed on a full pack and on a draining one, the
+back-transition and the landing.
 
 ## Strips, and why planes are capped at 40
 
@@ -582,8 +729,12 @@ local file there is no folder to read.
 - **Helicopters can be imported and exported but not built.** The build sheet
   has no `heli` kind; the rotor block is documented above and the hand-built
   450 exports and re-imports unchanged.
-- **No VTOL or quadplane.** A definition is one `kind` with one set of
-  equations, and a transition needs both at once.
+- **A quadplane is not a tail-sitter.** `vtol` is the aircraft that pitches
+  its whole airframe over. One that keeps its wing level and tilts only its
+  motors, or carries separate lift and cruise motors, needs a second thrust
+  axis the format does not have.
+- **No tail-sitter in the build sheet.** It can be imported, exported and
+  flown, but not generated from a page of numbers.
 - **Slotted and Fowler flaps, spoilers and airbrakes.** The flap channel is a
   plain hinged surface.
 - **No per-strip airfoil.** One airfoil per surface.
