@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<!-- built by tools/build.py from src/ (3e41a2c2); edit the sources, not this file -->
+<!-- built by tools/build.py from src/ (43893e49); edit the sources, not this file -->
 <title>Flightline RC Sim</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Browser RC flight trainer: Nano Goblin and trainer flight models, line of sight, FPV and split view, USB transmitter support.">
@@ -135,15 +135,19 @@ button { font: inherit; color: inherit; }
 #sheet.open { transform: none; visibility: visible; transition: transform 0.22s ease; }
 .sh-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
 .sh-head h2 { margin: 0; font: 700 20px/1 var(--f-display); letter-spacing: 0.04em; text-transform: uppercase; }
+.sh-tabs { position: sticky; top: calc(-14px - env(safe-area-inset-top, 0px)); z-index: 2; display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 8px 0 4px; padding: 8px 0; background: var(--panel); }
+.sh-tabs button { min-height: 36px; padding: 0 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel-2); font: 600 11px/1.1 var(--f-display); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); cursor: pointer; }
+.sh-tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 #sheet section { padding: 14px 0 6px; border-top: 1px solid var(--line); }
 #sheet section > h3 { margin: 0 0 8px; font: 600 11px/1 var(--f-display); letter-spacing: 0.18em; text-transform: uppercase; color: var(--accent); }
-.set { display: grid; gap: 7px; padding: 8px 0; }
+.set { display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; padding: 8px 0; }
 .set > label, .set > .lab { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 13px; }
 .set output, .set .val { font: 13px/1 var(--f-mono); color: var(--sky); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .set .help { font-size: 12px; color: var(--muted); line-height: 1.45; }
 .seg { display: flex; flex-wrap: wrap; gap: 4px; }
 .seg button { flex: 1 1 auto; min-height: 34px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel-2); font: 600 12px/1 var(--f-display); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); cursor: pointer; }
 .seg button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.seg.wrap button { flex: 1 1 30%; min-height: 38px; }
 input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; height: 24px; }
 .rates { display: grid; grid-template-columns: auto 1fr 1fr; gap: 6px 12px; align-items: center; font-size: 13px; }
 .rates .hd { font: 600 10px/1 var(--f-display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
@@ -296,6 +300,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; heigh
 
   <aside id="sheet" aria-label="Settings">
     <div class="sh-head"><h2>Settings</h2><button class="btn small" id="shClose">Close</button></div>
+    <nav class="sh-tabs" id="shTabs" role="tablist" aria-label="Settings sections"></nav>
     <div id="shBody"></div>
   </aside>
 
@@ -350,15 +355,124 @@ const FL = (function () {
 
   /* International Standard Atmosphere (troposphere): density at a field
      elevation and actual temperature, plus density altitude. */
-  function atmosphere(elevFt, tempF) {
-    const T0 = 288.15, L = 0.0065, R = 287.053, p0 = 101325;
+  /* ---------------- Atmosphere and weather ---------------- */
+  // saturation vapour pressure over water (Pa), Magnus–Tetens form (Bolton 1980), T in °C
+  const esat = (Tc) => 611.2 * Math.exp((17.67 * Tc) / (Tc + 243.5));
+  /* Field conditions → air density. Station pressure from the altimeter setting (QNH) through the
+     ISA lapse, moist air as dry air + water vapour (partial pressures), density altitude by
+     inverting the ISA density curve. */
+  function atmosphere(elevFt, tempF, rh = 0, altimInHg = 29.92) {
+    const T0 = 288.15, L = 0.0065, Rd = 287.053, Rv = 461.495, p0 = 101325, n0 = G / (Rd * L);
     const h = elevFt * 0.3048;
-    const p = p0 * Math.pow(1 - (L * h) / T0, G / (R * L));
-    const T = ((tempF - 32) * 5) / 9 + 273.15;
-    const rho = p / (R * T);
-    const n = G / (R * L) - 1;
-    const da = (T0 / L) * (1 - Math.pow(rho / RHO0, 1 / n));
-    return { rho, p, T, daFt: da / 0.3048, isaTempF: ((T0 - L * h - 273.15) * 9) / 5 + 32 };
+    const p = altimInHg * 3386.389 * Math.pow(1 - (L * h) / T0, n0); // station pressure
+    const Tc = ((tempF - 32) * 5) / 9, T = Tc + 273.15;
+    const e = (clamp(rh, 0, 100) / 100) * esat(Tc); // vapour pressure
+    const rho = (p - e) / (Rd * T) + e / (Rv * T);
+    const da = (T0 / L) * (1 - Math.pow(rho / RHO0, 1 / (n0 - 1)));
+    const pa = (T0 / L) * (1 - Math.pow(p / p0, 1 / n0));
+    const lg = Math.log(Math.max(e, 1) / 611.2), dew = (243.5 * lg) / (17.67 - lg);
+    return {
+      rho, p, T, Tc, e, dewC: dew, daFt: da / 0.3048, paFt: pa / 0.3048,
+      isaTempF: ((T0 - L * h - 273.15) * 9) / 5 + 32,
+      cloudBaseFt: Math.max(0, ((Tc - dew) / 2.5) * 1000), // spread rule: ~400 ft per °C of temperature–dew point spread
+    };
+  }
+
+  /* Precipitation: rate R (mm/h, water), liquid water content (kg/m³), median drop size (m),
+     optical extinction (1/km, visibility = 3.912/β), fall speed (m/s). Liquid water from
+     Marshall–Palmer (LWC ≈ 0.072·R^0.88 g/m³) for rain; drizzle and snow are typical values. */
+  const PRECIP = {
+    none: { name: 'None', R: 0, lwc: 0, mvd: 0, beta: 0, fall: 0, liquid: true },
+    drizzle: { name: 'Drizzle', R: 0.5, lwc: 0.12e-3, mvd: 250e-6, beta: 1.4, fall: 2, liquid: true },
+    rain: { name: 'Rain', R: 4, lwc: 0.24e-3, mvd: 1000e-6, beta: 0.6, fall: 5, liquid: true },
+    heavy: { name: 'Heavy rain', R: 25, lwc: 1.2e-3, mvd: 1500e-6, beta: 1.9, fall: 7.5, liquid: true },
+    snow: { name: 'Snow', R: 1, lwc: 0.1e-3, mvd: 1000e-6, beta: 2.5, fall: 1, liquid: false },
+    heavysnow: { name: 'Heavy snow', R: 4, lwc: 0.3e-3, mvd: 1500e-6, beta: 8, fall: 1.2, liquid: false },
+  };
+  const CLOUD_LWC = 0.25e-3, CLOUD_MVD = 15e-6, CLOUD_VIS = 40; // stratus: g/m³ ×1e-3, 15 µm drops, ~40 m inside
+
+  /* Weather at the aircraft. wx = { tempC (at the field), rh (%), precip, fogVisM, ceilM (0 = no
+     ceiling) }, alt = height above the field (m). Returns air temperature there, the supercooled-or-
+     not liquid water the aircraft flies through and its drop size, a 0–1 rain intensity for the
+     aerodynamic penalty, whether it's in cloud, and the visibility. */
+  function weatherAt(wx, alt) {
+    const T = wx.tempC - 0.0065 * alt;
+    const P = PRECIP[wx.precip] || PRECIP.none;
+    const inCloud = wx.ceilM > 0 && alt >= wx.ceilM;
+    let lwc = 0, m = 0;
+    const add = (l, d) => { lwc += l; m += l * d; };
+    if (inCloud) add(CLOUD_LWC, CLOUD_MVD);
+    const fogVis = Math.min(30000, wx.fogVisM >= 10000 ? 30000 : wx.fogVisM);
+    // fog or mist: liquid water from visibility, Kunkel (1984) β = 144.7·LWC^0.88 (β 1/km, LWC g/m³)
+    if (wx.rh >= 95 && fogVis < 5000) add(Math.pow(3.912 / (fogVis / 1000) / 144.7, 1 / 0.88) * 1e-3, 10e-6);
+    if (P.liquid || (T > -1.5 && T < 1)) add(P.lwc, P.mvd); // snow only sticks when it's wet
+    const beta = (inCloud ? 3912 / CLOUD_VIS : 0) + 3.912 / (fogVis / 1000) + P.beta;
+    return { T, lwc, mvd: lwc > 0 ? m / lwc : 0, rain: P.liquid && T > 0 ? Math.min(1, P.R / 100) : 0, inCloud, visM: 3912 / beta, freezing: T <= 0 };
+  }
+
+  /* Ice growth (m/s) at the leading edge of a section with chord c (m) moving at V (m/s) through
+     liquid water at air temperature Tamb (°C). Kinetic heating warms the surface by about V²/2365 °C,
+     so fast props and rotor tips stay clean near 0 °C.
+       K = ρw·d²·V / (18μ·r_LE),  r_LE ≈ 0.04c      collection efficiency E = K / (K + 0.6)
+       freezing fraction n = 0.25 − Ts/4 (glaze near 0 °C, all rime colder than −3 °C)
+       dk/dt = E·n·LWC·V / ρ_ice                    ρ_ice 700 (rime) … 900 kg/m³ (glaze) */
+  const glazeOf = (Ts) => clamp(1 - (-Ts - 2) / 8, 0, 1);
+  function iceRate(wxa, V, c, Tamb) {
+    if (!wxa || wxa.lwc <= 0) return 0;
+    const Ts = Tamb + (V * V) / 2365;
+    if (Ts >= 0) return 0;
+    const K = (1000 * wxa.mvd * wxa.mvd * V) / (18 * 1.72e-5 * 0.04 * c);
+    const E = K / (K + 0.6);
+    const n = Math.min(1, 0.25 - Ts / 4);
+    const cold = Tamb < -15 ? Math.max(0.2, 1 + (Tamb + 15) / 15) : 1; // fewer supercooled drops when very cold
+    return (E * n * cold * wxa.lwc * V) / (700 + 200 * glazeOf(Ts));
+  }
+  /* Aerodynamic cost of leading-edge ice of relative height x = k/c. Trends follow wind-tunnel work on
+     iced airfoils (Bragg et al.; Hann et al. on small UAV airfoils): even roughness costs lift, horn
+     glaze near 0 °C is worse than rime. Rough numbers: fraction of CLmax lost, added profile drag,
+     lift-slope factor. */
+  function icePenalty(x, gl) {
+    if (!(x > 0)) return { dCL: 0, dCD: 0, slope: 1 };
+    const g = 1 - Math.exp(-x / 0.002), h = 1 - Math.exp(-x / 0.005);
+    return { dCL: (0.3 + 0.15 * gl) * g, dCD: (0.025 + 0.03 * gl) * h, slope: 1 - 0.08 * g };
+  }
+  // ice on a propeller or rotor blade: thrust lost, extra shaft power
+  // (UAV propeller icing tests show thrust falling by half and power rising 50–100% within minutes)
+  const propIce = (x) => { const g = 1 - Math.exp(-x / 0.01); return { thrust: 1 - 0.6 * g, power: 1 + 0.8 * g }; };
+
+  /* Battery temperature. Internal resistance grows about 2.8%/°C as the pack cools (×1.7 at 0 °C, ×3 at
+     −20 °C, relative to the 20 °C rating) and usable capacity drops ~0.6%/°C below 20 °C. The pack warms by I²R and cools toward the air:
+       m·cp·dT/dt = I²R(T) − (UA0 + UA1·√V)·(T − T_air)       cp ≈ 1000 J/(kg·K) */
+  const PACK_KG = { lipo: 0.027, liion: 0.016 }; // kg per cell per Ah
+  const battR = (B, Tc) => B.R * clamp(Math.exp(0.0277 * (20 - Tc)), 0.5, 6);
+  const capF = (Tc) => clamp(1 - 0.006 * (20 - Tc), 0.6, 1);
+  function battery(s, B, Icur, V, env, dt) {
+    const R = battR(B, s.bT);
+    s.I = Icur;
+    s.vb = Math.max(0, B.cells * cellOCV(B.chem, env.battery ? s.soc : 1) - Icur * R);
+    if (env.battery) { s.mAh += (Icur * dt) / 3.6; s.soc = Math.max(0, 1 - s.mAh / (B.mAh * capF(s.bT))); }
+    const m = B.cells * (B.mAh / 1000) * (PACK_KG[B.chem] || 0.027), cool = B.cool || [0.08, 0.03];
+    const Ta = env.wx ? env.wx.T : 20;
+    s.bT += ((Icur * Icur * R - (cool[0] + cool[1] * Math.sqrt(Math.max(0, V))) * (s.bT - Ta)) / (m * 1000)) * dt;
+  }
+  /* Shared per-step icing bookkeeping for props, rotor blades and the FPV lens. vP: blade speed at 75%
+     radius, cP: blade chord. Returns the prop factors. Ice sheds off fast props now and then, unevenly. */
+  function iceSmall(s, env, V, vP, cP, dt) {
+    const wxa = env.wx;
+    if (!wxa) return propIce(0);
+    if (wxa.lwc > 0 && wxa.T < 3) {
+      s.iceProp += iceRate(wxa, vP, cP, wxa.T) * dt;
+      s.iceLens = Math.min(1, s.iceLens + ((iceRate(wxa, Math.max(V, 3), 0.02, wxa.T) * 0.5) / 0.001) * dt);
+    }
+    if (wxa.T > 0.5) { // melting
+      const m = (wxa.T - 0.5) * 2e-6 * (wxa.rain > 0 ? 3 : 1) * dt;
+      s.iceProp = Math.max(0, s.iceProp - m); s.iceLens = Math.max(0, s.iceLens - m / 0.001);
+    }
+    if (s.iceProp > 3e-4 && vP > 50 && Math.random() < 0.08 * (vP / 100) ** 2 * (s.iceProp / 5e-4) * dt) {
+      s.iceProp *= 0.3 + 0.3 * Math.random(); s.shed = 1.2; // a chunk lets go: shake for a moment
+    }
+    s.shed = Math.max(0, s.shed - dt);
+    return propIce(s.iceProp / cP);
   }
 
   // open-circuit volts per cell vs state of charge
@@ -512,7 +626,7 @@ const FL = (function () {
       pid: { roll: [30, 160, 0.3, 0.35, 0.025], pitch: [30, 160, 0.3, 0.35, 0.025], yaw: [22, 70, 0.3, 0.5, 0] },
       angle: { max: 55, k: 7, rate: 500 }, // self-level gain (1/s) and max levelling rate (°/s); limits come from settings
       rates: { roll: { c: 70, m: 670, e: 0 }, pitch: { c: 70, m: 670, e: 0 }, yaw: { c: 70, m: 670, e: 0 } },
-      batt: { chem: 'lipo', cells: 6, mAh: 1300, R: 0.035, Imax: 120, Iidle: 0.6, Vref: 22.8, label: '6S 1300 LiPo' },
+      batt: { chem: 'lipo', cells: 6, mAh: 1300, R: 0.035, Imax: 120, Iidle: 0.6, Vref: 22.8, label: '6S 1300 LiPo', cool: [0.15, 0.06] },
       wheels: [],
       points: [
         { p: [0.055, 0.04, 0.03], name: 'frame', foot: true, impact: 6, slide: 99 },
@@ -634,6 +748,7 @@ const FL = (function () {
             a: f.a, CL0: f.CL0,
             aS: (f.CLmax / L - f.CL0) / f.a, // local stall angle: strips carrying more load stall sooner
             aSn: (f.CL0 - f.CLmin / L) / f.a,
+            dAS: f.CLmax / L / f.a, dASn: -f.CLmin / L / f.a, // stall-angle change per unit fraction of CLmax / CLmin lost
             M: f.M, CD0: f.CD0, k: 1 / (Math.PI * f.e * AR), Cm0: f.Cm0, CN90: f.CN90,
             AR, ka: 0, ke: 0, kr: 0, tau: 0, cmd: 0, cf: 0,
             wash: false,
@@ -725,11 +840,13 @@ const FL = (function () {
       crashed: false, crashMsg: '', wow: false, held: false, t: 0, clw: 0,
       mot: [0, 0, 0, 0], pidI: [0, 0, 0], spPrev: [0, 0, 0], ff: [0, 0, 0], buf: [0, 0], wPrev: [0, 0, 0], dF: [0, 0, 0], // flight controller
       om: 0, coll: 0, gov: 0, tailI: 0, vi: 0, tilt: [0, 0], tt: 0, // helicopter rotor
+      bT: 20, ice: null, iceProp: 0, iceLens: 0, iceMass: 0, iceGl: 0, shed: 0, // pack temperature (°C) and icing
       tele: { alpha: 0, beta: 0, V: 0, CL: 0, qbar: 0, T: 0, nz: 1, stallL: 0, stallR: 0 },
     };
   }
 
-  function reset(s, ac, where) {
+  function reset(s, ac, where, packC = 20) {
+    s.bT = packC; s.ice = null; s.iceProp = 0; s.iceLens = 0; s.iceMass = 0; s.iceGl = 0; s.shed = 0;
     s.w = [0, 0, 0]; s.n = 0; s.sa = s.se = s.sr = 0;
     s.crashed = false; s.crashMsg = ''; s.mAh = 0; s.soc = 1; s.t = 0; s.held = false; s.clw = 0;
     s.mot = [0, 0, 0, 0]; s.pidI = [0, 0, 0]; s.spPrev = [0, 0, 0]; s.ff = [0, 0, 0]; s.buf = [0, 0]; s.wPrev = [0, 0, 0]; s.dF = [0, 0, 0]; s.om = 0; s.coll = 0; s.gov = 0; s.tailI = 0; s.vi = 0; s.tilt = [0, 0]; s.tt = 0;
@@ -779,16 +896,17 @@ const FL = (function () {
   /* Section coefficients of one strip at effective angle of attack ae (rad).
      Linear lift below stall, flat-plate normal force above, blended by a
      sigmoid around the strip's own stall angles (Beard & McLain 2012). */
-  function foilCoeffs(st, ae, d) {
-    const e1 = Math.exp(-st.M * (ae - st.aS));
-    const e2 = Math.exp(st.M * (ae + st.aSn));
+  function foilCoeffs(st, ae, d, dCL = 0, dCD = 0, slope = 1) {
+    // dCL: fraction of CLmax lost (ice, rain), dCD: added profile drag, slope: lift-slope factor
+    const e1 = Math.exp(-st.M * (ae - (st.aS - dCL * st.dAS)));
+    const e2 = Math.exp(st.M * (ae + (st.aSn - dCL * st.dASn)));
     const sig = (1 + e1 + e2) / ((1 + e1) * (1 + e2)); // 0 attached … 1 stalled
     const sn = Math.sin(ae), cs = Math.cos(ae);
-    const CLlin = st.load * (st.CL0 + st.a * ae);
+    const CLlin = st.load * (st.CL0 + st.a * slope * ae);
     return {
       sig, CLlin,
       CL: (1 - sig) * CLlin + sig * st.CN90 * sn * cs,
-      CDp: (1 - sig) * st.CD0 + sig * (st.CD0 + st.CN90 * sn * sn),
+      CDp: st.CD0 + dCD + sig * st.CN90 * sn * sn,
       Cm: (1 - sig) * (st.Cm0 + st.cmd * d) - sig * 0.2 * st.CN90 * sn,
     };
   }
@@ -796,7 +914,7 @@ const FL = (function () {
   /* Second half of every step, shared by all aircraft: gravity, ground contact, crash checks
      and integration. F and Mo are the body-frame force and moment from the aircraft itself. */
   function finish(s, ac, F, Mo, R, env, dt) {
-    const m = ac.mass, I = ac.I, w = s.w;
+    const m = ac.mass + (s.iceMass || 0), I = ac.I, w = s.w;
     // small structural damping that never fades (keeps a parked model from spinning forever)
     Mo[0] -= 0.02 * I[0] * w[0]; Mo[1] -= 0.02 * I[1] * w[1]; Mo[2] -= 0.02 * I[2] * w[2];
 
@@ -893,17 +1011,17 @@ const FL = (function () {
     let thrCmd = s.crashed ? 0 : clamp(ctl.thr, 0, 1);
     if (env.battery && s.soc <= 0) thrCmd = 0;
     s.n += (thrCmd - s.n) * Math.min(1, dt / P.tau);
-    const Icur = B.Iidle + B.Imax * s.n * s.n * s.n;
-    s.I = Icur;
-    s.vb = Math.max(0, B.cells * cellOCV(B.chem, env.battery ? s.soc : 1) - Icur * B.R);
-    if (env.battery) { s.mAh += (Icur * dt) / 3.6; s.soc = Math.max(0, 1 - s.mAh / B.mAh); }
+    const rho = env.rho;
+    const vbody = Math.hypot(s.v[0], s.v[1], s.v[2]);
+    const pice = iceSmall(s, env, vbody, 3.5 * P.Vp * s.n + vbody, 0.08 * P.D + 0.006, dt);
+    // motor current: power ∝ ρ·rpm³ for a fixed prop (thin air unloads it), more with an iced prop
+    battery(s, B, B.Iidle + B.Imax * s.n * s.n * s.n * (rho / RHO0) * pice.power, vbody, env, dt);
 
     // --- servos ---
     s.sa = approach(s.sa, sat(ctl.a) * ac.defl.a, ac.servoRate * dt);
     s.se = approach(s.se, sat(ctl.e) * ac.defl.e, ac.servoRate * dt);
     s.sr = approach(s.sr, sat(ctl.r) * ac.defl.r, ac.servoRate * dt);
 
-    const rho = env.rho;
     if (s.held) { // in the pilot's hand: motor spins, nothing moves
       const rpm0 = s.n * clamp(s.vb / B.Vref, 0, 1.15);
       s.tele.T = P.T0 * (rho / RHO0) * rpm0 * rpm0; s.tele.V = 0;
@@ -920,7 +1038,7 @@ const FL = (function () {
     const rpm = s.n * clamp(s.vb / B.Vref, 0, 1.15);
     const Vax = vb[0];
     let T = P.T0 * (rho / RHO0) * (rpm * rpm - (rpm * Vax) / P.Vp);
-    T = Math.max(P.Tmin * (rho / RHO0) * Math.min(1, Math.abs(Vax) / P.Vp), T);
+    T = Math.max(P.Tmin * (rho / RHO0) * Math.min(1, Math.abs(Vax) / P.Vp), T) * pice.thrust;
     let dWash = 0; // slipstream speed-up behind a tractor prop (momentum theory, part developed)
     if (P.wash && T > 0) {
       const A = (Math.PI * P.D * P.D) / 4, Vx = Math.max(0, Vax);
@@ -929,17 +1047,25 @@ const FL = (function () {
     const F = [T, 0, 0];
     const Mo = cross(P.r, F);
     Mo[0] += P.torque * T * P.D; // prop reaction torque
+    if (s.shed > 0) for (let k = 0; k < 3; k++) Mo[k] += (Math.random() * 2 - 1) * s.shed * 0.04 * m * ac.b; // ice shed off the prop: imbalance
 
     // --- lifting strips ---
     const hCG = -s.p[2];
     let clwSum = 0, clwArea = 0, stL = 0, stR = 0, aL = 0, aR = 0, aSum = 0;
     const eps = (2 * s.clw) / (Math.PI * ac.ARw); // tail downwash from last step's wing CL
+    // turbulence: rotational gusts (Dryden p, q, r) act like the air itself rotating
+    const gw = env.gw || [0, 0, 0], wa = [w[0] - gw[0], w[1] - gw[1], w[2] - gw[2]];
+    // weather: rain roughens the wing; ice builds on each strip's leading edge and melts above freezing
+    const wxa = env.wx, rainP = wxa ? wxa.rain : 0;
+    const icing = wxa && wxa.lwc > 0 && wxa.T < 3, melt = wxa && wxa.T > 0.5 ? (wxa.T - 0.5) * 2e-6 * (wxa.rain > 0 ? 3 : 1) * dt : 0;
+    if (icing && !s.ice) s.ice = new Float64Array(ac.strips.length);
+    let iceM = 0;
     for (let i = 0; i < ac.strips.length; i++) {
       const st = ac.strips[i];
       const r = st.r34; // angle of attack taken at 3/4 chord (Pistolesi); force applied at 1/4 chord
-      const v0 = vb[0] + (w[1] * r[2] - w[2] * r[1]);
-      const v1 = vb[1] + (w[2] * r[0] - w[0] * r[2]);
-      const v2 = vb[2] + (w[0] * r[1] - w[1] * r[0]);
+      const v0 = vb[0] + (wa[1] * r[2] - wa[2] * r[1]);
+      const v1 = vb[1] + (wa[2] * r[0] - wa[0] * r[2]);
+      const v2 = vb[2] + (wa[0] * r[1] - wa[1] * r[0]);
       let uc = v0 * st.c[0] + v1 * st.c[1] + v2 * st.c[2];
       const un = v0 * st.n[0] + v1 * st.n[1] + v2 * st.n[2];
       if (st.wash) uc += dWash;
@@ -952,13 +1078,21 @@ const FL = (function () {
       const flex = ac.flexQ ? 1 / (1 + (0.5 * rho * V2) / ac.flexQ) : 1;
       let ae = alpha + st.tau * d * flex;
       if (ae > Math.PI) ae -= 2 * Math.PI; else if (ae < -Math.PI) ae += 2 * Math.PI;
-      const cf = foilCoeffs(st, ae, d * flex);
+      let dCL = 0.12 * rainP, dCD = 0.01 * rainP, slope = 1;
+      if (s.ice) {
+        let k = s.ice[i];
+        if (icing) k += iceRate(wxa, Vin, st.chord, wxa.T) * dt;
+        if (melt && k > 0) k = Math.max(0, k - melt);
+        s.ice[i] = k;
+        if (k > 0) { const pn = icePenalty(k / st.chord, s.iceGl); dCL += pn.dCL; dCD += pn.dCD; slope = pn.slope; iceM += 80 * k * st.area; }
+      }
+      const cf = foilCoeffs(st, ae, d * flex, dCL, dCD, slope);
       // induced drag, reduced in ground effect (McCormick)
       const hz = hCG - (R[6] * st.r[0] + R[7] * st.r[1] + R[8] * st.r[2]);
       const g16 = (16 * Math.max(0.02, hz)) / (ac.b || 1);
       const ge = st.role === 'fin' ? 1 : (g16 * g16) / (1 + g16 * g16);
       const CD = cf.CDp + (1 - cf.sig) * st.k * ge * cf.CLlin * cf.CLlin;
-      const qs = ((w[0] * st.s[0] + w[1] * st.s[1] + w[2] * st.s[2]) * st.chord) / Vin;
+      const qs = ((wa[0] * st.s[0] + wa[1] * st.s[1] + wa[2] * st.s[2]) * st.chord) / Vin;
       const Cm = cf.Cm - 0.4 * qs; // section pitch-rate damping
       const qS = 0.5 * rho * V2 * st.area;
       const vh0 = (uc * st.c[0] + un * st.n[0]) / Vin, vh1 = (uc * st.c[1] + un * st.n[1]) / Vin, vh2 = (uc * st.c[2] + un * st.n[2]) / Vin;
@@ -976,6 +1110,9 @@ const FL = (function () {
       }
     }
     s.clw = clwArea > 0 ? clwSum / clwArea : 0;
+    // ice mass ≈ ρ_ice·0.1·k·c per unit span (a wedge ~10% of chord deep); glaze share by mass
+    if (icing && iceM > s.iceMass) s.iceGl += ((glazeOf(wxa.T) - s.iceGl) * (iceM - s.iceMass)) / iceM;
+    s.iceMass = iceM;
 
     // --- fuselage / pod drag ---
     if (V > 0.1) {
@@ -1041,14 +1178,13 @@ const FL = (function () {
     const M = ac.motor, B = ac.batt, I = ac.I, rho = env.rho, w = s.w;
     const armed = !!ctl.armed && !s.crashed && !(env.battery && s.soc <= 0);
 
-    // battery: electrical power ~ rpm³
+    // battery: electrical power ~ ρ·rpm³; props pick up ice in freezing cloud, fog or drizzle
     const m3 = (s.mot[0] ** 3 + s.mot[1] ** 3 + s.mot[2] ** 3 + s.mot[3] ** 3) / 4;
-    const Icur = B.Iidle + B.Imax * m3;
-    s.I = Icur;
-    s.vb = Math.max(0, B.cells * cellOCV(B.chem, env.battery ? s.soc : 1) - Icur * B.R);
-    if (env.battery) { s.mAh += (Icur * dt) / 3.6; s.soc = Math.max(0, 1 - s.mAh / B.mAh); }
+    const vbody = Math.hypot(s.v[0], s.v[1], s.v[2]), mAvg = (s.mot[0] + s.mot[1] + s.mot[2] + s.mot[3]) / 4;
+    const pice = iceSmall(s, env, vbody, 3.5 * M.Vp * mAvg + vbody, 0.09 * M.D, dt);
+    battery(s, B, B.Iidle + B.Imax * m3 * (rho / RHO0) * pice.power, vbody, env, dt);
     const vsc = clamp(s.vb / B.Vref, 0, 1.2);
-    const Tmax = M.Tmax * vsc * vsc * (rho / RHO0); // motor thrust falls with voltage sag and thin air
+    const Tmax = M.Tmax * vsc * vsc * (rho / RHO0) * pice.thrust; // thrust falls with voltage sag, thin air and prop ice
 
     const R = quatToMat(s.q);
     const wind = env.wind || [0, 0, 0];
@@ -1114,7 +1250,8 @@ const FL = (function () {
       F[2] -= T;
       Mo[0] += -y * T; Mo[1] += x * T; Mo[2] += q * M.kQ * T;
     }
-    Mo[0] += wash * 0.14 * s.buf[0]; Mo[1] += wash * 0.14 * s.buf[1];
+    const shake = wash * 0.14 + s.shed * 0.12; // prop wash, or ice thrown unevenly off a prop
+    Mo[0] += shake * s.buf[0]; Mo[1] += shake * s.buf[1];
     F[0] -= ac.rotorDrag * Ttot * vb[0]; F[1] -= ac.rotorDrag * Ttot * vb[1];
     const Vn = Math.hypot(vb[0], vb[1], vb[2]), kd = 0.5 * rho * Vn, Cd = ac.body.CdA;
     F[0] -= kd * Cd[0] * vb[0]; F[1] -= kd * Cd[1] * vb[1]; F[2] -= kd * Cd[2] * vb[2];
@@ -1145,8 +1282,12 @@ const FL = (function () {
     const vc = -vb[2], Vh = Math.hypot(vb[0], vb[1]); // climb along the shaft, speed in the rotor plane
     const vhov = Math.sqrt((ac.mass * G) / (2 * rho * A));
 
-    // ---- thrust: blade element (CT = σa/2·(θ/3 − λ/2)) with momentum inflow (Glauert), fixed-point ----
-    const kT = 0.5 * Ro.sigma * Ro.a * rho * A * OmR * OmR, mu0 = Math.min(0.5, Vh / OmR);
+    // ---- blade ice (inner blade, ~75% radius, warms least) ----
+    const bIce = s.om > 5 || s.iceProp > 0 ? iceSmall(s, env, Math.hypot(s.v[0], s.v[1], s.v[2]), 0.75 * OmR, Ro.chord, dt) : null;
+    const bx = s.iceProp / Ro.chord, bpen = icePenalty(bx, glazeOf(env.wx ? env.wx.T : 0));
+
+    // ---- thrust: blade element (CT = σa/2·(θ/3 − λ/2)) with momentum inflow (Glauert), solved by bisection ----
+    const kT = 0.5 * Ro.sigma * Ro.a * bpen.slope * rho * A * OmR * OmR, mu0 = Math.min(0.5, Vh / OmR);
     // solve vi = κT(vi) / (2ρA·|V'|) by bisection (plain fixed-point iteration oscillates in descent)
     const th = s.coll * (1 / 3 + (mu0 * mu0) / 2), Tof = (v) => kT * (th - (vc + v) / OmR / 2);
     let lo = -40, hi = 40;
@@ -1159,7 +1300,7 @@ const FL = (function () {
     let T = Tof(vi);
     s.vi = vi;
     // blade stall: mean blade lift coefficient 6·CT/σ can't pass about 1.0, so thrust needs headspeed
-    const Tstall = (Ro.CLmax / 6) * Ro.sigma * rho * A * OmR * OmR;
+    const Tstall = ((Ro.CLmax * (1 - bpen.dCL)) / 6) * Ro.sigma * rho * A * OmR * OmR;
     const bladeStall = Math.max(0, Math.abs(T) / Tstall - 1);
     if (bladeStall > 0) T = Math.sign(T) * Tstall;
     // vortex ring state: sinking at about the induced speed with little forward speed
@@ -1171,17 +1312,14 @@ const FL = (function () {
 
     // ---- rotor speed: governor vs aerodynamic torque (autorotation when the air drives the rotor) ----
     const mu = Vh / OmR;
-    const P0 = (rho * A * OmR ** 3 * Ro.sigma * Ro.Cd0 * (1 + 4.65 * mu * mu) * (1 + 6 * bladeStall)) / 8; // stalled blades: big drag
+    const P0 = (rho * A * OmR ** 3 * Ro.sigma * (Ro.Cd0 + bpen.dCD) * (1 + 4.65 * mu * mu) * (1 + 6 * bladeStall)) / 8; // iced or stalled blades: more drag
     const Qaero = (T * (vc + vi) + P0 * 1.12) / Math.max(s.om, 5); // tail rotor ≈ 12% of the main rotor's profile power
     s.gov = approach(s.gov, motorOn ? 1 : 0, (s.om > 0.6 * Ro.om0 ? 1.5 : Ro.spool) * dt); // soft start, quick bailout
     const Qmax = Ro.Pmax / Math.max(s.om, 30);
     const Qm = motorOn ? clamp(Qaero + Ro.govK * (s.gov * Ro.om0 - s.om) * 50, 0, Qmax) : 0;
     s.om = Math.max(0, s.om + ((Qm - Qaero - Ro.friction * s.om) / Ro.J) * dt);
     const Pel = (Qm * s.om) / 0.8;
-    s.vb = Math.max(0, B.cells * cellOCV(B.chem, env.battery ? s.soc : 1) - (B.Iidle + Pel / 22) * B.R);
-    const Icur = B.Iidle + Pel / Math.max(s.vb, 1);
-    s.I = Icur;
-    if (env.battery) { s.mAh += (Icur * dt) / 3.6; s.soc = Math.max(0, 1 - s.mAh / B.mAh); }
+    battery(s, B, B.Iidle + Pel / Math.max(s.vb || B.Vref, 10), Math.hypot(s.v[0], s.v[1], s.v[2]), env, dt);
 
     // ---- flybarless controller: rate PID → wanted moments → disc tilt; heading hold → tail thrust ----
     const sp = rotarySetpoints(ctl, R, w, ac);
@@ -1224,6 +1362,10 @@ const FL = (function () {
       s.buf[1] += (Math.random() * 2 - 1 - s.buf[1]) * Math.min(1, dt / 0.08);
       Mo[0] += vrs * 0.5 * s.buf[0]; Mo[1] += vrs * 0.7 * s.buf[1]; F[2] += vrs * 1.5 * s.buf[0];
     }
+    if (s.shed > 0) { // ice let go of one blade: out of balance
+      const ph = s.t * s.om;
+      Mo[0] += s.shed * 0.35 * Math.cos(ph); Mo[1] += s.shed * 0.35 * Math.sin(ph);
+    }
     const Vn = Math.hypot(vb[0], vb[1], vb[2]), kd = 0.5 * rho * Vn, Cd = ac.body.CdA;
     F[0] -= kd * Cd[0] * vb[0]; F[1] -= kd * Cd[1] * vb[1]; F[2] -= kd * Cd[2] * vb[2];
     // tail fin and boom: weathervane in sideslip
@@ -1236,7 +1378,7 @@ const FL = (function () {
     const t = s.tele;
     t.V = Vn; t.qbar = 0.5 * rho * Vn * Vn; t.T = T; t.alpha = 0; t.beta = 0; t.CL = 0; t.stallL = 0; t.stallR = 0;
     t.nz = -(F[2] + Fcb[2]) / (ac.mass * G);
-    t.coll = s.coll; t.vi = vi; t.vrs = vrs; t.Pm = Qm * s.om; t.bladeStall = bladeStall;
+    t.coll = s.coll; t.vi = vi; t.vrs = vrs; t.Pm = Qm * s.om; t.bladeStall = bladeStall; t.bladeIce = bpen.dCL;
   }
 
   /* Assisted modes for planes. sticks: raw pilot sticks; manual: the surfaces the pilot would get in
@@ -1281,10 +1423,12 @@ const FL = (function () {
   /* ---------------- Trim and performance (used by tests and the model notes) ----------------
      Accelerations for straight, wings-level flight at airspeed V, angle of attack alpha,
      elevator e and aileron a (stick units) and throttle thr, from one tiny step. */
-  function accelAt(ac, V, alpha, e, thr, a, rho) {
-    const env = { rho, wind: [0, 0, 0], battery: false, crashes: false };
+  // wing: optional { ice: per-strip ice (m), iceMass, iceGl, rain } to evaluate an iced or wet wing
+  function accelAt(ac, V, alpha, e, thr, a, rho, wing) {
+    const env = { rho, wind: [0, 0, 0], battery: false, crashes: false, wx: wing && wing.rain ? { T: 10, lwc: 0, mvd: 0, rain: wing.rain } : null };
     const mk = () => {
       const s = makeState();
+      if (wing && wing.ice) { s.ice = Float64Array.from(wing.ice); s.iceMass = wing.iceMass || 0; s.iceGl = wing.iceGl || 0; }
       s.p = [0, 0, -200]; s.q = quatFromEuler(0, alpha, 0); s.v = [V, 0, 0];
       s.n = thr; s.sa = sat(a) * ac.defl.a; s.se = sat(e) * ac.defl.e;
       return s;
@@ -1295,7 +1439,7 @@ const FL = (function () {
     const clw = s.clw;
     s = mk(); s.clw = clw;
     step(s, ac, { thr, a, e, r: 0 }, env, dt);
-    return [(s.v[2]) / dt, (s.v[0] - V) / dt, s.w[1] / dt, s.w[0] / dt, clw];
+    return [(s.v[2]) / dt, (s.v[0] - V) / dt, s.w[1] / dt, s.w[0] / dt, clw, (s.tele.stallL + s.tele.stallR) / 2];
   }
   function solve4(A, b) {
     const n = 4, M = A.map((r, i) => [...r, b[i]]);
@@ -1330,15 +1474,17 @@ const FL = (function () {
     return { V, alpha: x[0], e: x[1], thr: x[2], a: x[3], CL: f[4], ok };
   }
   // whole-aircraft maximum lift coefficient (elevator neutral), and the 1-g stall speed
-  function stallSpeed(ac, rho = RHO0) {
+  function stallSpeed(ac, rho = RHO0, wing) {
     let best = 0, bestA = 0;
+    const m = ac.mass + ((wing && wing.iceMass) || 0);
     for (let a = 0; a <= 0.45; a += 0.005) {
-      const f = accelAt(ac, 15, a, 0, 0, 0, rho);
-      const Lz = ac.mass * (G - f[0]); // vertical force supporting the aircraft
+      const f = accelAt(ac, 15, a, 0, 0, 0, rho, wing);
+      const Lz = m * (G - f[0]); // vertical force supporting the aircraft
       const CL = Lz / (0.5 * rho * 225 * ac.S);
+      if (f[5] > 0.3) break; // a third of the wing has let go: that's the stall, not the post-stall plateau beyond it
       if (CL > best) { best = CL; bestA = a; }
     }
-    return { CLmax: best, alpha: bestA, Vs: Math.sqrt((2 * ac.mass * G) / (rho * ac.S * best)) };
+    return { CLmax: best, alpha: bestA, Vs: Math.sqrt((2 * m * G) / (rho * ac.S * best)) };
   }
   function performance(ac, rho = RHO0) {
     const st = stallSpeed(ac, rho);
@@ -1354,7 +1500,7 @@ const FL = (function () {
     return { stall: st, rows, Vmax: rows.length ? rows[rows.length - 1].V : null, handsOff };
   }
 
-  return { G, D2R, DEFS, build, actualRate, planeAssist, rotarySetpoints, makeState, reset, launch, step, atmosphere, quatToMat, mulMV, mulMtV, eulerFromMat, quatFromEuler, clamp, sat, flapTheory, trim, stallSpeed, performance };
+  return { G, D2R, DEFS, build, actualRate, planeAssist, rotarySetpoints, makeState, reset, launch, step, atmosphere, PRECIP, weatherAt, iceRate, icePenalty, propIce, battR, capF, quatToMat, mulMV, mulMtV, eulerFromMat, quatFromEuler, clamp, sat, flapTheory, trim, stallSpeed, performance };
 })();
 if (typeof module !== 'undefined') module.exports = FL;
 
@@ -1535,19 +1681,21 @@ precision mediump float;
 #endif
 uniform sampler2D uTex; uniform float uUseTex; uniform float uTexScale; uniform float uUnlit; uniform float uAlpha;
 uniform vec3 uTint; uniform vec3 uSun; uniform vec3 uSkyAmb; uniform vec3 uGndAmb;
-uniform vec3 uFog; uniform vec2 uFogRange; uniform float uFogOn;
+uniform vec3 uFog; uniform vec2 uFogRange; uniform float uFogOn; uniform float uFogK; uniform vec4 uMix; uniform vec3 uSunCol;
 varying vec3 vN; varying vec3 vC; varying vec2 vUV; varying float vDist;
 void main(){
   vec3 c = vC * uTint;
   if (uUseTex > 0.5) c *= texture2D(uTex, vUV * uTexScale).rgb;
+  c = mix(c, uMix.rgb, uMix.a); // snow cover, ice on the airframe
   if (uUnlit < 0.5) {
     vec3 n = normalize(vN);
     if (!gl_FrontFacing) n = -n;
     float d = max(dot(n, uSun), 0.0);
     vec3 amb = mix(uGndAmb, uSkyAmb, n.y * 0.5 + 0.5);
-    c *= amb + d * vec3(0.8, 0.76, 0.68);
+    c *= amb + d * uSunCol;
   }
-  float f = uFogOn * clamp((vDist - uFogRange.x) / (uFogRange.y - uFogRange.x), 0.0, 1.0);
+  // haze (linear) or weather (exponential extinction: 2% contrast left at the visibility distance)
+  float f = uFogOn * max(clamp((vDist - uFogRange.x) / (uFogRange.y - uFogRange.x), 0.0, 1.0), 1.0 - exp(-uFogK * vDist));
   gl_FragColor = vec4(mix(c, uFog, f), uAlpha);
 }`;
 
@@ -1569,7 +1717,7 @@ void main(){
     gl.useProgram(prog);
     const L = {};
     for (const n of ['aPos', 'aNrm', 'aCol', 'aUV']) L[n] = gl.getAttribLocation(prog, n);
-    for (const n of ['uModel', 'uVP', 'uCam', 'uWorldUV', 'uTex', 'uUseTex', 'uTexScale', 'uUnlit', 'uAlpha', 'uTint', 'uSun', 'uSkyAmb', 'uGndAmb', 'uFog', 'uFogRange', 'uFogOn'])
+    for (const n of ['uModel', 'uVP', 'uCam', 'uWorldUV', 'uTex', 'uUseTex', 'uTexScale', 'uUnlit', 'uAlpha', 'uTint', 'uSun', 'uSkyAmb', 'uGndAmb', 'uFog', 'uFogRange', 'uFogOn', 'uFogK', 'uMix', 'uSunCol'])
       L[n] = gl.getUniformLocation(prog, n);
     for (const n of ['aPos', 'aNrm', 'aCol', 'aUV']) if (L[n] >= 0) gl.enableVertexAttribArray(L[n]);
     const aniso = gl.getExtension('EXT_texture_filter_anisotropic') || gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic');
@@ -1598,7 +1746,7 @@ void main(){
     return t;
   }
 
-  const ONE = [1, 1, 1];
+  const ONE = [1, 1, 1], NOMIX = [0, 0, 0, 0];
   function draw(R, m, model, o) {
     const gl = R.gl, L = R.L;
     o = o || {};
@@ -1615,6 +1763,7 @@ void main(){
     gl.uniform1f(L.uUnlit, o.unlit ? 1 : 0);
     gl.uniform1f(L.uAlpha, o.alpha == null ? 1 : o.alpha);
     gl.uniform3fv(L.uTint, o.tint || ONE);
+    gl.uniform4fv(L.uMix, o.mix || NOMIX);
     gl.uniform1f(L.uFogOn, o.noFog ? 0 : 1);
     gl.drawArrays(gl.TRIANGLES, 0, m.count);
   }
@@ -1653,11 +1802,15 @@ void main(){
     stickMode: '2', touch: 'auto',
     rates: { a: 100, e: 100, r: 100 }, expo: { a: 25, e: 20, r: 15 },
     windSpd: 2, windDir: 90, gust: 30, elevFt: 0, tempF: 59,
+    // weather: turbulence %, humidity %, altimeter inHg, precipitation, fog/mist visibility (m, 10000 = clear),
+    // cloud ceiling (ft above the field, 0 = none), pack pre-warmed, ice indicator, last preset picked
+    turb: 15, rh: 40, altim: 29.92, precip: 'none', fogVis: 10000, ceilFt: 0, packWarm: false, iceCue: true, wxPreset: 'clear',
     battery: true, crashes: true, autoReset: true,
     quality: 1, scenery: 'med', aa: false, fps: false, eng: false, sound: true, units: 'imp',
     trim: {}, // user trims per aircraft, stick units, set from controller trim buttons
     course: true, best: {}, // gate course lap timer, best lap per aircraft (s)
     curve: 'normal', // helicopter pitch curve: 'normal' or '3d' (idle up)
+    sheetTab: 'aircraft', // last settings tab
   };
   const load = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
   const store = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage blocked */ } };
@@ -1677,6 +1830,28 @@ void main(){
     dist: (m) => (S.units === 'imp' ? `${Math.round(m * 3.2808)} ft` : `${Math.round(m)} m`),
     wind: (v) => (S.units === 'imp' ? `${(v * 2.23694).toFixed(0)} mph` : `${v.toFixed(1)} m/s`),
   };
+  const fToC = (f) => ((f - 32) * 5) / 9;
+  const UW = {
+    temp: (f) => (S.units === 'imp' ? `${Math.round(f)}°F` : `${Math.round(fToC(f))}°C`),
+    tempC: (c) => (S.units === 'imp' ? `${Math.round((c * 9) / 5 + 32)}°F` : `${Math.round(c)}°C`),
+    vis: (m) => (m >= 10000 ? 'Unlimited' : S.units === 'imp' ? (m < 1609 ? `${Math.round(m * 3.2808 / 50) * 50} ft` : `${(m / 1609.34).toFixed(1)} mi`) : m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`),
+    ceil: (ftv) => (!ftv ? 'None' : S.units === 'imp' ? `${ftv.toLocaleString()} ft` : `${Math.round(ftv * 0.3048)} m`),
+    press: (inHg) => (S.units === 'imp' ? `${inHg.toFixed(2)} inHg` : `${Math.round(inHg * 33.8639)} hPa`),
+  };
+  /* Weather presets. Each sets the conditions listed; field elevation and wind direction stay yours
+     unless the preset is about them. */
+  const WX_PRESETS = [
+    ['clear', 'Clear day', 'Light breeze, mild, dry.', { windSpd: 2, gust: 30, turb: 15, tempF: 68, rh: 40, altim: 29.92, precip: 'none', fogVis: 10000, ceilFt: 0 }],
+    ['hot', 'High & hot', 'Utah July afternoon at 6,000 ft: density altitude near 10,000 ft, thermal bumps, gusty.', { elevFt: 6000, windSpd: 5, gust: 50, turb: 45, tempF: 98, rh: 12, altim: 30.05, precip: 'none', fogVis: 10000, ceilFt: 0 }],
+    ['humid', 'Hot & humid', 'Muggy summer day: humidity adds a few hundred feet of density altitude.', { windSpd: 3, gust: 30, turb: 25, tempF: 94, rh: 85, altim: 29.85, precip: 'none', fogVis: 8000, ceilFt: 0 }],
+    ['front', 'Cold front', 'Gusty, turbulent, showers, ragged 1,500 ft ceiling.', { windSpd: 10, gust: 60, turb: 55, tempF: 45, rh: 75, altim: 29.65, precip: 'rain', fogVis: 10000, ceilFt: 1500 }],
+    ['storm', 'Storm outflow', 'Thunderstorm gust front: strong gusts, severe turbulence, heavy rain.', { windSpd: 13, gust: 90, turb: 85, tempF: 72, rh: 85, altim: 29.8, precip: 'heavy', fogVis: 10000, ceilFt: 2500 }],
+    ['winter', 'Cold & clear', 'Winter high pressure: dense air, cold packs.', { windSpd: 3, gust: 30, turb: 10, tempF: 12, rh: 60, altim: 30.4, precip: 'none', fogVis: 10000, ceilFt: 0 }],
+    ['fzfog', 'Freezing fog', '27°F, 300 m visibility: the fog itself is supercooled water. Props and lens ice.', { windSpd: 1.5, gust: 20, turb: 5, tempF: 27, rh: 100, altim: 30.3, precip: 'none', fogVis: 300, ceilFt: 0 }],
+    ['fzdz', 'Freezing drizzle', '30°F drizzle under a 500 ft overcast. Climb into the cloud and you ice up fast.', { windSpd: 4, gust: 30, turb: 20, tempF: 30, rh: 98, altim: 29.9, precip: 'drizzle', fogVis: 10000, ceilFt: 500 }],
+    ['snow', 'Snow squall', 'Heavy snow, 400 m visibility, gusty. Wet snow sticks near freezing.', { windSpd: 8, gust: 60, turb: 40, tempF: 28, rh: 92, altim: 29.75, precip: 'heavysnow', fogVis: 10000, ceilFt: 900 }],
+  ];
+  const WX_KEYS = ['elevFt', 'windSpd', 'gust', 'turb', 'tempF', 'rh', 'altim', 'precip', 'fogVis', 'ceilFt'];
   const compass = (deg) => ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round((((deg % 360) + 360) % 360) / 45) % 8];
 
   /* ---------------------------------------------------------------- aircraft */
@@ -1714,6 +1889,7 @@ void main(){
     gl.uniform3fv(L.uGndAmb, [0.34, 0.31, 0.27]);
     gl.uniform3fv(L.uFog, FOG);
     gl.uniform2fv(L.uFogRange, [350, 2700]);
+    gl.uniform1f(L.uFogK, 0); gl.uniform3fv(L.uSunCol, [0.8, 0.76, 0.68]);
     gl.enable(gl.DEPTH_TEST); gl.enable(gl.SCISSOR_TEST); gl.disable(gl.CULL_FACE);
     gl.clearColor(FOG[0], FOG[1], FOG[2], 1); gl.clearStencil(0);
   }
@@ -1973,7 +2149,13 @@ void main(){
       else if (o.k === 'box') { o.cx = (o.x0 + o.x1) / 2; o.cz = (o.z0 + o.z1) / 2; o.br = Math.hypot(o.x1 - o.x0, o.z1 - o.z0) / 2; }
       else { o.cx = (o.a[0] + o.b[0]) / 2; o.cz = (o.a[2] + o.b[2]) / 2; o.br = Math.hypot(o.b[0] - o.a[0], o.b[2] - o.a[2]) / 2 + o.r; }
     }
-    world = { ground: GLR.mesh(R, gg), runway: GLR.mesh(R, gr), decal: GLR.mesh(R, gd), scenery: GLR.mesh(R, g), obstacles: shapes, gates };
+    // things tall and wide enough to make a turbulent wake downwind (trees, barn, silo, shed)
+    const blockers = [];
+    for (const o of shapes) {
+      if (o.k === 'cyl' && o.y0 < 2 && o.y1 >= 3.5 && o.r >= 0.5) blockers.push({ n: -o.z, e: o.x, r: o.r * 1.3, h: o.y1 });
+      else if (o.k === 'box' && o.y0 < 2 && o.y1 >= 3 && o.x1 - o.x0 > 2) blockers.push({ n: -(o.z0 + o.z1) / 2, e: (o.x0 + o.x1) / 2, r: Math.hypot(o.x1 - o.x0, o.z1 - o.z0) / 2, h: o.y1 });
+    }
+    world = { ground: GLR.mesh(R, gg), runway: GLR.mesh(R, gr), decal: GLR.mesh(R, gd), scenery: GLR.mesh(R, g), obstacles: shapes, gates, blockers };
   }
 
   // sky dome (unlit, follows the camera)
@@ -1991,6 +2173,55 @@ void main(){
     return GLR.mesh(R, g);
   })();
 
+  // weather: an overcast dome drawn over the sky, and a cloud deck (rings, finer near the camera so the
+  // per-vertex fog distance stays right) that follows the camera at the ceiling height
+  const overMesh = (() => {
+    const g = new Geo(), seg = 24, rad = 4900, rings = [-0.4, 0, 0.15, 0.5, Math.PI / 2];
+    for (let r = 0; r < rings.length - 1; r++) for (let i = 0; i < seg; i++) {
+      const e0 = rings[r], e1 = rings[r + 1], a0 = (i / seg) * Math.PI * 2, a1 = ((i + 1) / seg) * Math.PI * 2;
+      const P = (e, a) => [rad * Math.cos(e) * Math.cos(a), rad * Math.sin(e), rad * Math.cos(e) * Math.sin(a)];
+      g.triV(P(e0, a0), P(e0, a1), P(e1, a1), [1, 1, 1], [1, 1, 1], [1, 1, 1]);
+      g.triV(P(e0, a0), P(e1, a1), P(e1, a0), [1, 1, 1], [1, 1, 1], [1, 1, 1]);
+    }
+    return GLR.mesh(R, g);
+  })();
+  const cloudMesh = (() => {
+    const g = new Geo(), seg = 28, radii = [0, 25, 60, 120, 240, 480, 960, 1900, 3800, 6000];
+    for (let r = 0; r < radii.length - 1; r++) for (let i = 0; i < seg; i++) {
+      const a0 = (i / seg) * Math.PI * 2, a1 = ((i + 1) / seg) * Math.PI * 2, r0 = radii[r], r1 = radii[r + 1];
+      const P = (rr, a) => [rr * Math.cos(a), 0, rr * Math.sin(a)];
+      g.quad(P(r0, a0), P(r1, a0), P(r1, a1), P(r0, a1), [1, 1, 1]);
+    }
+    return GLR.mesh(R, g);
+  })();
+  /* How the scene looks from a camera at height camH: fog colour and extinction from the visibility,
+     how overcast it is, sun strength. Clear weather keeps the original haze-only look. */
+  const SKY_AMB = [0.52, 0.56, 0.62], GND_AMB = [0.34, 0.31, 0.27];
+  function lookFrom(camH) {
+    const w = FL.weatherAt(wxBase, Math.max(0, camH)), P = S.precip, snow = P === 'snow' || P === 'heavysnow';
+    const clear = !w.inCloud && P === 'none' && S.fogVis >= 10000;
+    const over = w.inCloud ? 1 : clamp((S.ceilFt > 0 ? 0.85 : 0) + (P !== 'none' ? 0.6 : 0) + (S.fogVis < 3000 ? 0.7 : S.fogVis < 10000 ? 0.3 : 0), 0, 1);
+    const grey = w.inCloud ? [0.8, 0.82, 0.84] : snow ? [0.8, 0.82, 0.85] : P === 'heavy' ? [0.5, 0.53, 0.57] : P !== 'none' ? [0.6, 0.63, 0.67] : S.ceilFt > 0 ? [0.66, 0.69, 0.72] : [0.74, 0.76, 0.78];
+    const fog = mixc(FOG, grey, over), k = clear ? 0 : 3.912 / w.visM;
+    return { fog, k, over, sky: Math.max(over, 1 - Math.exp(-k * 1500)), sun: 1 - 0.75 * over, inCloud: w.inCloud, snow, w };
+  }
+  function applyLook(lk) {
+    gl.uniform3fv(L.uFog, lk.fog); gl.uniform1f(L.uFogK, lk.k);
+    gl.uniform3fv(L.uSunCol, [0.8 * lk.sun, 0.76 * lk.sun, 0.68 * lk.sun]);
+    gl.uniform3fv(L.uSkyAmb, mixc(SKY_AMB, [0.66, 0.67, 0.69], lk.over));
+    gl.uniform3fv(L.uGndAmb, mixc(GND_AMB, [0.42, 0.42, 0.42], lk.over * 0.6));
+    gl.clearColor(lk.fog[0], lk.fog[1], lk.fog[2], 1);
+  }
+  // ground under snow: only when it's snowing and cold enough to lie
+  const snowCover = () => ((S.precip === 'snow' || S.precip === 'heavysnow') && atmo.Tc <= 1 ? (S.precip === 'heavysnow' ? 0.72 : 0.5) : 0);
+  // ice the pilot can see: plane surfaces whiten with relative ice height; props and blades with prop ice
+  const propChord = (ac) => (ac.kind === 'quad' ? 0.09 * ac.motor.D : ac.kind === 'heli' ? ac.rotor.chord : 0.08 * ac.prop.D + 0.006);
+  function iceInfo() {
+    let kc = 0;
+    if (st.ice && AC.strips) { let a = 0; AC.strips.forEach((sp, i) => { if (sp.role === 'wing') { kc += (st.ice[i] / sp.chord) * sp.area; a += sp.area; } }); kc = a ? kc / a : 0; }
+    const pen = FL.icePenalty(kc, st.iceGl), pi = FL.propIce(st.iceProp / propChord(AC));
+    return { kc, lift: pen.dCL, prop: 1 - pi.thrust, mass: st.iceMass };
+  }
   const markerMesh = (() => { const g = new Geo(); g.blob(0, 0, 0, 1, 1, 1, [1.0, 0.55, 0.1]); return GLR.mesh(R, g); })();
 
   // windsock: three tapering bands along +x, origin at the pole top
@@ -2166,12 +2397,20 @@ void main(){
   const gust = [0, 0, 0];
   let armed = false, paused = false, userPaused = false, crashAt = 0, flightTime = 0, timerOn = false, launchHold = 0, acc = 0;
   let farWarned = false, crashAnnounced = false;
-  function updateAtmos() { const a = FL.atmosphere(S.elevFt, S.tempF); env.rho = a.rho; return a; }
+  // air and weather: density from the field conditions; weather at the aircraft and at each camera
+  let atmo = null, wxBase = null;
+  function updateAtmos() {
+    atmo = FL.atmosphere(S.elevFt, S.tempF, S.rh, S.altim); env.rho = atmo.rho;
+    wxBase = { tempC: atmo.Tc, rh: S.rh, precip: S.precip, fogVisM: S.fogVis, ceilM: S.ceilFt * 0.3048 };
+    env.wx = FL.weatherAt(wxBase, Math.max(0, -st.p[2]));
+    return atmo;
+  }
+  const packStartC = () => (S.packWarm ? Math.max(30, atmo.Tc) : atmo.Tc); // pre-warmed packs come out of a warm bag at ~30 °C
   updateAtmos();
 
   function doReset() {
     const where = startOf(AC.id);
-    FL.reset(st, AC, where);
+    FL.reset(st, AC, where, packStartC());
     armed = where === 'air';
     if (where === 'air') kb.thr = AC.kind === 'quad' ? AC.hoverThr : AC.kind === 'heli' ? AC.hoverThrCurve[S.curve] : AC.kind === 'wing' ? 0.55 : 0.6;
     else kb.thr = 0;
@@ -2921,7 +3160,7 @@ void main(){
 
   /* ---------------------------------------------------------------- settings sheet */
   const sheetOpen = () => $('#sheet').classList.contains('open');
-  function openSheet() { if (ctl.open) closeCtl(); buildSheet(); $('#sheet').classList.add('open'); syncPause(); }
+  function openSheet(tab) { if (ctl.open) closeCtl(); if (tab) S.sheetTab = tab; buildSheet(); $('#sheet').classList.add('open'); syncPause(); }
   function closeSheet() { $('#sheet').classList.remove('open'); syncPause(); }
   $('#shClose').addEventListener('click', closeSheet);
 
@@ -2930,7 +3169,7 @@ void main(){
   function schema() {
     const imp = S.units === 'imp';
     return [
-      { title: 'Aircraft', items: [
+      { tab: 'aircraft', title: 'Aircraft', items: [
         seg('aircraft', 'Model', Object.values(ACS).map((a) => [a.id, a.name]), AC.blurb, () => S.aircraft, (v) => setAircraft(v)),
         seg('start', 'Reset puts you', AC.starts.map((s) => [s, START_LABEL[s]]), AC.kind === 'wing' ? 'Hand launch: arm with throttle down, then push throttle above 70% and the model is thrown once the motor is wound up (or press L to throw at any throttle). Real technique applies: full power, and maybe a touch of up elevator.' : '', () => startOf(AC.id), (v) => { S.start[AC.id] = v; doReset(); refreshBar(); }),
         ...(AC.kind === 'heli' ? [seg('curve', 'Pitch curve', [['normal', 'Normal'], ['3d', '3D (idle up)']],
@@ -2944,49 +3183,67 @@ void main(){
         rng('limTBank', 'Trainer bank limit', 20, 85, 5, (v) => `${v}°`, null, () => limNow().tBank, (v) => { limNow().tBank = v; }),
         rng('limTPitch', 'Trainer pitch limit', 15, 85, 5, (v) => `${v}°`, null, () => limNow().tPitch, (v) => { limNow().tPitch = v; }),
       ] },
-      { title: 'Controls', items: [{ type: 'radio' },
+      { tab: 'aircraft', title: ROTARY(AC) ? `Rates · ${AC.name}` : 'Rates & expo', items: [{ type: 'rates' }] },
+      { tab: 'aircraft', title: 'Sim rules', items: [
+        seg('battery', 'Battery', [[true, 'Drains'], [false, 'Unlimited']], () => AC.batt.label),
+        seg('crashes', 'Crashes', [[true, 'On'], [false, 'Off']]),
+        seg('autoReset', 'After a crash', [[true, 'Auto reset (3 s)'], [false, 'Wait for me']]),
+      ] },
+      { tab: 'controller', title: 'Controller', items: [{ type: 'radio' },
         seg('stickMode', 'Stick mode (keyboard & touch)', [['2', 'Mode 2'], ['1', 'Mode 1']], 'With a radio the setup wizard maps channels, so this only affects keys and touch.'),
         seg('touch', 'Touch sticks', [['auto', 'Auto'], ['on', 'On'], ['off', 'Off']]),
       ] },
-      { title: ROTARY(AC) ? 'Rates' : 'Rates & expo', items: [{ type: 'rates' }] },
-      { title: 'View', items: [
+      { tab: 'display', title: 'View', items: [
         seg('view', 'View', [['los', 'LOS'], ['split', 'Split'], ['fpv', 'FPV']], 'Split puts LOS on top and FPV below when the screen is upright, side by side when it is wide.', () => S.view, (v) => setView(v)),
         seg('splitSwap', 'Split order', [[false, 'LOS first'], [true, 'FPV first']]),
         seg('losZoom', 'LOS zoom', [['off', 'Off'], ['mild', 'Mild'], ['strong', 'Strong']], 'Narrows your field of view as the model gets farther away, so it stays visible on a small screen.'),
         rng('fpvFov', 'FPV camera field of view', 80, 150, 5, (v) => `${v}°`),
         rng('tilt', 'FPV camera tilt (this aircraft)', -20, 50, 1, (v) => `${v > 0 ? '+' : ''}${v}°`, 'Positive tilts the camera up. Quads usually fly 25–40° up.', () => tiltOf(), (v) => { S.tilt[AC.id] = v; }),
+      ] },
+      { tab: 'display', title: 'OSD & readouts', items: [
         seg('osd', 'FPV OSD', [['full', 'Full'], ['min', 'Minimal'], ['off', 'Off']]),
         seg('losInfo', 'LOS readout', [[true, 'On'], [false, 'Off']]),
         seg('course', 'Gate course', [[true, 'Timer on'], [false, 'Off']], 'Eight gates on an oval north of the runway. Fly them in order; an orange marker floats over the next one. Laps run from gate 1 back to gate 1.', null, (v) => { S.course = v; saveS(); courseReset(); }),
         seg('stallCue', 'Stall indicator', [[false, 'Off'], [true, 'On']], 'Flashes STALL when a wing panel is stalled. Off is realistic; turn it on while you learn what a stall looks like.'),
-        seg('eng', 'Engineering readout', [[false, 'Off'], [true, 'On']], 'Angle of attack, sideslip, load factor and stalled area per wing.'),
+        seg('iceCue', 'Ice indicator', [[true, 'On'], [false, 'Off']], 'Shows lift and thrust lost to ice. Real aircraft don’t tell you: turn it off and watch for the signs (more throttle for the same speed, a mushy climb, a stall at a higher speed, white leading edges).'),
+        seg('eng', 'Engineering readout', [[false, 'Off'], [true, 'On']], 'Angle of attack, sideslip, load factor and stalled area per wing, plus air and pack temperature and ice.'),
+        seg('units', 'Units', [['imp', 'ft · mph · °F'], ['met', 'm · km/h · °C']]),
       ] },
-      { title: 'Conditions', items: [
-        rng('windSpd', 'Wind speed', 0, 12, 0.5, (v) => U.wind(v)),
+      { tab: 'weather', title: 'Weather', items: [
+        { type: 'wxpresets' },
+        rng('windSpd', 'Wind speed', 0, 20, 0.5, (v) => U.wind(v)),
         rng('windDir', 'Wind from', 0, 355, 5, (v) => `${v}° (${compass(v)})`, 'You stand facing north. The runway runs east–west, so 90° is a headwind for a runway takeoff.'),
-        rng('gust', 'Gusts', 0, 100, 5, (v) => `${v}%`),
-        rng('elevFt', 'Field elevation', 0, 10000, 250, (v) => `${v.toLocaleString()} ft`),
-        rng('tempF', 'Temperature', 0, 115, 1, (v) => `${v}°F`),
+        rng('gust', 'Gusts', 0, 100, 5, (v) => `${v}%`, 'Slow swings in wind speed and direction, as a share of the wind speed.'),
+        rng('turb', 'Turbulence', 0, 100, 5, (v) => `${v}% · ${v < 10 ? 'smooth' : v < 35 ? 'light' : v < 70 ? 'moderate' : 'severe'}`, 'Dryden model: quick bumps and wing-rocking, stronger near the ground. Behind trees and the barn the wind also turns gusty and sinks, whatever this is set to.'),
+        rng('tempF', 'Temperature', -20, 115, 1, (v) => UW.temp(v)),
+        rng('rh', 'Humidity', 0, 100, 1, (v) => `${v}%`),
+        rng('elevFt', 'Field elevation', 0, 12000, 250, (v) => (S.units === 'imp' ? `${v.toLocaleString()} ft` : `${Math.round(v * 0.3048).toLocaleString()} m`)),
+        rng('altim', 'Altimeter setting', 28.5, 31, 0.01, (v) => UW.press(v)),
+        seg('precip', 'Precipitation', Object.entries(FL.PRECIP).map(([k, p]) => [k, p.name]), 'Below freezing, drizzle and rain freeze on contact. Wet snow (around 32°F) sticks too.'),
+        rng('fogVis', 'Fog / mist visibility', 100, 10000, 100, (v) => UW.vis(v), 'Fog only holds water when humidity is 95% or more. Precipitation cuts visibility further on its own.'),
+        rng('ceilFt', 'Cloud ceiling', 0, 3000, 50, (v) => UW.ceil(v), 'Height of the overcast base above the field. Climb into it and you lose sight of the model from the ground; in FPV it goes white. Cloud below freezing ices you up.'),
         { type: 'da' },
-        seg('battery', 'Battery', [[true, 'Drains'], [false, 'Unlimited']], () => AC.batt.label),
-        seg('crashes', 'Crashes', [[true, 'On'], [false, 'Off']]),
-        seg('autoReset', 'After a crash', [[true, 'Auto reset (3 s)'], [false, 'Wait for me']]),
+        seg('packWarm', 'Battery temperature', [[false, 'Same as the air'], [true, 'Pre-warmed (86°F)']], 'A cold pack has higher internal resistance and less usable capacity, so it sags hard on a punch. It warms as you fly.', null, (v) => { S.packWarm = v; saveS(); doReset(); }),
       ] },
-      { title: 'Display & sound', items: [
-        seg('units', 'Units', [['imp', 'ft · mph'], ['met', 'm · km/h']]),
+      { tab: 'graphics', title: 'Graphics', items: [
         seg('quality', 'Render resolution', [[0.6, 'Fast'], [0.8, 'Balanced'], [1, 'Sharp'], ['dev', 'Device']], 'Lower it if the frame rate drops.'),
         seg('scenery', 'Scenery', [['low', 'Light'], ['med', 'Normal'], ['high', 'Dense']]),
         seg('aa', 'Smooth edges', [[false, 'Off'], [true, 'On']], 'Takes effect after a reload.'),
         seg('fps', 'Frame rate', [[false, 'Hide'], [true, 'Show']]),
+      ] },
+      { tab: 'graphics', title: 'Sound', items: [
         seg('sound', 'Motor sound', [[true, 'On'], [false, 'Off']]),
       ] },
-      { title: 'Flight model', items: [{ type: 'notes' }] },
+      { tab: 'model', title: `Flight model · ${AC.name}`, items: [{ type: 'notes' }] },
     ];
   }
   function applySetting(k) {
     if (k === 'scenery') buildWorld(S.scenery);
     if (k === 'quality') resize();
-    if (k === 'elevFt' || k === 'tempF') { updateAtmos(); const n = $('#daBox'); if (n) n.innerHTML = daHtml(); }
+    if (WX_KEYS.includes(k) || k === 'windDir') {
+      updateAtmos(); const n = $('#daBox'); if (n) n.innerHTML = daHtml();
+      if (WX_KEYS.includes(k) && S.wxPreset !== 'custom') { S.wxPreset = 'custom'; saveS(); document.querySelectorAll('#wxPre button').forEach((b) => b.setAttribute('aria-pressed', 'false')); }
+    }
     if (k === 'battery') env.battery = S.battery;
     if (k === 'crashes') env.crashes = S.crashes;
     if (k === 'touch' || k === 'stickMode') refreshTouch();
@@ -2994,14 +3251,37 @@ void main(){
     if (k === 'units') buildSheet();
   }
   function daHtml() {
-    const a = FL.atmosphere(S.elevFt, S.tempF);
-    return `<div class="kv"><span>Air density</span><span>${a.rho.toFixed(3)} kg/m³ (${((a.rho / 1.225) * 100).toFixed(0)}% of sea level)</span><span>Density altitude</span><span>${Math.round(a.daFt).toLocaleString()} ft</span></div>`;
+    const a = updateAtmos(), w0 = FL.weatherAt(wxBase, 10), wc = S.ceilFt > 0 ? FL.weatherAt(wxBase, S.ceilFt * 0.3048 + 5) : null;
+    const ice = (w) => w && w.lwc > 0 && w.T <= 0;
+    const risk = ice(w0) ? `Yes, near the ground (${(w0.lwc * 1000).toFixed(2)} g/m³ supercooled water)` : ice(wc) ? 'In the cloud' : a.Tc <= 2 && (S.precip !== 'none' || S.ceilFt > 0 || S.rh >= 95) ? 'Marginal: near freezing' : 'No';
+    const ft = (x) => (S.units === 'imp' ? `${Math.round(x).toLocaleString()} ft` : `${Math.round(x * 0.3048).toLocaleString()} m`);
+    return `<div class="kv">
+      <span>Air density</span><span>${a.rho.toFixed(3)} kg/m³ (${((a.rho / 1.225) * 100).toFixed(0)}% of sea level)</span>
+      <span>Density altitude</span><span>${ft(a.daFt)}</span>
+      <span>Pressure altitude</span><span>${ft(a.paFt)}</span>
+      <span>Dew point</span><span>${UW.tempC(a.dewC)} (spread ${Math.round(((a.Tc - a.dewC) * 9) / 5)}°F)</span>
+      <span>Visibility</span><span>${UW.vis(Math.round(w0.visM)).replace('Unlimited', '10+ km')}</span>
+      <span>Icing</span><span>${risk}</span>
+      <span>Pack at reset</span><span>${UW.tempC(packStartC())}, ${Math.round(FL.battR(AC.batt, packStartC()) * 1000)} mΩ, ${Math.round(FL.capF(packStartC()) * 100)}% capacity</span></div>`;
   }
+  function applyPreset(id) {
+    const p = WX_PRESETS.find((x) => x[0] === id);
+    if (!p) return;
+    Object.assign(S, p[3]); S.wxPreset = id; saveS(); updateAtmos(); doReset(); buildSheet();
+    toast(`${p[1]}: ${p[2]}`);
+  }
+  const TABS = [['aircraft', 'Aircraft'], ['controller', 'Controller'], ['weather', 'Weather'], ['display', 'Display'], ['graphics', 'Graphics & sound'], ['model', 'Flight model']];
+  function setTab(t) { if (S.sheetTab !== t) { S.sheetTab = t; saveS(); $('#sheet').scrollTop = 0; } buildSheet(); }
   function buildSheet() {
     const body = $('#shBody');
     const scroll = $('#sheet').scrollTop;
     body.innerHTML = '';
+    if (!TABS.some(([t]) => t === S.sheetTab)) S.sheetTab = 'aircraft';
+    const tabs = $('#shTabs');
+    tabs.innerHTML = TABS.map(([t, l]) => `<button type="button" role="tab" id="tab-${t}" aria-selected="${t === S.sheetTab}">${l}</button>`).join('');
+    tabs.querySelectorAll('button').forEach((b0, i) => b0.addEventListener('click', () => setTab(TABS[i][0])));
     for (const sec of schema()) {
+      if (sec.tab !== S.sheetTab) continue;
       const el = document.createElement('section');
       el.innerHTML = `<h3>${sec.title}</h3>`;
       for (const it of sec.items) {
@@ -3021,6 +3301,10 @@ void main(){
           box.innerHTML = `<label for="${id}"><span>${it.label}</span><output id="${id}-o">${it.fmt(val0)}</output></label><input type="range" id="${id}" min="${it.min}" max="${it.max}" step="${it.step}" value="${val0}">${it.help ? `<div class="help">${it.help}</div>` : ''}`;
           const inpEl = box.querySelector('input'), out = box.querySelector('output');
           inpEl.addEventListener('input', () => { const v = Number(inpEl.value); if (it.set) it.set(v); else S[it.key] = v; out.textContent = it.fmt(v); saveS(); applySetting(it.key); });
+        } else if (it.type === 'wxpresets') {
+          const cur = WX_PRESETS.find((x) => x[0] === S.wxPreset);
+          box.innerHTML = `<div class="lab"><span>Presets</span></div><div class="seg wrap" id="wxPre" role="group" aria-label="Weather presets">${WX_PRESETS.map(([id, nm]) => `<button type="button" data-id="${id}" aria-pressed="${S.wxPreset === id}">${nm}</button>`).join('')}</div><div class="help">${cur ? esc(cur[2]) : 'Custom conditions. Pick a preset to start from, then adjust anything below.'}</div>`;
+          box.querySelectorAll('button').forEach((b0) => b0.addEventListener('click', () => applyPreset(b0.dataset.id)));
         } else if (it.type === 'da') {
           box.id = 'daBox'; box.innerHTML = daHtml();
         } else if (it.type === 'radio') {
@@ -3056,7 +3340,7 @@ void main(){
             e.addEventListener('input', () => { RE[obj][k] = Number(e.value); o.textContent = e.value + unit; RE.save(); });
           }
         } else if (it.type === 'notes') {
-          box.innerHTML = notesHtml();
+          box.innerHTML = notesHtml() + weatherNotesHtml();
         }
         el.appendChild(box);
       }
@@ -3105,6 +3389,22 @@ P0 = ρA(ΩR)³·σ·Cd0·(1 + 4.65μ²) / 8</span>
       <p><b>Vortex ring.</b> Descending straight down at about the hover induced velocity (1–2 m/s here) puts the rotor in its own wake: thrust drops up to 35% and the heli shakes until you add forward speed.</p>
       <p><b>Flybarless controller.</b> Rate PID on cyclic with feed-forward; the wanted moment becomes disc tilt through the hub stiffness and thrust offset. The tail chases a yaw-rate target and cancels the motor's reaction torque, with a ${Math.round(Ro.tauT * 1000)} ms lag, so a collective punch kicks the tail a little. Horizon, Trainer and Angle work as on the quad.</p>
       <p><b>Simplified.</b> Uniform inflow (no wake skew or blade-by-blade loads), no blade flapping dynamics beyond a short tilt lag and blowback, a stiff hub, and no tail-rotor stall.</p></div>`;
+  }
+  // the weather model, written so every number can be checked
+  function weatherNotesHtml() {
+    const pc = propChord(AC);
+    return `<div class="notes"><p><b>Weather: air density.</b> Station pressure comes from the altimeter setting and field elevation; humid air is a mix of dry air and water vapour, which is lighter. Density altitude is the height in the standard atmosphere with the same density. Wings, props and rotors all scale with ρ, and so does the motor's load: thin air unloads the prop, so it draws less current and makes less thrust.</p>
+      <span class="eq">p = QNH·(1 − 0.0065·h/288.15)^5.256      e = RH·611.2·exp(17.67·T/(T + 243.5))
+ρ = (p − e)/(287.05·T) + e/(461.5·T)      DA: ρ = 1.225·(1 − 0.0065·DA/288.15)^4.256</span>
+      <p><b>Wind and turbulence.</b> Mean wind follows a log profile (10 m reference) and drops by up to 60% in the lee of trees and the barn, where it turns gusty and sinks. Turbulence is the MIL-F-8785C Dryden low-altitude model: σw = 0.1·W20 with 100% = 45 kt at 20 ft, scale length L = h. Planes also get Dryden rotational gusts (σp grows as the span gets smaller), which is why a small wing rocks in bumpy air.</p>
+      <p><b>Precipitation and visibility.</b> Visibility = 3.912/β with β from fog (Kunkel 1984: β = 144.7·LWC^0.88 per km), rain or snow, and ~40 m inside cloud. Heavy rain roughens the wing: up to −12% CLmax and +0.01 drag at 100 mm/h (rough).</p>
+      <p><b>Icing.</b> Supercooled water — cloud (0.25 g/m³, 15 µm drops), freezing fog (water content from visibility), freezing drizzle or rain, wet snow — freezes on leading edges. Small chords collect drops better, so tails, wing tips and props ice first. Fast blades warm by V²/2365 °C, so prop tips and rotor blades stay clean near 0 °C.</p>
+      <span class="eq">dk/dt = E·n·LWC·V/ρice     E = K/(K + 0.6),  K = ρw·d²·V/(18μ·0.04c)
+n = min(1, 0.25 − Ts/4)     ρice 700 (rime) … 900 (glaze) kg/m³
+ΔCLmax = (0.30 + 0.15·glaze)·(1 − e^(−(k/c)/0.002))     ΔCD0 = (0.025 + 0.03·glaze)·(1 − e^(−(k/c)/0.005))
+props: thrust ×(1 − 0.6·g), power ×(1 + 0.8·g), g = 1 − e^(−(k/c)/0.01), blade chord ${(pc * 1000).toFixed(0)} mm</span>
+      <p>These follow published trends for iced airfoils and UAV props (Bragg; Hann et al.; Müller et al.) but the numbers are rough and on the pessimistic side: treat the sim as a reason to turn around early, not as a margin to fly to. Ice melts above +0.5 °C (faster in rain) and sheds off fast props in chunks, which shakes the aircraft.</p>
+      <p><b>Batteries.</b> Internal resistance ×e^(0.0277·(20 − T)), usable capacity −0.6%/°C below 20 °C. The pack heats by I²R and cools to the air through ${(AC.batt.cool || [0.08, 0.03]).join(' + ')}·√V W/K. A punch-out on a frozen pack sags hard; a gentle hover may never warm it.</p></div>`;
   }
   let perfCache = { key: '', html: '' };
   function notesHtml() {
@@ -3204,22 +3504,32 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     const sc = canvas.width / cssW;
     const x = Math.round(v.x * sc), w = Math.round(v.w * sc), h = Math.round(v.h * sc), y = canvas.height - Math.round((v.y + v.h) * sc);
     gl.viewport(x, y, w, h); gl.scissor(x, y, w, h);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
     const cam = v.kind === 'fpv' ? fpvCam(v, planeM) : losCam(v, planeM);
     v.cam = cam;
-    gl.uniformMatrix4fv(L.uVP, false, M4.mul(M4.persp(cam.fovy, v.w / v.h, cam.near, 7000), cam.view));
+    const lk = lookFrom(cam.pos[1]);
+    v.look = lk;
+    applyLook(lk);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+    v.vp = M4.mul(M4.persp(cam.fovy, v.w / v.h, cam.near, 7000), cam.view);
+    gl.uniformMatrix4fv(L.uVP, false, v.vp);
     gl.uniform3fv(L.uCam, cam.pos);
-    // sky
+    // sky, then the overcast over it
     gl.disable(gl.DEPTH_TEST); gl.depthMask(false);
-    GLR.draw(R, skyMesh, M4.trans(cam.pos[0], cam.pos[1], cam.pos[2]), { unlit: true, noFog: true });
+    const camT = M4.trans(cam.pos[0], cam.pos[1], cam.pos[2]);
+    GLR.draw(R, skyMesh, camT, { unlit: true, noFog: true });
+    if (lk.sky > 0.01) {
+      gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      GLR.draw(R, overMesh, camT, { unlit: true, noFog: true, alpha: lk.sky, tint: lk.fog });
+      gl.disable(gl.BLEND);
+    }
     gl.enable(gl.DEPTH_TEST); gl.depthMask(true);
-    const I = M4.ident();
-    GLR.draw(R, world.ground, I, { tex: grassTex, worldUV: true, texScale: 1 / 8 });
+    const I = M4.ident(), sn = snowCover(), WHITE = [0.93, 0.94, 0.96];
+    GLR.draw(R, world.ground, I, { tex: grassTex, worldUV: true, texScale: 1 / 8, mix: sn ? [...WHITE, sn] : null });
     gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(-2, -4);
-    GLR.draw(R, world.runway, M4.trans(0, 0.02, 0), { tex: runwayTex });
+    GLR.draw(R, world.runway, M4.trans(0, 0.02, 0), { tex: runwayTex, mix: sn ? [...WHITE, sn * 0.6] : null });
     GLR.draw(R, world.decal, M4.trans(0, 0.02, 0));
     gl.disable(gl.POLYGON_OFFSET_FILL);
-    GLR.draw(R, world.scenery, I);
+    GLR.draw(R, world.scenery, I, { mix: sn ? [...WHITE, sn * 0.35] : null });
     GLR.draw(R, sockMesh, sockM);
     if (S.course && world.gates.length) { // marker floating over the next gate
       const gt = world.gates[course.next], bob = Math.sin(course.clock * 3) * 0.15;
@@ -3227,9 +3537,11 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     }
     const model = MODELS[AC.id];
     const partM = [];
-    for (const p of model.parts) { const m = p.anim ? M4.chain(planeM, p.mat, p.anim(st)) : M4.mul(planeM, p.mat); partM.push(m); GLR.draw(R, p.mesh, m); }
+    const ii = iceInfo(), iceMix = ii.kc > 0 ? [0.86, 0.92, 0.98, clamp(ii.kc * 40, 0, 0.65)] : null;
+    const propMix = ii.prop > 0.02 ? [0.86, 0.92, 0.98, clamp(ii.prop * 1.3, 0, 0.75)] : null;
+    for (const p of model.parts) { const m = p.anim ? M4.chain(planeM, p.mat, p.anim(st)) : M4.mul(planeM, p.mat); partM.push(m); GLR.draw(R, p.mesh, m, { mix: iceMix }); }
     const propMs = model.props.map((pr) => (pr.tilt ? M4.chain(planeM, pr.mat, pr.tilt(st), pr.post, M4.rotZ(pr.ang)) : M4.chain(planeM, pr.mat, M4.rotZ(pr.ang))));
-    if (v.kind !== 'fpv') model.props.forEach((pr, i) => GLR.draw(R, pr.blades, propMs[i]));
+    if (v.kind !== 'fpv') model.props.forEach((pr, i) => GLR.draw(R, pr.blades, propMs[i], { mix: propMix }));
     // shadow (sun overhead), drawn once per pixel via stencil
     const hgt = planeM[13];
     if (hgt < 120) {
@@ -3243,7 +3555,14 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     }
     if (v.kind !== 'fpv') {
       gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
-      model.props.forEach((pr, i) => { const sp = pr.spin(st); if (sp > 0.12) GLR.draw(R, pr.disc, propMs[i], { alpha: 0.16 + 0.12 * sp, unlit: true }); });
+      model.props.forEach((pr, i) => { const sp = pr.spin(st); if (sp > 0.12) GLR.draw(R, pr.disc, propMs[i], { alpha: 0.16 + 0.12 * sp, unlit: true, mix: propMix }); });
+      gl.depthMask(true); gl.disable(gl.BLEND);
+    }
+    // cloud deck: a thin lower layer and an opaque one 12 m up, so a model climbing into it fades out
+    if (S.ceilFt > 0) {
+      const cy = S.ceilFt * 0.3048, base = S.precip === 'heavy' ? [0.5, 0.52, 0.56] : S.precip !== 'none' ? [0.6, 0.62, 0.66] : [0.7, 0.72, 0.75];
+      gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
+      for (const [dy, a] of [[0, 0.55], [12, 0.92]]) GLR.draw(R, cloudMesh, M4.trans(cam.pos[0], cy + dy, cam.pos[2]), { unlit: true, alpha: a, tint: cam.pos[1] > cy + dy ? [0.9, 0.91, 0.93] : base });
       gl.depthMask(true); gl.disable(gl.BLEND);
     }
   }
@@ -3259,6 +3578,20 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   const thrText = (pct) => (AC.kind === 'heli'
     ? `${st.coll >= 0 ? '+' : ''}${(st.coll / D2R).toFixed(1)}° ${Math.round((st.om * 60) / (2 * Math.PI))} RPM`
     : `THR ${Math.round(inp.thr * 100)}${pct ? '%' : ''}`);
+  // one-line weather summary for the LOS readout (empty on a plain clear day)
+  function wxLine() {
+    const P = FL.PRECIP[S.precip], wxa = env.wx || {}, parts = [];
+    const fz = wxa.lwc > 0 && wxa.T <= 0;
+    if (S.precip !== 'none') parts.push(((P.liquid && atmo.Tc <= 0) ? 'FREEZING ' : '') + P.name.toUpperCase());
+    else if (S.fogVis < 10000 && S.rh >= 95) parts.push(atmo.Tc <= 0 ? 'FREEZING FOG' : 'FOG');
+    if (S.fogVis < 10000 || S.precip !== 'none') parts.push(`VIS ${UW.vis(Math.round(wxa.visM || S.fogVis)).toUpperCase()}`);
+    if (S.ceilFt > 0) parts.push(`CEIL ${UW.ceil(S.ceilFt).toUpperCase()}`);
+    if (wxa.inCloud) parts.push('IN CLOUD');
+    if (fz && S.precip === 'none' && !wxa.inCloud && !(S.fogVis < 10000)) parts.push('ICING');
+    const hot = Math.abs(atmo.daFt - S.elevFt) > 1500;
+    if (!parts.length && !hot && S.turb < 40) return [];
+    return [UW.temp(S.tempF), `DA ${Math.round(atmo.daFt / 100) * 100} FT`, S.turb >= 40 ? `TURB ${S.turb >= 75 ? 'SEVERE' : 'MOD'}` : '', ...parts].filter(Boolean);
+  }
   function warnings() {
     const w = [];
     if (st.held && !armed) w.push(['THROTTLE DOWN TO ARM', '#ffd36a']);
@@ -3274,11 +3607,79 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     const d = Math.hypot(st.p[0], st.p[1]);
     if (d > 400) w.push([`FAR · ${U.dist(d)}`, '#ff9d42']);
     if (-st.p[2] > 121.9) w.push(['ABOVE 400 FT', '#ff9d42']);
+    if (S.iceCue && !st.crashed) { // not something a real aircraft tells you; turn it off to practise spotting the signs
+      const ii = iceInfo();
+      if (ii.lift > 0.08) w.push([`ICE −${Math.round(ii.lift * 100)}% LIFT`, '#9fd3ff']);
+      if (ii.prop > 0.08) w.push([`${AC.kind === 'heli' ? 'BLADE' : 'PROP'} ICE −${Math.round(ii.prop * 100)}% THRUST`, '#9fd3ff']);
+    }
     if (S.stallCue && Math.max(st.tele.stallL, st.tele.stallR) > 0.25 && blink % 1 < 0.6) {
       const side = st.tele.stallL - st.tele.stallR > 0.15 ? ' L' : st.tele.stallR - st.tele.stallL > 0.15 ? ' R' : '';
       w.push([`STALL${side}`, '#ff6157']);
     }
     return w;
+  }
+  /* ---------- precipitation, lens water and frost (drawn on the OSD canvas, projected per view) ---------- */
+  const PRN = 480, prt = Array.from({ length: PRN }, () => [Math.random(), Math.random(), Math.random(), Math.random()]);
+  let wxClock = 0, osdDt = 0;
+  const lensDrops = [];
+  function project(vp, v, p) {
+    const cw = vp[3] * p[0] + vp[7] * p[1] + vp[11] * p[2] + vp[15];
+    if (cw < 0.3) return null;
+    return [v.x + ((vp[0] * p[0] + vp[4] * p[1] + vp[8] * p[2] + vp[12]) / cw + 1) * 0.5 * v.w, v.y + (1 - (vp[1] * p[0] + vp[5] * p[1] + vp[9] * p[2] + vp[13]) / cw) * 0.5 * v.h, cw];
+  }
+  function drawPrecip(v) {
+    const P = FL.PRECIP[S.precip];
+    if (!P || !P.R || !v.vp || !v.cam) return;
+    const wet = P.liquid || atmo.Tc > 2, inC = v.look && v.look.inCloud;
+    if (inC) return; // inside the cloud you see grey, not drops
+    const n = Math.round(PRN * Math.min(1, wet ? 0.3 + P.R / 30 : 0.45 + P.R / 6)), B = wet ? 26 : 20;
+    const c = v.cam.pos, w = env.wind, t = wxClock;
+    const vd = [w[1], -(wet ? P.fall : P.fall) - w[2], -w[0]]; // drop velocity, render axes (x east, y up, z south)
+    const vc = v.kind === 'fpv' ? [st.v[1], -st.v[2], -st.v[0]] : [0, 0, 0];
+    const rel = [vd[0] - vc[0], vd[1] - vc[1], vd[2] - vc[2]], ex = 0.035; // streak = motion during ~1/30 s
+    const wrap = (o, vel, ci) => ((((o * B + vel * t - ci) % B) + B) % B) - B / 2 + ci;
+    ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(205,215,228,0.35)'; ctx.fillStyle = 'rgba(250,251,255,0.85)';
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) {
+      const o = prt[i];
+      const wob = wet ? 0 : Math.sin(t * 1.7 + o[3] * 6.3) * 0.5;
+      const p = [wrap(o[0], vd[0], c[0]) + wob, wrap(o[1], vd[1], c[1]), wrap(o[2], vd[2], c[2])];
+      const a = project(v.vp, v, p);
+      if (!a || a[0] < v.x || a[0] > v.x + v.w || a[1] < v.y || a[1] > v.y + v.h) continue;
+      if (wet) {
+        const b = project(v.vp, v, [p[0] - rel[0] * ex, p[1] - rel[1] * ex, p[2] - rel[2] * ex]);
+        if (!b) continue;
+        ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]);
+      } else {
+        const r = clamp(55 / a[2], 0.6, 3.2);
+        ctx.moveTo(a[0] + r, a[1]); ctx.arc(a[0], a[1], r, 0, Math.PI * 2);
+      }
+    }
+    if (wet) ctx.stroke(); else ctx.fill();
+  }
+  // water drops on the FPV lens in rain or cloud above freezing; frost when the lens ices
+  function drawLens(v, dt) {
+    const P = FL.PRECIP[S.precip], wxa = env.wx || {};
+    const wetRate = (wxa.T > 0 ? (P.liquid ? P.R : 0) + (wxa.inCloud ? 3 : 0) : 0) * (1 + Math.min(2, (st.tele.V || 0) / 12));
+    if (Math.random() < wetRate * 0.04 && lensDrops.length < 40) lensDrops.push({ x: Math.random(), y: Math.random(), r: 0.008 + Math.random() * 0.022, life: 3 + Math.random() * 6 });
+    const sp = (st.tele.V || 0) / 30;
+    for (let i = lensDrops.length - 1; i >= 0; i--) {
+      const d = lensDrops[i];
+      d.life -= dt * (1 + sp * 2); d.y += dt * (0.01 + sp * 0.12); d.x += (d.x - 0.5) * dt * sp * 0.3;
+      if (d.life <= 0 || d.y > 1.1) { lensDrops.splice(i, 1); continue; }
+      const R0 = d.r * Math.min(v.w, v.h), x = v.x + d.x * v.w, y = v.y + d.y * v.h;
+      ctx.beginPath(); ctx.arc(x, y, R0, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(200,214,230,0.16)'; ctx.fill();
+      ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,0.28)'; ctx.stroke();
+    }
+    const ice = st.iceLens;
+    if (ice > 0.02) {
+      const cx = v.x + v.w / 2, cy = v.y + v.h / 2, Rr = Math.hypot(v.w, v.h) / 2;
+      const g = ctx.createRadialGradient(cx, cy, Rr * 0.6 * (1 - ice), cx, cy, Rr);
+      g.addColorStop(0, 'rgba(235,242,250,0)'); g.addColorStop(1, `rgba(235,242,250,${(0.9 * ice).toFixed(3)})`);
+      ctx.fillStyle = g; ctx.fillRect(v.x, v.y, v.w, v.h);
+      if (ice > 0.4) { ctx.fillStyle = `rgba(230,238,246,${(0.55 * (ice - 0.4) / 0.6).toFixed(3)})`; ctx.fillRect(v.x, v.y, v.w, v.h); }
+    }
   }
   function drawOSD(views) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -3293,6 +3694,8 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       const cx = v.x + v.w / 2, cy = v.y + v.h / 2, m = fs * 1.1;
       const topY = v.y + (v.y < 4 ? 60 + fs : m + fs * 0.4);
       const lift = sticksShown && v.y + v.h >= cssH - 2 ? 165 : 0; // keep the bottom row clear of touch sticks
+      drawPrecip(v);
+      if (v.kind === 'fpv') drawLens(v, osdDt);
       if (v.kind === 'fpv' && S.osd !== 'off') {
         const full = S.osd === 'full';
         // crosshair and artificial horizon
@@ -3338,6 +3741,12 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
         const y2 = v.y + v.h - m - lift;
         osdText(`ALT ${U.alt(alt)}  SPD ${U.spd(st.tele.V)}  ${thrText(true)}${S.battery ? '  ' + st.vb.toFixed(1) + 'V' : ''}`, v.x + m, y2, 'left', s2);
         osdText(`WIND ${U.wind(S.windSpd)} from ${compass(S.windDir)} · ${modeName(S.mode).toUpperCase()}`, v.x + m, y2 - s2 * 1.4, 'left', s2, 'rgba(255,255,255,0.85)');
+        const wl = wxLine();
+        if (wl.length) { // one line if it fits, else two
+          const one = wl.join(' · '), fits = ctx.measureText(one).width < v.w - 2 * m;
+          const rows = fits ? [one] : [wl.slice(0, Math.ceil(wl.length / 2)).join(' · '), wl.slice(Math.ceil(wl.length / 2)).join(' · ')];
+          rows.reverse().forEach((r, i) => osdText(r, v.x + m, y2 - s2 * (2.8 + 1.4 * i), 'left', s2, 'rgba(225,238,255,0.85)'));
+        }
         ctx.font = `${fs}px "Share Tech Mono", ui-monospace, Menlo, Consolas, monospace`;
       }
       // warnings
@@ -3359,6 +3768,12 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     if (S.eng) drawEng(views[0]);
     if (S.fps) { ctx.font = '12px "Share Tech Mono", monospace'; ctx.textBaseline = 'bottom'; osdText(`${fpsVal} fps`, cssW - 10, cssH - 8, 'right', 12, '#9fe6b8'); }
   }
+  function wxEng() {
+    const ii = iceInfo(), wxa = env.wx || {};
+    const out = [`air ${(wxa.T ?? atmo.Tc).toFixed(1)}°C   pack ${st.bT.toFixed(1)}°C ${Math.round(FL.battR(AC.batt, st.bT) * 1000)} mΩ`];
+    if (ii.kc > 0 || st.iceProp > 0 || st.iceLens > 0) out.push(`ice k/c ${(ii.kc * 100).toFixed(2)}%  lift −${Math.round(ii.lift * 100)}%  prop −${Math.round(ii.prop * 100)}%  +${Math.round(ii.mass * 1000)} g`);
+    return out;
+  }
   function drawEng(v) {
     const t = st.tele, x = v.x + 12, y0 = v.y + (v.y < 4 ? 92 : 30);
     if (ROTARY(AC)) {
@@ -3368,8 +3783,9 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
         : [`V  ${t.V.toFixed(1)} m/s   n ${t.nz.toFixed(2)} g`, `T  ${t.T.toFixed(1)} N   rotor ${Math.round(st.om * 60 / (2 * Math.PI))} rpm`,
            `collective ${((t.coll || 0) * R2D).toFixed(1)}°   inflow ${(t.vi || 0).toFixed(1)} m/s`, `shaft ${(t.Pm || 0).toFixed(0)} W   pack ${st.vb.toFixed(1)} V  ${st.I.toFixed(0)} A`,
            `vortex ring ${Math.round((t.vrs || 0) * 100)}%   blade stall ${Math.round(Math.min(1, t.bladeStall || 0) * 100)}%`];
+      L2.push(...wxEng());
       ctx.font = '12px "Share Tech Mono", ui-monospace, monospace'; ctx.textBaseline = 'middle';
-      ctx.fillStyle = 'rgba(15,21,25,0.72)'; ctx.fillRect(x - 6, y0 - 12, 230, L2.length * 17 + 8);
+      ctx.fillStyle = 'rgba(15,21,25,0.72)'; ctx.fillRect(x - 6, y0 - 12, 300, L2.length * 17 + 8);
       L2.forEach((l, i) => osdText(l, x, y0 + i * 17, 'left', 12, '#cfe9f3'));
       return;
     }
@@ -3378,9 +3794,10 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       `V  ${t.V.toFixed(1)} m/s   q ${t.qbar.toFixed(0)} Pa`,
       `CL ${t.CL.toFixed(2)}   n ${t.nz.toFixed(2)} g`,
       `T  ${t.T.toFixed(2)} N   ρ ${env.rho.toFixed(3)}`,
+      ...wxEng(),
     ];
     ctx.font = '12px "Share Tech Mono", ui-monospace, monospace'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = 'rgba(15,21,25,0.72)'; ctx.fillRect(x - 6, y0 - 12, 210, lines.length * 17 + 38);
+    ctx.fillStyle = 'rgba(15,21,25,0.72)'; ctx.fillRect(x - 6, y0 - 12, 300, lines.length * 17 + 38);
     lines.forEach((l, i) => osdText(l, x, y0 + i * 17, 'left', 12, '#cfe9f3'));
     const by = y0 + lines.length * 17 + 4;
     osdText('stalled', x, by, 'left', 12, '#cfe9f3');
@@ -3427,15 +3844,53 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
 
   /* ---------------------------------------------------------------- loop */
   function gauss() { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
+  /* Wind = mean wind (log profile, slowed in the lee of trees and buildings) + big slow gusts +
+     Dryden turbulence (MIL-F-8785C low-altitude model) + mechanical turbulence behind obstacles.
+     Planes also get Dryden rotational gusts (p, q, r), which is what makes a small wing rock. */
+  const turbV = [0, 0, 0], gwV = [0, 0, 0];
+  let lee = 0;
+  const ou = (x, tau, sig, dt) => x + (-x / tau) * dt + sig * Math.sqrt((2 * dt) / tau) * gauss();
+  function leeAt(pN, pE, h, Wm, dir) {
+    if (Wm < 1 || !world.blockers) return 0;
+    const dN = -Math.cos(dir), dE = -Math.sin(dir); // the way the wind blows
+    let f = 0;
+    for (const b of world.blockers) {
+      const rN = pN - b.n, rE = pE - b.e, along = rN * dN + rE * dE;
+      if (along < -b.r || along > 10 * b.h || h > 1.6 * b.h) continue;
+      const lat = Math.abs(-rN * dE + rE * dN), wid = b.r + 0.15 * Math.max(0, along) + 1;
+      if (lat > wid) continue;
+      f = Math.max(f, (1 - Math.max(0, along) / (10 * b.h)) * (1 - h / (1.6 * b.h)) * (1 - lat / wid));
+    }
+    return f;
+  }
   function updateWind(dt) {
     const Wm = S.windSpd, dir = S.windDir * D2R, sig = (S.gust / 100) * Wm;
-    for (let i = 0; i < 3; i++) {
-      const tau = i < 2 ? 2.2 : 1.0, s = sig * (i < 2 ? 1 : 0.35);
-      gust[i] += (-gust[i] / tau) * dt + s * Math.sqrt((2 * dt) / tau) * gauss();
-    }
+    for (let i = 0; i < 3; i++) gust[i] = ou(gust[i], i < 2 ? 2.2 : 1.0, sig * (i < 2 ? 1 : 0.35), dt);
     const h = Math.max(0.3, -st.p[2]);
+    lee = leeAt(st.p[0], st.p[1], h, Wm, dir);
+    // Dryden: σw = 0.1·W20 (W20 = wind at 20 ft: 15 kt light, 30 moderate, 45 severe → 100% here = 45 kt),
+    // σu = σw / (0.177 + 0.000823·h)^0.4, scale lengths Lw = h, Lu = h / (0.177 + 0.000823·h)^1.2 (feet)
+    const hf = Math.max(5, h * 3.2808), kq = 0.177 + 0.000823 * Math.min(hf, 1000);
+    const sw = 0.1 * (S.turb / 100) * 23.1, su = sw / Math.pow(kq, 0.4);
+    const Lw = hf * 0.3048, Lu = (hf / Math.pow(kq, 1.2)) * 0.3048;
+    const V = Math.max(4, st.tele.V || 0);
+    const smech = 0.45 * Wm * lee, tmech = 0.4; // eddies shed by the obstacle
+    const gnd = Math.min(1, h / 4); // the ground stops vertical gusts
+    for (let i = 0; i < 2; i++) turbV[i] = ou(turbV[i], Math.max(dt * 2, Lu / V), Math.hypot(su, smech), dt);
+    turbV[2] = ou(turbV[2], Math.max(dt * 2, Math.min(Lw / V, tmech + Lw / V)), Math.hypot(sw, smech) * gnd, dt);
+    if (!ROTARY(AC) && sw > 0) {
+      const b = AC.b, sp = sw * Math.sqrt((0.8 * Math.cbrt((Math.PI * Lw) / (4 * b)) * Math.PI * Math.PI) / (8 * b * Lw));
+      const tp = Math.max(dt * 2, (4 * b) / (Math.PI * V));
+      gwV[0] = ou(gwV[0], tp, sp, dt); gwV[1] = ou(gwV[1], tp * 2, sp * 0.5, dt); gwV[2] = ou(gwV[2], tp * 2, sp * 0.4, dt);
+    } else gwV[0] = gwV[1] = gwV[2] = 0;
+    env.gw = gwV;
     const prof = clamp(Math.log(h / 0.03) / Math.log(10 / 0.03), 0.3, 1.3); // log wind profile, 10 m reference
-    env.wind = [(-Wm * Math.cos(dir) + gust[0]) * prof, (-Wm * Math.sin(dir) + gust[1]) * prof, gust[2] * Math.min(1, h / 10)];
+    const shelter = 1 - 0.6 * lee;
+    env.wind = [
+      (-Wm * Math.cos(dir) * shelter + gust[0]) * prof + turbV[0],
+      (-Wm * Math.sin(dir) * shelter + gust[1]) * prof + turbV[1],
+      gust[2] * Math.min(1, h / 10) + turbV[2] + 0.25 * Wm * lee * gnd, // sinking air in the lee
+    ];
   }
   function sockMatrix() {
     const Wm = S.windSpd, dir = S.windDir * D2R;
@@ -3557,6 +4012,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
         if (launchHold > 0.3) { FL.launch(st); timerOn = true; }
       }
       updateWind(dt);
+      env.wx = FL.weatherAt(wxBase, Math.max(0, -st.p[2]));
       acc += dt;
       const c = controls();
       let steps = 0;
@@ -3588,6 +4044,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     losFov += (target - losFov) * Math.min(1, dt * 3);
     const sockM = sockMatrix();
     for (const v of views) renderView(v, planeM, sockM);
+    osdDt = paused ? 0 : dt; wxClock += osdDt;
     drawOSD(views);
     updateAudio(losD);
     barT += dt; if (barT > 0.25) { barT = 0; refreshBar(); refreshTouch(); }

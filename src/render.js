@@ -175,19 +175,21 @@ precision mediump float;
 #endif
 uniform sampler2D uTex; uniform float uUseTex; uniform float uTexScale; uniform float uUnlit; uniform float uAlpha;
 uniform vec3 uTint; uniform vec3 uSun; uniform vec3 uSkyAmb; uniform vec3 uGndAmb;
-uniform vec3 uFog; uniform vec2 uFogRange; uniform float uFogOn;
+uniform vec3 uFog; uniform vec2 uFogRange; uniform float uFogOn; uniform float uFogK; uniform vec4 uMix; uniform vec3 uSunCol;
 varying vec3 vN; varying vec3 vC; varying vec2 vUV; varying float vDist;
 void main(){
   vec3 c = vC * uTint;
   if (uUseTex > 0.5) c *= texture2D(uTex, vUV * uTexScale).rgb;
+  c = mix(c, uMix.rgb, uMix.a); // snow cover, ice on the airframe
   if (uUnlit < 0.5) {
     vec3 n = normalize(vN);
     if (!gl_FrontFacing) n = -n;
     float d = max(dot(n, uSun), 0.0);
     vec3 amb = mix(uGndAmb, uSkyAmb, n.y * 0.5 + 0.5);
-    c *= amb + d * vec3(0.8, 0.76, 0.68);
+    c *= amb + d * uSunCol;
   }
-  float f = uFogOn * clamp((vDist - uFogRange.x) / (uFogRange.y - uFogRange.x), 0.0, 1.0);
+  // haze (linear) or weather (exponential extinction: 2% contrast left at the visibility distance)
+  float f = uFogOn * max(clamp((vDist - uFogRange.x) / (uFogRange.y - uFogRange.x), 0.0, 1.0), 1.0 - exp(-uFogK * vDist));
   gl_FragColor = vec4(mix(c, uFog, f), uAlpha);
 }`;
 
@@ -209,7 +211,7 @@ void main(){
     gl.useProgram(prog);
     const L = {};
     for (const n of ['aPos', 'aNrm', 'aCol', 'aUV']) L[n] = gl.getAttribLocation(prog, n);
-    for (const n of ['uModel', 'uVP', 'uCam', 'uWorldUV', 'uTex', 'uUseTex', 'uTexScale', 'uUnlit', 'uAlpha', 'uTint', 'uSun', 'uSkyAmb', 'uGndAmb', 'uFog', 'uFogRange', 'uFogOn'])
+    for (const n of ['uModel', 'uVP', 'uCam', 'uWorldUV', 'uTex', 'uUseTex', 'uTexScale', 'uUnlit', 'uAlpha', 'uTint', 'uSun', 'uSkyAmb', 'uGndAmb', 'uFog', 'uFogRange', 'uFogOn', 'uFogK', 'uMix', 'uSunCol'])
       L[n] = gl.getUniformLocation(prog, n);
     for (const n of ['aPos', 'aNrm', 'aCol', 'aUV']) if (L[n] >= 0) gl.enableVertexAttribArray(L[n]);
     const aniso = gl.getExtension('EXT_texture_filter_anisotropic') || gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic');
@@ -238,7 +240,7 @@ void main(){
     return t;
   }
 
-  const ONE = [1, 1, 1];
+  const ONE = [1, 1, 1], NOMIX = [0, 0, 0, 0];
   function draw(R, m, model, o) {
     const gl = R.gl, L = R.L;
     o = o || {};
@@ -255,6 +257,7 @@ void main(){
     gl.uniform1f(L.uUnlit, o.unlit ? 1 : 0);
     gl.uniform1f(L.uAlpha, o.alpha == null ? 1 : o.alpha);
     gl.uniform3fv(L.uTint, o.tint || ONE);
+    gl.uniform4fv(L.uMix, o.mix || NOMIX);
     gl.uniform1f(L.uFogOn, o.noFog ? 0 : 1);
     gl.drawArrays(gl.TRIANGLES, 0, m.count);
   }
