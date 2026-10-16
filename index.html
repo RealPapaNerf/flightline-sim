@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<!-- built by tools/build.py from src/ (974abb93); edit the sources, not this file -->
+<!-- built by tools/build.py from src/ (80449c98); edit the sources, not this file -->
 <title>Flightline RC Sim</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Browser RC flight trainer: Nano Goblin and trainer flight models, line of sight, FPV and split view, USB transmitter support.">
@@ -3285,7 +3285,7 @@ if (typeof module !== 'undefined') module.exports = GH;
    It never looks inside a message; the room owns the protocol.
 
    Protocol, all small JSON frames:
-     j  join / profile, also a heartbeat every 2 s
+     j  join / profile (name, aircraft, colour, course, ready), a heartbeat every 2 s
      s  state, 20 a second: a 32-byte binary blob in base64
      q  ping, a  ping answer   (clock offset and round trip per pilot)
      g  go: the shared countdown, in the sender's clock
@@ -3484,7 +3484,7 @@ const NET = (function () {
     const R = {
       id: C.id, transport: C.transport, room: C.room, status: 'closed', detail: '',
       peers, stats: { up: 0, down: 0, upBps: 0, downBps: 0, msgUp: 0, msgDown: 0, rate: 0 },
-      me: { name: C.name || '', ac: C.aircraft || '', col: C.col || 0, ready: false, spec: !!C.spectate },
+      me: { name: C.name || '', ac: C.aircraft || '', col: C.col || 0, course: C.course || '', ready: false, spec: !!C.spectate },
       on: { status: null, peer: null, go: null, lap: null },
     };
     let sendAcc = 0, pingAcc = 0, beatAcc = 0, statAcc = 0, lastUp = 0, lastDown = 0, sent = 0, open = false;
@@ -3493,7 +3493,7 @@ const NET = (function () {
     const peer = (id) => {
       let p = peers.get(id);
       if (!p) {
-        p = { id, name: '', ac: '', col: 0, ready: false, spec: false, rtt: null, offset: null, best: null, lap: null, laps: 0,
+        p = { id, name: '', ac: '', col: 0, course: '', ready: false, spec: false, rtt: null, offset: null, best: null, lap: null, laps: 0,
           buf: [], view: null, last: clk(), seen: clk(), pings: [], synced: false };
         peers.set(id, p);
         emit('peer', p, 'in');
@@ -3517,8 +3517,9 @@ const NET = (function () {
         p.buf.push({ t, c: s.c, p: s.p, q: s.q, v: s.v, thr: s.thr, flags: s.flags });
         if (p.buf.length > 80) p.buf.shift();
       } else if (m.t === 'j') {
+        if (m.v && m.v !== PROTO) { peers.delete(m.i); return; } // a page from another version of the sim
         p.name = String(m.n || '').slice(0, 16); p.ac = String(m.a || ''); p.col = m.c | 0;
-        p.ready = !!m.r; p.spec = !!m.s;
+        p.course = String(m.k || ''); p.ready = !!m.r; p.spec = !!m.s;
         if (m.b != null) p.best = m.b;
       } else if (m.t === 'q') {
         if (m.u === R.id) tr.send({ t: 'a', i: R.id, u: m.i, c: m.c, d: Math.round(clk()) });
@@ -3547,7 +3548,8 @@ const NET = (function () {
     };
 
     R.connect = () => tr.connect().then(() => { R.hello(); });
-    R.hello = () => tr.send({ t: 'j', v: PROTO, i: R.id, n: R.me.name, a: R.me.ac, c: R.me.col, r: R.me.ready, s: R.me.spec, b: R.me.best == null ? null : R.me.best });
+    R.hello = () => tr.send({ t: 'j', v: PROTO, i: R.id, n: R.me.name, a: R.me.ac, c: R.me.col, k: R.me.course,
+      r: R.me.ready, s: R.me.spec, b: R.me.best == null ? null : R.me.best });
     R.go = (inMs, laps, coll) => { const at = Math.round(clk() + inMs); tr.send({ t: 'g', i: R.id, at, in: inMs, l: laps, c: coll }); return at; };
     R.lap = (secs, best, n) => tr.send({ t: 'l', i: R.id, v: secs, b: best, n });
     R.leave = () => { try { tr.send({ t: 'x', i: R.id }); } catch (e) { /* going anyway */ } tr.close(); peers.clear(); };
@@ -6913,7 +6915,6 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   ];
   const colOf = (i) => COLS[((i | 0) % COLS.length + COLS.length) % COLS.length];
   const race = { r: null, phase: 'off', startAt: 0, target: 3, coll: 'off', laps: 0, watch: null, bumpT: 0, note: '' };
-  const raceOn = () => !!race.r && race.r.status === 'open';
   const myId = (() => { const k = 'flightline.id.v1'; let v = null;
     try { v = localStorage.getItem(k); if (!v) { v = Math.random().toString(36).slice(2, 8); localStorage.setItem(k, v); } } catch (e) { v = Math.random().toString(36).slice(2, 8); }
     return v; })();
@@ -6927,10 +6928,10 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     if (N.relay === 'off') return;
     const code = NET.cleanCode(N.room) || NET.roomCode();
     N.room = code; saveS();
-    const R = NET.room({ transport: N.relay, room: code, id: myId, name: myName(), aircraft: AC.id, col: N.col,
+    const R = NET.room({ transport: N.relay, room: code, id: myId, name: myName(), aircraft: AC.id, col: N.col, course: world.courseId,
       url: N.relay === 'ws' ? N.ws : N.url, key: N.key, cdn: N.cdn || '', spectate: N.spec,
       rate: N.rate, delay: N.delay });
-    R.me.name = myName(); R.me.ac = AC.id; R.me.col = N.col; R.me.spec = N.spec; R.me.best = S.best[AC.id] || null;
+    R.me.name = myName(); R.me.ac = AC.id; R.me.col = N.col; R.me.spec = N.spec; R.me.course = world.courseId; R.me.best = S.best[AC.id] || null;
     R.on.status = (stt, detail) => {
       race.note = stt === 'open' ? '' : detail || stt;
       if (stt === 'open' && race.phase === 'off') race.phase = 'lobby';
@@ -7044,7 +7045,8 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     show(el);
     const R = race.r, peers = [...R.peers.values()];
     const ping = (p) => (p.rtt == null ? '—' : `${p.rtt} ms`);
-    const mark = (p) => (p.spec ? 'watching' : p.ready ? 'ready' : p.lap != null ? fmtLap(p.best != null ? p.best : p.lap) : 'waiting');
+    const mark = (p) => (p.course && p.course !== world.courseId ? 'another course'
+      : p.spec ? 'watching' : p.ready ? 'ready' : p.lap != null ? fmtLap(p.best != null ? p.best : p.lap) : 'waiting');
     const rows = [`<div class="rc-row me"><b style="color:${colOf(S.net.col)[0]}">${esc(myName())}</b><span>${S.net.spec ? 'watching' : S.best[AC.id] ? fmtLap(S.best[AC.id]) : race.phase === 'race' ? 'racing' : R.me.ready ? 'ready' : 'waiting'}</span><span>you</span></div>`]
       .concat(peers.map((p) => `<div class="rc-row"><b style="color:${colOf(p.col)[0]}">${esc(p.name || 'Pilot')}</b><span>${mark(p)}</span><span>${ping(p)}</span></div>`));
     const st2 = R.status === 'open' ? `${peers.length + 1} in the room` : race.note || R.status;

@@ -3280,7 +3280,6 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   ];
   const colOf = (i) => COLS[((i | 0) % COLS.length + COLS.length) % COLS.length];
   const race = { r: null, phase: 'off', startAt: 0, target: 3, coll: 'off', laps: 0, watch: null, bumpT: 0, note: '' };
-  const raceOn = () => !!race.r && race.r.status === 'open';
   const myId = (() => { const k = 'flightline.id.v1'; let v = null;
     try { v = localStorage.getItem(k); if (!v) { v = Math.random().toString(36).slice(2, 8); localStorage.setItem(k, v); } } catch (e) { v = Math.random().toString(36).slice(2, 8); }
     return v; })();
@@ -3294,10 +3293,10 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     if (N.relay === 'off') return;
     const code = NET.cleanCode(N.room) || NET.roomCode();
     N.room = code; saveS();
-    const R = NET.room({ transport: N.relay, room: code, id: myId, name: myName(), aircraft: AC.id, col: N.col,
+    const R = NET.room({ transport: N.relay, room: code, id: myId, name: myName(), aircraft: AC.id, col: N.col, course: world.courseId,
       url: N.relay === 'ws' ? N.ws : N.url, key: N.key, cdn: N.cdn || '', spectate: N.spec,
       rate: N.rate, delay: N.delay });
-    R.me.name = myName(); R.me.ac = AC.id; R.me.col = N.col; R.me.spec = N.spec; R.me.best = S.best[AC.id] || null;
+    R.me.name = myName(); R.me.ac = AC.id; R.me.col = N.col; R.me.spec = N.spec; R.me.course = world.courseId; R.me.best = S.best[AC.id] || null;
     R.on.status = (stt, detail) => {
       race.note = stt === 'open' ? '' : detail || stt;
       if (stt === 'open' && race.phase === 'off') race.phase = 'lobby';
@@ -3411,7 +3410,8 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     show(el);
     const R = race.r, peers = [...R.peers.values()];
     const ping = (p) => (p.rtt == null ? '—' : `${p.rtt} ms`);
-    const mark = (p) => (p.spec ? 'watching' : p.ready ? 'ready' : p.lap != null ? fmtLap(p.best != null ? p.best : p.lap) : 'waiting');
+    const mark = (p) => (p.course && p.course !== world.courseId ? 'another course'
+      : p.spec ? 'watching' : p.ready ? 'ready' : p.lap != null ? fmtLap(p.best != null ? p.best : p.lap) : 'waiting');
     const rows = [`<div class="rc-row me"><b style="color:${colOf(S.net.col)[0]}">${esc(myName())}</b><span>${S.net.spec ? 'watching' : S.best[AC.id] ? fmtLap(S.best[AC.id]) : race.phase === 'race' ? 'racing' : R.me.ready ? 'ready' : 'waiting'}</span><span>you</span></div>`]
       .concat(peers.map((p) => `<div class="rc-row"><b style="color:${colOf(p.col)[0]}">${esc(p.name || 'Pilot')}</b><span>${mark(p)}</span><span>${ping(p)}</span></div>`));
     const st2 = R.status === 'open' ? `${peers.length + 1} in the room` : race.note || R.status;

@@ -17,7 +17,7 @@
    It never looks inside a message; the room owns the protocol.
 
    Protocol, all small JSON frames:
-     j  join / profile, also a heartbeat every 2 s
+     j  join / profile (name, aircraft, colour, course, ready), a heartbeat every 2 s
      s  state, 20 a second: a 32-byte binary blob in base64
      q  ping, a  ping answer   (clock offset and round trip per pilot)
      g  go: the shared countdown, in the sender's clock
@@ -216,7 +216,7 @@ const NET = (function () {
     const R = {
       id: C.id, transport: C.transport, room: C.room, status: 'closed', detail: '',
       peers, stats: { up: 0, down: 0, upBps: 0, downBps: 0, msgUp: 0, msgDown: 0, rate: 0 },
-      me: { name: C.name || '', ac: C.aircraft || '', col: C.col || 0, ready: false, spec: !!C.spectate },
+      me: { name: C.name || '', ac: C.aircraft || '', col: C.col || 0, course: C.course || '', ready: false, spec: !!C.spectate },
       on: { status: null, peer: null, go: null, lap: null },
     };
     let sendAcc = 0, pingAcc = 0, beatAcc = 0, statAcc = 0, lastUp = 0, lastDown = 0, sent = 0, open = false;
@@ -225,7 +225,7 @@ const NET = (function () {
     const peer = (id) => {
       let p = peers.get(id);
       if (!p) {
-        p = { id, name: '', ac: '', col: 0, ready: false, spec: false, rtt: null, offset: null, best: null, lap: null, laps: 0,
+        p = { id, name: '', ac: '', col: 0, course: '', ready: false, spec: false, rtt: null, offset: null, best: null, lap: null, laps: 0,
           buf: [], view: null, last: clk(), seen: clk(), pings: [], synced: false };
         peers.set(id, p);
         emit('peer', p, 'in');
@@ -249,8 +249,9 @@ const NET = (function () {
         p.buf.push({ t, c: s.c, p: s.p, q: s.q, v: s.v, thr: s.thr, flags: s.flags });
         if (p.buf.length > 80) p.buf.shift();
       } else if (m.t === 'j') {
+        if (m.v && m.v !== PROTO) { peers.delete(m.i); return; } // a page from another version of the sim
         p.name = String(m.n || '').slice(0, 16); p.ac = String(m.a || ''); p.col = m.c | 0;
-        p.ready = !!m.r; p.spec = !!m.s;
+        p.course = String(m.k || ''); p.ready = !!m.r; p.spec = !!m.s;
         if (m.b != null) p.best = m.b;
       } else if (m.t === 'q') {
         if (m.u === R.id) tr.send({ t: 'a', i: R.id, u: m.i, c: m.c, d: Math.round(clk()) });
@@ -279,7 +280,8 @@ const NET = (function () {
     };
 
     R.connect = () => tr.connect().then(() => { R.hello(); });
-    R.hello = () => tr.send({ t: 'j', v: PROTO, i: R.id, n: R.me.name, a: R.me.ac, c: R.me.col, r: R.me.ready, s: R.me.spec, b: R.me.best == null ? null : R.me.best });
+    R.hello = () => tr.send({ t: 'j', v: PROTO, i: R.id, n: R.me.name, a: R.me.ac, c: R.me.col, k: R.me.course,
+      r: R.me.ready, s: R.me.spec, b: R.me.best == null ? null : R.me.best });
     R.go = (inMs, laps, coll) => { const at = Math.round(clk() + inMs); tr.send({ t: 'g', i: R.id, at, in: inMs, l: laps, c: coll }); return at; };
     R.lap = (secs, best, n) => tr.send({ t: 'l', i: R.id, v: secs, b: best, n });
     R.leave = () => { try { tr.send({ t: 'x', i: R.id }); } catch (e) { /* going anyway */ } tr.close(); peers.clear(); };
