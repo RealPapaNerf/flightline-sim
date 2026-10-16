@@ -26,12 +26,13 @@ for (const id of Object.keys(FL.DEFS)) {
 console.log('\n========  the validator  ========');
 const bad = [
   ['not JSON at all', 'hello {', /valid JSON/],
-  ['no kind', '{"flightline":1,"def":{"id":"x"}}', /kind/],
-  ['a future format', '{"flightline":99,"def":{"kind":"quad"}}', /format v99/],
-  ['mass is text', JSON.stringify({ flightline: 1, def: Object.assign({}, FL.DEFS.goblin, { mass: '250 g' }) }), /not a number/],
-  ['missing surfaces', JSON.stringify({ flightline: 1, def: { kind: 'wing', id: 'x', name: 'x' } }), /surfaces is missing/],
-  ['too many strips', (() => { const d = JSON.parse(JSON.stringify(FL.DEFS.trainer)); for (const sf of d.surfaces) sf.n = 14; return JSON.stringify({ flightline: 1, def: d }); })(), /strips/],
-  ['empty spec kind', '{"flightline":1,"spec":{"kind":"ornithopter"}}', /not one of/],
+  ['no kind', '{"format":"flightline-aircraft/1","def":{"id":"x"}}', /kind/],
+  ['a future format', '{"format":"flightline-aircraft/99","def":{"kind":"quad"}}', /version 99/],
+  ['some other product\'s file', '{"format":"acme-plane/1","def":{"kind":"quad"}}', /not a Flightline aircraft file/],
+  ['mass is text', JSON.stringify({ format: "flightline-aircraft/1", def: Object.assign({}, FL.DEFS.goblin, { mass: '250 g' }) }), /not a number/],
+  ['missing surfaces', JSON.stringify({ format: "flightline-aircraft/1", def: { kind: 'wing', id: 'x', name: 'x' } }), /surfaces is missing/],
+  ['too many strips', (() => { const d = JSON.parse(JSON.stringify(FL.DEFS.trainer)); for (const sf of d.surfaces) sf.n = 14; return JSON.stringify({ format: "flightline-aircraft/1", def: d }); })(), /strips/],
+  ['empty spec kind', '{"format":"flightline-aircraft/1","spec":{"kind":"ornithopter"}}', /not one of/],
 ];
 for (const [what, text, want] of bad) {
   const r = ACF.read(text);
@@ -41,14 +42,14 @@ for (const [what, text, want] of bad) {
   const raw = JSON.parse(JSON.stringify(FL.DEFS.goblin));
   raw.mass = 500; raw.I = [0.0035, 0.003, 0.0062]; raw.surfaces[0].foil.CLmax = 9;
   raw.evilPlan = 'rm -rf'; raw.__proto__x = 1;
-  const r = ACF.read({ flightline: 1, def: raw });
+  const r = ACF.read({ format: "flightline-aircraft/1", def: raw });
   ok(r.ok, 'a file with junk fields still loads', r.warnings.length + ' warnings');
   ok(r.def.surfaces[0].foil.CLmax === 2.2, 'CLmax 9 clamped to 2.2');
   ok(r.def.evilPlan === undefined, 'unknown field dropped');
   ok(r.warnings.some((w) => /evilPlan/.test(w)), 'and reported');
 }
 { // a prototype-pollution attempt is structurally impossible: only known names are copied
-  const r = ACF.read('{"flightline":1,"def":{"kind":"quad","__proto__":{"polluted":1}}}');
+  const r = ACF.read('{"format":"flightline-aircraft/1","def":{"kind":"quad","__proto__":{"polluted":1}}}');
   ok(({}).polluted === undefined, 'no prototype pollution from a "__proto__" key', r.ok ? 'loaded' : 'rejected: ' + r.errors[0]);
 }
 
@@ -56,7 +57,7 @@ console.log('\n========  build sheet → definition  ========');
 for (const kind of ACF.SPEC_KINDS) {
   const sp = ACF.specDefaults(kind);
   const def = ACF.autoTrim(ACF.fromSpec(sp));
-  const v = ACF.read({ flightline: 1, def });
+  const v = ACF.read({ flightline: 1, def }); // the older bare-number format marker still reads
   ok(v.ok, `default ${kind} passes the validator`, v.errors.join('; '));
   if (!v.ok) continue;
   const ac = FL.build(def);
@@ -71,7 +72,7 @@ for (const kind of ACF.SPEC_KINDS) {
       `${B.strips} strips, stall ${B.Vs.toFixed(1)} m/s (${mph(B.Vs)} mph), top ${B.Vmax} m/s (${mph(B.Vmax)} mph), hands-off ${B.handsOff ? mph(B.handsOff) + ' mph' : '—'}`);
   }
   // a spec-only file must rebuild the same aircraft
-  const r2 = ACF.read({ flightline: 1, spec: sp });
+  const r2 = ACF.read({ format: "flightline-aircraft/1", spec: sp });
   ok(r2.ok && ACF.fingerprint(ACF.fromSpec(sp)) === ACF.fingerprint(r2.def), `spec-only ${kind} file rebuilds the same aircraft`, (r2.errors || []).join('; '));
 }
 

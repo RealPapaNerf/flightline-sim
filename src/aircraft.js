@@ -252,21 +252,24 @@ const ACF = (function (FL) {
       try { file = JSON.parse(input); } catch (err) { return { ok: false, errors: ['not valid JSON: ' + err.message], warnings: [] }; }
     }
     if (!file || typeof file !== 'object' || Array.isArray(file)) return { ok: false, errors: ['expected a JSON object'], warnings: [] };
-    const fmt = file.flightline;
-    if (fmt === undefined) out.warnings.push('no "flightline" version field; reading it as v' + FORMAT);
-    else if (typeof fmt !== 'number' || !Number.isFinite(fmt)) out.errors.push('flightline: expected a number, e.g. 1');
-    else if (fmt > FORMAT) out.errors.push(`flightline: this file is format v${fmt} and this sim reads v${FORMAT}`);
+    // "flightline-aircraft/1", like the map format; a bare number is read too
+    const fmt = file.format !== undefined ? file.format : file.flightline;
+    let ver = null;
+    if (fmt === undefined) { ver = FORMAT; out.warnings.push(`no "format" field; reading it as flightline-aircraft/${FORMAT}`); }
+    else if (typeof fmt === 'number' && Number.isFinite(fmt)) ver = fmt;
+    else if (typeof fmt === 'string' && /^flightline-aircraft\/\d+$/.test(fmt.trim())) ver = Number(fmt.trim().split('/')[1]);
+    else out.errors.push(`format: ${show(fmt)} is not a Flightline aircraft file (expected "flightline-aircraft/${FORMAT}")`);
+    if (ver !== null && ver > FORMAT) out.errors.push(`format: this file is version ${ver} and this sim reads version ${FORMAT}`);
     const meta = {
       author: typeof file.author === 'string' ? clean(file.author, 60) : '',
       version: typeof file.version === 'string' ? clean(file.version, 20) : typeof file.version === 'number' ? String(file.version) : '',
       source: typeof file.source === 'string' ? clean(file.source, 200) : '',
     };
     // a file may be { def, spec }, or a bare definition, or spec-only
-    const rawDef = file.def && typeof file.def === 'object' ? file.def : file.kind ? file : null;
+    const rawDef = file.def && typeof file.def === 'object' && !Array.isArray(file.def) ? file.def : file.kind ? file : null;
     let spec = null;
     if (file.spec && typeof file.spec === 'object' && !Array.isArray(file.spec)) {
       spec = normSpec(file.spec, out);
-      if (spec && !rawDef) out.warnings.push('built from the spec block');
     }
     let def = null;
     if (rawDef) def = validateDef(rawDef, out);
@@ -284,7 +287,7 @@ const ACF = (function (FL) {
   function write(def, meta, spec) {
     const out = { errors: [], warnings: [] };
     const clean2 = validateDef(def, out);
-    const file = { flightline: FORMAT };
+    const file = { format: `flightline-aircraft/${FORMAT}` };
     const m = meta || {};
     if (m.author) file.author = clean(m.author, 60);
     file.version = m.version ? clean(String(m.version), 20) : '1';
@@ -751,7 +754,7 @@ const ACF = (function (FL) {
   }
 
   return {
-    FORMAT, MAX_STRIPS, SPEC_FIELDS, SPEC_KINDS, specDefaults, normSpec, wants,
+    FORMAT, MAX_STRIPS, SPEC_FIELDS, SPEC_KINDS, specDefaults, normSpec, wants, RULES: TABLE,
     read, write, text, validateDef, stripCount,
     fromSpec, autoTrim, planeBench, quadBench, packAt, fingerprint, slopeOf, thrustOf,
   };
