@@ -25,7 +25,7 @@ foundation.md  ──┬── sensors (GPS, baro, downward lidar)
         └──────────────► aircraft.md ◄───────────┘
                          (camera-platform plane with flaps, gear, gimbal; match-my-aircraft)
 
- terrain-maps.md + map-builder.md (lidar terrain, a map file, a builder and a shared library)
+ terrain-maps.md + map-builder.md (done; terrain-shaped wind is what is left)
  recovery-mission.md (13" winch-and-hook recovery; after the gimbal)
  multiplayer.md (ghost racing and live racing, done v1)
  failures-and-weather-extras.md (ESC cut-off, GPS glitch, thermals, night …)
@@ -40,10 +40,10 @@ foundation.md  ──┬── sensors (GPS, baro, downward lidar)
 | [Link loss and interference, advanced](link-and-failsafe.md) | pinned | medium | foundation (link) |
 | [Real ArduPilot in the loop](ardupilot-bridge.md) | pinned | medium–large | foundation helps, not required |
 | [More aircraft](aircraft.md) | done (v1) | small–medium each | the camera plane still wants the gimbal |
-| [Terrain maps from lidar](terrain-maps.md) | pinned | large | — |
+| [Terrain maps from lidar](terrain-maps.md) | done (v1); wind left | large | — |
 | [Failures and weather extras](failures-and-weather-extras.md) | pinned | small each | some need foundation |
 | [Check the sim against your own data](validate-with-your-data.md) | pinned | small | — |
-| [Map builder and shared maps](map-builder.md) | pinned | medium | terrain maps (shares the map file) |
+| [Map builder and shared maps](map-builder.md) | done (v1) | medium | terrain maps (shares the map file) |
 | [13" quad recovery mission (winch and hook)](recovery-mission.md) | pinned | medium | foundation, gimbal |
 | [Multiplayer: ghost racing, then live racing](multiplayer.md) | done (v1) | small → large | — |
 

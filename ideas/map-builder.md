@@ -1,7 +1,30 @@
 # Map builder and shared maps
 
-**Status: pinned.** Pairs with [terrain-maps](terrain-maps.md): that file is about flying real
-terrain; this one is about making maps without spending Claude credits on each one.
+**Status: done (v1).** Built as
+[terrain-and-maps-builder](https://github.com/RealPapaNerf/terrain-and-maps-builder),
+with the library at [maps-folder](https://github.com/RealPapaNerf/maps-folder).
+
+A dependency-free Node CLI — no GDAL, no rasterio, no PDAL. It reuses relief's
+elevation layer (four files, copied verbatim with a provenance header) rather
+than growing a "Flightline export" mode inside relief: relief's job is 3D
+printing, and pilot spots, NED frames and density altitude have no business in
+an STL exporter.
+
+`flmap probe` checks every service from your machine. `flmap build` fetches and
+writes a map. `flmap index` rebuilds a library. `flmap inspect` reads a map back
+and checks it. See that repo's README for what is verified and what is not —
+the elevation services are relief's and known good, the NAIP imagery URLs are
+not verified.
+
+**Not built:** per-tree extraction from LAZ classes 5 and 6, which needs PDAL or
+a pure-JS LAZ reader. The hook is `--obstacles FILE`, which merges an obstacle
+array a separate pipeline can produce. `--dsm` gets trees and buildings out of a
+first-return surface raster instead, which needs no LAZ reader, but merges a
+connected stand into one conservative cylinder.
+
+The rest of this file is the original sketch, kept for the reasoning. The format
+as built is in [`docs/map-format.md`](../docs/map-format.md) and differs in one
+important way: heights are raw little-endian Uint16, not a 16-bit PNG.
 
 ## The idea
 

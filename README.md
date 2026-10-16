@@ -295,6 +295,36 @@ done, then best lap.
 <https://realpapanerf.github.io/flightline-sim/> — because the claude.ai artifact build cannot
 open connections of its own. Everything else, ghosts included, works offline exactly as before.
 
+## Maps: real terrain
+
+The field you start on is flat, and it stays the default. **Settings → Map**
+loads real terrain instead — a heightfield built from USGS 3DEP lidar, with the
+pilot spot, the runway, the obstacles and the field elevation that comes with
+it.
+
+- **List the public maps** downloads from
+  [the map library](https://github.com/RealPapaNerf/maps-folder). The URL is a
+  field in the panel, so you can point it anywhere static.
+- **Open a map folder…** reads a folder off your own disk. This is the only
+  route in the claude.ai artifact build, which cannot reach another server, and
+  it is how you fly a map offline at the field.
+
+On a map, the terrain is the ground for everything: wheels and bellies touch the
+slope and slide down it, the downward lidar ranges to whatever is under you with
+the reflectivity of what it is (water comes back at 0.03, which is why a
+rangefinder goes blank over a reservoir), a ridge between you and the aircraft
+costs the radio link real signal, the OSD gains an **AGL** readout of height
+above the ground below, and RTL flies to the map's home.
+
+Field elevation comes from the map, so density altitude follows it without being
+asked. Terrain-shaped wind — upslope flow, lee sink, ridge rotor — is not built
+yet.
+
+**Making maps:**
+[terrain-and-maps-builder](https://github.com/RealPapaNerf/terrain-and-maps-builder)
+is a dependency-free Node CLI that turns a lat/lon box into a map folder.
+The format is [`docs/map-format.md`](docs/map-format.md).
+
 ## Ideas
 
 Planned features, with their order and dependencies, live in [`ideas/`](ideas/README.md):
@@ -312,6 +342,8 @@ src/physics.js   flight models: strip-theory wings, quads, heli, weather, icing,
 src/aircraft.js  aircraft file format: validator, build sheet → definition, bench numbers (no DOM)
 src/nav.js       sensors, link budget, autopilot (no DOM)
 src/render.js    small WebGL 1 renderer
+src/terrain.js   map heightfield: the height-and-normal query, terrain rays, chunked LOD meshes (no DOM)
+src/maps.js      fetching a map library or reading a map folder off disk
 src/ghost.js     lap recording, quantisation, playback and storage (no DOM)
 src/net.js       live racing: transports, room protocol, clock sync, interpolation (no DOM)
 src/app.js       world, aircraft meshes, cameras, HUD/OSD, controllers, settings, loop
@@ -319,11 +351,14 @@ src/shell.html   page markup and styles
 src/sw.js        offline cache for the installed app
 tools/build.py   assembles index.html (and dist/artifact.html) from src/
 tools/relay.js   a dependency-free WebSocket relay for live racing: node tools/relay.js
-docs/            the aircraft file format, and a prompt that writes one
+docs/            the aircraft file format and the map format, and a prompt that writes an aircraft
 aircraft/        aircraft files anyone can load, with an index.json
 test/*.js        bench tests: fm_test (planes), perf (trim table), quad_test <id>, heli_test,
                  modes_test, weather_test, nav_test, ghost_test, net_test, aircraft_test;
-                 race_test drives two pages through a relay in headless Chromium (needs playwright)
+                 race_test drives two pages through a relay in headless Chromium (needs playwright);
+                 terrain_test covers the height query, terrain rays, chunk LOD and contact on
+                 slopes; fixture_map writes a synthetic map and screenshot renders it in
+                 headless Chromium (needs playwright)
 ```
 
 Edit `src/`, then run `python3 tools/build.py`. `index.html` is generated; commit it with
