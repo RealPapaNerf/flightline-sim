@@ -1860,18 +1860,18 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     osdText(text, align === 'right' ? x + w - 4 : x + 4, y, align, fs, HUDC);
   }
   // vertical tape: value in display units, ticks every `step`, labels every `lab`, `span` units over height h
-  function vTape(x, cy, h, value, step, lab, span, side, fs, title) {
+  function vTape(x, cy, h, value, step, lab, span, side, fs, title, min = -Infinity) {
     const k = h / span, top = cy - h / 2, bot = cy + h / 2, dir = side === 'left' ? -1 : 1;
     ctx.save(); ctx.beginPath(); ctx.rect(x - 80, top, 160, h); ctx.clip();
     const v0 = Math.floor((value - span / 2) / step) * step;
     hudStroke(() => {
       ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bot);
-      for (let u = v0; u <= value + span / 2 + step; u += step) {
+      for (let u = Math.max(v0, Math.floor(min / step) * step); u <= value + span / 2 + step; u += step) {
         const y = cy - (u - value) * k, big = Math.abs(u / lab - Math.round(u / lab)) < 1e-6;
         ctx.moveTo(x, y); ctx.lineTo(x + dir * (big ? fs * 0.6 : fs * 0.3), y);
       }
     }, 1.4);
-    for (let u = Math.ceil((value - span / 2) / lab) * lab; u <= value + span / 2; u += lab) {
+    for (let u = Math.max(Math.ceil((value - span / 2) / lab) * lab, min); u <= value + span / 2; u += lab) {
       const y = cy - (u - value) * k;
       if (Math.abs(y - cy) > fs * 0.9) osdText(String(Math.round(u)), x + dir * fs * 0.85, y, side === 'left' ? 'right' : 'left', fs * 0.72, HUDC);
     }
@@ -1932,7 +1932,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     // speed tape (left) and altitude tape (right)
     const th = v.h * 0.46, sx = v.x + m + fs * 3.6, ax = v.x + v.w - m - fs * 3.6;
     const spd = imp ? st.tele.V * 2.23694 : st.tele.V * 3.6, altU = imp ? alt * 3.2808 : alt;
-    vTape(sx, cy, th, spd, 1, imp ? 10 : 10, imp ? 40 : 60, 'left', fs, imp ? 'MPH' : 'KM/H');
+    vTape(sx, cy, th, spd, 1, 10, imp ? 40 : 60, 'left', fs, imp ? 'MPH' : 'KM/H', 0);
     vTape(ax, cy, th, altU, imp ? 10 : 2, imp ? 50 : 10, imp ? 200 : 60, 'right', fs, imp ? 'FT' : 'M');
     hudBox(sx - fs * 3.2, cy, fs * 3.0, fs * 1.3, String(Math.round(spd)), 'right', fs);
     hudBox(ax + fs * 0.2, cy, fs * 3.4, fs * 1.3, String(Math.round(altU)), 'left', fs);
@@ -2092,7 +2092,8 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
         ctx.font = `${fs}px "Share Tech Mono", ui-monospace, Menlo, Consolas, monospace`;
       }
       // warnings
-      W.forEach(([t, c], i) => osdText(t, cx, topY + fs * 1.6 + i * fs * 1.35, 'center', fs, c));
+      const wy = topY + fs * (v.kind === 'fpv' && S.osd === 'full' && S.hud === 'hud' ? 2.9 : 1.6); // clear of the HUD heading tape
+      W.forEach(([t, c], i) => osdText(t, cx, wy + i * fs * 1.35, 'center', fs, c));
       if (osdFlash.t > 0) osdText(osdFlash.text, cx, cy - fs * 3, 'center', fs, '#cfe9f3');
       const ct = courseText();
       if (ct) osdText(ct, cx, v.kind === 'fpv' ? v.y + v.h - m - fs * 1.6 - lift : v.y + v.h - m - fs * 3.2 - lift, 'center', v.kind === 'fpv' ? fs : Math.max(11, fs * 0.8), '#ffd36a');

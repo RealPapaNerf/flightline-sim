@@ -370,7 +370,7 @@ const FL = (function () {
       contact: { kW: 0, cW: 0, kB: 1800, cB: 22, muRoll: 0, muLat: 0, muBody: 0.6 },
       crash: { wheelImpact: 99 },
       starts: ['pad', 'air'],
-      fpvCam: [0.2, 0, 0.02],
+      fpvCam: [0.3, 0, 0.05], // on the canopy nose, just ahead of it
       camTilt: 5,
       colR: 0.38,
     },
