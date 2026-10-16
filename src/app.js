@@ -21,7 +21,11 @@
   const DEF = {
     aircraft: 'goblin', view: 'los', splitSwap: false, mode: 'manual',
     start: { goblin: 'launch', trainer: 'runway' },
-    losZoom: 'mild', fpvFov: 110, fpvTilt: 5, osd: 'full', losInfo: true, stallCue: false,
+    losZoom: 'mild', fpvFov: 110, osd: 'full', losInfo: true, stallCue: false,
+    tilt: { goblin: 5, trainer: 0, quad: 30, heli: 5 }, // FPV camera tilt per aircraft (°)
+    // limits (°) for Stabilised/Angle and Trainer modes, separately for planes and rotorcraft
+    lim: { plane: { bank: 45, pitch: 30, tBank: 60, tPitch: 45 }, rotary: { bank: 55, pitch: 55, tBank: 60, tPitch: 60 } },
+    fc: {}, // Betaflight-style rates per rotorcraft, filled from the aircraft defaults
     stickMode: '2', touch: 'auto',
     rates: { a: 100, e: 100, r: 100 }, expo: { a: 25, e: 20, r: 15 },
     windSpd: 2, windDir: 90, gust: 30, elevFt: 0, tempF: 59,
@@ -39,6 +43,7 @@
       for (const k of Object.keys(DEF)) if (k in sv) S[k] = DEF[k] && typeof DEF[k] === 'object' ? Object.assign({}, DEF[k], sv[k]) : sv[k];
   }
   if (!FL.DEFS[S.aircraft]) S.aircraft = 'goblin';
+  for (const g of ['plane', 'rotary']) S.lim[g] = Object.assign({}, DEF.lim[g], S.lim[g]);
   const saveS = () => store(SKEY, S);
 
   const U = {
@@ -53,7 +58,18 @@
   const ACS = {};
   for (const id of Object.keys(FL.DEFS)) ACS[id] = FL.build(FL.DEFS[id]);
   let AC = ACS[S.aircraft];
-  const START_LABEL = { launch: 'Hand launch', runway: 'Runway', air: 'In the air' };
+  const START_LABEL = { launch: 'Hand launch', runway: 'Runway', air: 'In the air', pad: 'Launch pad' };
+  const ROTARY = (ac) => ac.kind === 'quad' || ac.kind === 'heli';
+  for (const id of Object.keys(ACS)) if (ACS[id].rates) { // rotorcraft rates live in settings so they persist
+    const def = ACS[id].rates, cur = S.fc[id] || {};
+    S.fc[id] = Object.fromEntries(Object.keys(def).map((k) => [k, Object.assign({}, def[k], cur[k])]));
+    ACS[id].rates = S.fc[id];
+  }
+  const MODES = ['manual', 'horizon', 'trainer', 'stab'];
+  const modeName = (m) => (ROTARY(AC) ? { manual: 'Acro', horizon: 'Horizon', trainer: 'Acro trainer', stab: 'Angle' } : { manual: 'Manual', horizon: 'Horizon', trainer: 'Trainer', stab: 'Stabilised' })[m] || 'Manual';
+  const modeOsd = (m) => (ROTARY(AC) ? { manual: 'ACRO', horizon: 'HORZ', trainer: 'TRNR', stab: 'ANGL' } : { manual: 'MANU', horizon: 'HORZ', trainer: 'TRNR', stab: 'STAB' })[m] || 'MANU';
+  const limNow = () => S.lim[ROTARY(AC) ? 'rotary' : 'plane'];
+  const tiltOf = () => (S.tilt[AC.id] !== undefined ? S.tilt[AC.id] : AC.camTilt || 0);
   const startOf = (id) => (ACS[id].starts.includes(S.start[id]) ? S.start[id] : ACS[id].starts[0]);
 
   /* ---------------------------------------------------------------- renderer */
@@ -373,10 +389,10 @@
     g.quad(A, B, Cc, D, top); g.quad(a2, d2, c2, b2, bot);
     g.quad(a2, b2, B, A, side); g.quad(d2, D, Cc, c2, side); g.quad(a2, A, D, d2, side); g.quad(b2, c2, Cc, B, side);
   }
-  function propMeshes(g, blades, rad, col) {
+  function propMeshes(g, blades, rad, col, discCol) {
     const gb = new Geo();
     for (let i = 0; i < blades; i++) gb.with(M4.rotZ((i / blades) * Math.PI * 2), () => gb.box(0, -rad * 0.07, -0.004, rad, rad * 0.07, 0.004, col));
-    const gd = new Geo(); gd.disc(rad, 24, [0.75, 0.77, 0.8]);
+    const gd = new Geo(); gd.disc(rad, 24, discCol || [0.75, 0.77, 0.8]);
     return { blades: GLR.mesh(R, gb), disc: GLR.mesh(R, gd) };
   }
   const flapDefl = (ac, st, s) => clamp(st.ka * s.sa + st.ke * s.se + st.kr * s.sr, -ac.defl.flapMax, ac.defl.flapMax);
@@ -413,7 +429,7 @@
     }
     const pm = propMeshes(g, 3, 0.038, dark);
     const propZ = -ac.prop.r[0];
-    return { parts, prop: { blades: pm.blades, disc: pm.disc, mat: M4.trans(0, 0, propZ), r: 0.038 }, cam: BR(ac.fpvCam) };
+    return { parts, props: [{ blades: pm.blades, disc: pm.disc, mat: M4.trans(0, 0, propZ), spin: (s0) => s0.n, dir: 1, ang: 0 }], cam: BR(ac.fpvCam) };
   }
 
   function buildTrainer(ac) {
@@ -453,15 +469,41 @@
     const stR = ac.strips.find((x) => x.role === 'fin' && x.tau > 0);
     parts.push({ mesh: GLR.mesh(R, gR), mat: M4.trans(0, 0, 0.735), anim: (st0) => M4.rotY(-flapDefl(ac, stR, st0)) });
     const pm = propMeshes(g, 2, 0.127, dark);
-    return { parts, prop: { blades: pm.blades, disc: pm.disc, mat: M4.trans(0, 0, -0.455), r: 0.127 }, cam: BR(ac.fpvCam) };
+    return { parts, props: [{ blades: pm.blades, disc: pm.disc, mat: M4.trans(0, 0, -0.455), spin: (s0) => s0.n, dir: 1, ang: 0 }], cam: BR(ac.fpvCam) };
   }
-  const MODELS = { goblin: buildGoblin(ACS.goblin), trainer: buildTrainer(ACS.trainer) };
+  function buildQuad(ac) {
+    const carbon = [0.14, 0.14, 0.15], dark = [0.06, 0.06, 0.07], battC = [0.98, 0.78, 0.15], bell = [0.72, 0.74, 0.78];
+    const frontC = [1.0, 0.45, 0.1], rearC = [0.85, 0.87, 0.9];
+    const g = new Geo();
+    const bar = (a, b, w, t, col) => {
+      const dx = b[0] - a[0], dz = b[2] - a[2], l = Math.hypot(dx, dz) || 1, nx = (-dz / l) * (w / 2), nz = (dx / l) * (w / 2);
+      slab(g, [a[0] + nx, a[1], a[2] + nz], [b[0] + nx, b[1], b[2] + nz], [b[0] - nx, b[1], b[2] - nz], [a[0] - nx, a[1], a[2] - nz], t, t, col, col, col);
+    };
+    for (const [x, y] of ac.motors) bar([0, 0, 0], BR([x, y, 0]), 0.022, 0.006, carbon);
+    g.box(-0.03, -0.004, -0.055, 0.03, 0.004, 0.055, carbon); // bottom plate
+    g.box(-0.02, 0.004, -0.028, 0.02, 0.026, 0.028, dark); // stack
+    g.box(-0.028, 0.026, -0.05, 0.028, 0.03, 0.05, carbon); // top plate
+    g.box(-0.018, 0.03, -0.038, 0.018, 0.062, 0.038, { top: battC, bottom: dark, side: battC, front: dark, back: dark }); // battery
+    g.box(-0.019, 0.044, -0.008, 0.019, 0.063, 0.008, dark); // strap
+    g.box(-0.016, 0.0, -0.075, 0.016, 0.03, -0.05, dark); // camera
+    g.box(-0.004, 0.005, 0.05, 0.004, 0.06, 0.056, dark); // antenna
+    const props = [];
+    ac.motors.forEach(([x, y, q], i) => {
+      const P = BR([x, y, 0]);
+      g.cyl(P[0], -0.004, P[2], 0.013, 0.013, 0.018, 10, bell);
+      const front = x > 0, col = front ? frontC : rearC;
+      const pm = propMeshes(g, 3, 0.0635, col, col);
+      props.push({ blades: pm.blades, disc: pm.disc, mat: M4.mul(M4.trans(P[0], 0.02, P[2]), M4.rotX(-Math.PI / 2)), spin: (s0) => s0.mot[i], dir: q, ang: i, hideFpv: true });
+    });
+    return { parts: [{ mesh: GLR.mesh(R, g), mat: M4.ident() }], props, cam: BR(ac.fpvCam) };
+  }
+  const MODELS = { goblin: buildGoblin(ACS.goblin), trainer: buildTrainer(ACS.trainer), quad: buildQuad(ACS.quad) };
 
   /* ---------------------------------------------------------------- sim state */
   const st = FL.makeState();
   const env = { rho: 1.225, wind: [0, 0, 0], battery: S.battery, crashes: S.crashes };
   const gust = [0, 0, 0];
-  let armed = false, paused = false, userPaused = false, crashAt = 0, flightTime = 0, timerOn = false, launchHold = 0, acc = 0, propAng = 0;
+  let armed = false, paused = false, userPaused = false, crashAt = 0, flightTime = 0, timerOn = false, launchHold = 0, acc = 0;
   let farWarned = false, crashAnnounced = false;
   function updateAtmos() { const a = FL.atmosphere(S.elevFt, S.tempF); env.rho = a.rho; return a; }
   updateAtmos();
@@ -470,7 +512,8 @@
     const where = startOf(AC.id);
     FL.reset(st, AC, where);
     armed = where === 'air';
-    if (where === 'air') { kb.thr = AC.kind === 'wing' ? 0.55 : 0.6; }
+    if (where === 'air') kb.thr = AC.kind === 'quad' ? AC.hoverThr : AC.kind === 'heli' ? AC.hoverThr : AC.kind === 'wing' ? 0.55 : 0.6;
+    else kb.thr = 0;
     crashAt = 0; crashAnnounced = false; flightTime = 0; timerOn = where === 'air'; launchHold = 0; acc = 0; farWarned = false;
     for (let i = 0; i < 3; i++) gust[i] = 0;
     courseReset(); obsPrev = null;
@@ -489,6 +532,7 @@
     ['reset', 'Reset'],
     ['pause', 'Pause / resume'],
     ['view-cycle', 'View: cycle'], ['view-los', 'View: line of sight'], ['view-fpv', 'View: FPV'], ['view-split', 'View: split'],
+    ['mode-cycle', 'Flight mode: cycle'], ['mode-manual', 'Flight mode: manual / acro'], ['mode-horizon', 'Flight mode: horizon'], ['mode-trainer', 'Flight mode: trainer'], ['mode-stab', 'Flight mode: stabilised / angle'],
     ['stab-toggle', 'Stabilised mode: toggle'], ['stab-hold', 'Stabilised mode: while held / switch on'],
     ['cut-toggle', 'Throttle cut: toggle'], ['cut-hold', 'Throttle cut: while held'],
     ['launch', 'Hand launch: throw now'],
@@ -663,6 +707,11 @@
       case 'view-fpv': setView('fpv'); break;
       case 'view-split': setView('split'); break;
       case 'stab-toggle': setMode(S.mode === 'stab' ? 'manual' : 'stab'); break;
+      case 'mode-cycle': cycleMode(); break;
+      case 'mode-manual': setMode('manual'); break;
+      case 'mode-horizon': setMode('horizon'); break;
+      case 'mode-trainer': setMode('trainer'); break;
+      case 'mode-stab': setMode('stab'); break;
       case 'cut-toggle': cutOn = !cutOn; flash(cutOn ? 'THROTTLE CUT ON' : 'THROTTLE CUT OFF'); break;
       case 'launch': if (st.held && armed) { FL.launch(st); timerOn = true; } break;
       case 'trim-e-up': trimStep('e', 1); break;
@@ -672,13 +721,13 @@
       case 'trim-r-left': trimStep('r', -1); break;
       case 'trim-r-right': trimStep('r', 1); break;
       case 'trim-reset': S.trim[AC.id] = { a: 0, e: 0, r: 0 }; saveS(); flash('TRIMS RESET'); break;
-      case 'tilt-up': S.fpvTilt = clamp(S.fpvTilt + 2, -20, 35); saveS(); flash(`CAM TILT ${S.fpvTilt}°`); break;
-      case 'tilt-down': S.fpvTilt = clamp(S.fpvTilt - 2, -20, 35); saveS(); flash(`CAM TILT ${S.fpvTilt}°`); break;
+      case 'tilt-up': S.tilt[AC.id] = clamp(tiltOf() + 2, -20, 50); saveS(); flash(`CAM TILT ${S.tilt[AC.id]}°`); break;
+      case 'tilt-down': S.tilt[AC.id] = clamp(tiltOf() - 2, -20, 50); saveS(); flash(`CAM TILT ${S.tilt[AC.id]}°`); break;
+      case 'aircraft-cycle': cycleAircraft(); break;
       case 'zoom-cycle': S.losZoom = { off: 'mild', mild: 'strong', strong: 'off' }[S.losZoom] || 'mild'; saveS(); flash(`LOS ZOOM ${S.losZoom.toUpperCase()}`); break;
       case 'osd-cycle': S.osd = { full: 'min', min: 'off', off: 'full' }[S.osd] || 'full'; saveS(); break;
       case 'stallcue-toggle': S.stallCue = !S.stallCue; saveS(); flash(`STALL INDICATOR ${S.stallCue ? 'ON' : 'OFF'}`); break;
       case 'eng-toggle': S.eng = !S.eng; saveS(); break;
-      case 'aircraft-cycle': setAircraft(S.aircraft === 'goblin' ? 'trainer' : 'goblin'); break;
       case 'start-cycle': cycleStart(); break;
     }
     syncSheet();
@@ -748,7 +797,7 @@
       if (!wiz.open && !sheetOpen() && !ctl.open) {
         if (c === 'KeyR') doReset();
         else if (c === 'KeyV') cycleView();
-        else if (c === 'KeyM') setMode(S.mode === 'stab' ? 'manual' : 'stab');
+        else if (c === 'KeyM') cycleMode();
         else if (c === 'KeyP' || c === 'Space') togglePause();
         else if (c === 'KeyF') toggleFull();
         else if (c === 'KeyL' && st.held && armed) { FL.launch(st); timerOn = true; }
@@ -1162,8 +1211,8 @@
   function refreshBar() {
     $('#vAc').textContent = AC.name;
     $('#vView').textContent = VIEW_LABEL[S.view];
-    $('#vMode').textContent = S.mode === 'stab' ? 'Stabilised' : 'Manual';
-    $('#bMode').classList.toggle('hot', S.mode === 'stab');
+    $('#vMode').textContent = modeName(S.mode);
+    $('#bMode').classList.toggle('hot', S.mode !== 'manual');
     $('#vStart').textContent = START_LABEL[startOf(AC.id)];
     $('#vPause').textContent = paused ? 'Paused' : 'Running';
     $('#bPause').classList.toggle('hot', userPaused);
@@ -1173,8 +1222,10 @@
   }
   function setView(v) { S.view = v; saveS(); refreshBar(); syncSheet(); }
   function cycleView() { setView({ los: 'split', split: 'fpv', fpv: 'los' }[S.view]); }
-  function setMode(m) { S.mode = m; saveS(); refreshBar(); syncSheet(); }
+  function setMode(m) { if (!MODES.includes(m)) m = 'manual'; if (m !== S.mode) flash(modeName(m).toUpperCase()); S.mode = m; saveS(); refreshBar(); syncSheet(); }
+  function cycleMode() { setMode(MODES[(MODES.indexOf(S.mode) + 1) % MODES.length]); }
   function setAircraft(id) { S.aircraft = id; AC = ACS[id]; saveS(); doReset(); refreshBar(); buildSheet(); }
+  function cycleAircraft() { const ids = Object.keys(ACS); setAircraft(ids[(ids.indexOf(S.aircraft) + 1) % ids.length]); }
   function syncPause() { paused = userPaused || sheetOpen() || wiz.open || ctl.open; }
   function togglePause() { userPaused = !userPaused; syncPause(); if (userPaused) showBanner('Paused', 'Press P or tap here to resume.'); else hideBanner(); refreshBar(); }
   function toggleFull() {
@@ -1183,9 +1234,9 @@
       else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => toast('Full screen is not available in this view'));
     } catch (e) { toast('Full screen is not available in this view'); }
   }
-  $('#bAc').addEventListener('click', () => setAircraft(S.aircraft === 'goblin' ? 'trainer' : 'goblin'));
+  $('#bAc').addEventListener('click', cycleAircraft);
   $('#bView').addEventListener('click', cycleView);
-  $('#bMode').addEventListener('click', () => setMode(S.mode === 'stab' ? 'manual' : 'stab'));
+  $('#bMode').addEventListener('click', cycleMode);
   function cycleStart() { const opts = AC.starts, cur = startOf(AC.id); S.start[AC.id] = opts[(opts.indexOf(cur) + 1) % opts.length]; saveS(); doReset(); refreshBar(); }
   $('#bStart').addEventListener('click', cycleStart);
   $('#bReset').addEventListener('click', doReset);
@@ -1208,26 +1259,32 @@
   $('#shClose').addEventListener('click', closeSheet);
 
   const seg = (key, label, opts, help, get, set) => ({ type: 'seg', key, label, opts, help, get, set });
-  const rng = (key, label, min, max, stepv, fmt, help) => ({ type: 'range', key, label, min, max, step: stepv, fmt, help });
+  const rng = (key, label, min, max, stepv, fmt, help, get, set) => ({ type: 'range', key, label, min, max, step: stepv, fmt, help, get, set });
   function schema() {
     const imp = S.units === 'imp';
     return [
       { title: 'Aircraft', items: [
         seg('aircraft', 'Model', Object.values(ACS).map((a) => [a.id, a.name]), AC.blurb, () => S.aircraft, (v) => setAircraft(v)),
         seg('start', 'Reset puts you', AC.starts.map((s) => [s, START_LABEL[s]]), AC.kind === 'wing' ? 'Hand launch: arm with throttle down, then push throttle above 70% and the model is thrown once the motor is wound up (or press L to throw at any throttle). Real technique applies: full power, and maybe a touch of up elevator.' : '', () => startOf(AC.id), (v) => { S.start[AC.id] = v; doReset(); refreshBar(); }),
-        seg('mode', 'Flight mode', [['manual', 'Manual'], ['stab', 'Stabilised']], 'Stabilised works like ArduPilot FBWA: sticks command bank (±45°) and pitch (±30°). It does not stop you stalling.', () => S.mode, (v) => setMode(v)),
+        seg('mode', 'Flight mode', MODES.map((m) => [m, modeName(m)]), ROTARY(AC)
+          ? 'Acro: sticks command rotation rates. Horizon: levels near centre stick and becomes acro at full stick, so hard stick means a flip. Acro trainer: acro, but stopped at the trainer limits. Angle: sticks command bank and pitch.'
+          : 'Manual: sticks move the surfaces. Horizon: levels near centre stick and becomes manual at full stick, so hard stick means a roll. Trainer: manual, but held at the trainer limits. Stabilised: sticks command bank and pitch. None of them stop a stall.', () => S.mode, (v) => setMode(v)),
+        rng('limBank', `${ROTARY(AC) ? 'Angle' : 'Stabilised'} bank limit`, 20, 85, 5, (v) => `${v}°`, null, () => limNow().bank, (v) => { limNow().bank = v; }),
+        rng('limPitch', `${ROTARY(AC) ? 'Angle' : 'Stabilised'} pitch limit`, 15, 85, 5, (v) => `${v}°`, 'Also the dive limit.', () => limNow().pitch, (v) => { limNow().pitch = v; }),
+        rng('limTBank', 'Trainer bank limit', 20, 85, 5, (v) => `${v}°`, null, () => limNow().tBank, (v) => { limNow().tBank = v; }),
+        rng('limTPitch', 'Trainer pitch limit', 15, 85, 5, (v) => `${v}°`, null, () => limNow().tPitch, (v) => { limNow().tPitch = v; }),
       ] },
       { title: 'Controls', items: [{ type: 'radio' },
         seg('stickMode', 'Stick mode (keyboard & touch)', [['2', 'Mode 2'], ['1', 'Mode 1']], 'With a radio the setup wizard maps channels, so this only affects keys and touch.'),
         seg('touch', 'Touch sticks', [['auto', 'Auto'], ['on', 'On'], ['off', 'Off']]),
       ] },
-      { title: 'Rates & expo', items: [{ type: 'rates' }] },
+      { title: ROTARY(AC) ? 'Rates' : 'Rates & expo', items: [{ type: 'rates' }] },
       { title: 'View', items: [
         seg('view', 'View', [['los', 'LOS'], ['split', 'Split'], ['fpv', 'FPV']], 'Split puts LOS on top and FPV below when the screen is upright, side by side when it is wide.', () => S.view, (v) => setView(v)),
         seg('splitSwap', 'Split order', [[false, 'LOS first'], [true, 'FPV first']]),
         seg('losZoom', 'LOS zoom', [['off', 'Off'], ['mild', 'Mild'], ['strong', 'Strong']], 'Narrows your field of view as the model gets farther away, so it stays visible on a small screen.'),
         rng('fpvFov', 'FPV camera field of view', 80, 150, 5, (v) => `${v}°`),
-        rng('fpvTilt', 'FPV camera tilt', -20, 35, 1, (v) => `${v > 0 ? '+' : ''}${v}°`, 'Positive tilts the camera up.'),
+        rng('tilt', 'FPV camera tilt (this aircraft)', -20, 50, 1, (v) => `${v > 0 ? '+' : ''}${v}°`, 'Positive tilts the camera up. Quads usually fly 25–40° up.', () => tiltOf(), (v) => { S.tilt[AC.id] = v; }),
         seg('osd', 'FPV OSD', [['full', 'Full'], ['min', 'Minimal'], ['off', 'Off']]),
         seg('losInfo', 'LOS readout', [[true, 'On'], [false, 'Off']]),
         seg('course', 'Gate course', [[true, 'Timer on'], [false, 'Off']], 'Eight gates on an oval north of the runway. Fly them in order; an orange marker floats over the next one. Laps run from gate 1 back to gate 1.', null, (v) => { S.course = v; saveS(); courseReset(); }),
@@ -1290,15 +1347,29 @@
           }));
         } else if (it.type === 'range') {
           const id = `set-${it.key}`;
-          box.innerHTML = `<label for="${id}"><span>${it.label}</span><output id="${id}-o">${it.fmt(S[it.key])}</output></label><input type="range" id="${id}" min="${it.min}" max="${it.max}" step="${it.step}" value="${S[it.key]}">${it.help ? `<div class="help">${it.help}</div>` : ''}`;
+          const val0 = it.get ? it.get() : S[it.key];
+          box.innerHTML = `<label for="${id}"><span>${it.label}</span><output id="${id}-o">${it.fmt(val0)}</output></label><input type="range" id="${id}" min="${it.min}" max="${it.max}" step="${it.step}" value="${val0}">${it.help ? `<div class="help">${it.help}</div>` : ''}`;
           const inpEl = box.querySelector('input'), out = box.querySelector('output');
-          inpEl.addEventListener('input', () => { S[it.key] = Number(inpEl.value); out.textContent = it.fmt(S[it.key]); saveS(); applySetting(it.key); });
+          inpEl.addEventListener('input', () => { const v = Number(inpEl.value); if (it.set) it.set(v); else S[it.key] = v; out.textContent = it.fmt(v); saveS(); applySetting(it.key); });
         } else if (it.type === 'da') {
           box.id = 'daBox'; box.innerHTML = daHtml();
         } else if (it.type === 'radio') {
           box.innerHTML = `<div class="radio-box"><div class="name" id="rbName"></div><div class="actions" style="justify-content:flex-start"><button class="btn small" id="rbCtl">Controls &amp; buttons</button><button class="btn small" id="rbSetup">Guided setup</button></div><div class="help">One profile per controller (your HOTAS, your radio…), picked automatically when you plug it in. Each keeps its own stick mapping, button names and actions, rates and expo.</div></div>`;
           box.querySelector('#rbCtl').addEventListener('click', () => { closeSheet(); openCtl(); });
           box.querySelector('#rbSetup').addEventListener('click', () => { closeSheet(); openWizard(); });
+        } else if (it.type === 'rates' && ROTARY(AC)) {
+          const RT = S.fc[AC.id];
+          let h = '<div class="rates rates4"><span class="hd">Axis</span><span class="hd">Centre °/s</span><span class="hd">Max °/s</span><span class="hd">Expo</span>';
+          for (const [k, l] of [['roll', 'Roll'], ['pitch', 'Pitch'], ['yaw', 'Yaw']]) {
+            h += `<span>${l}</span>`;
+            for (const [f, mn, mx, st0] of [['c', 10, 300, 5], ['m', 100, 1800, 10], ['e', 0, 1, 0.05]])
+              h += `<label for="fc-${k}-${f}"><output id="fc-${k}-${f}-o">${RT[k][f]}</output><input type="range" id="fc-${k}-${f}" min="${mn}" max="${mx}" step="${st0}" value="${RT[k][f]}"></label>`;
+          }
+          box.innerHTML = h + '</div><div class="help">Betaflight “Actual” rates: centre sensitivity, max rate at full stick, expo. Enter your quad’s numbers from the Betaflight Rates tab to make it feel the same. Set your radio’s expo to 0 for this.</div>';
+          for (const [k] of [['roll'], ['pitch'], ['yaw']]) for (const f of ['c', 'm', 'e']) {
+            const e = box.querySelector(`#fc-${k}-${f}`), o = box.querySelector(`#fc-${k}-${f}-o`);
+            e.addEventListener('input', () => { RT[k][f] = Number(e.value); o.textContent = e.value; saveS(); });
+          }
         } else if (it.type === 'rates') {
           const RE = rateSource(true);
           const ax = AC.kind === 'wing' ? [['a', 'Roll'], ['e', 'Pitch']] : [['a', 'Aileron'], ['e', 'Elevator'], ['r', 'Rudder']];
@@ -1325,8 +1396,41 @@
     $('#sheet').scrollTop = scroll;
   }
   function syncSheet() { if (sheetOpen()) buildSheet(); }
+  function rotaryNotesHtml() {
+    const W = AC.mass * FL.G;
+    if (AC.kind === 'quad') {
+      const M = AC.motor, tw = (4 * M.Tmax) / W, pid = AC.pid;
+      return `<div class="notes"><div class="kv">
+        <span>Flying weight</span><span>${Math.round(AC.mass * 1000)} g</span>
+        <span>Max thrust (full pack)</span><span>4 × ${(M.Tmax / FL.G).toFixed(2)} kgf</span>
+        <span>Thrust to weight</span><span>${tw.toFixed(1)} : 1</span>
+        <span>Hover throttle</span><span>${Math.round(AC.hoverThr * 100)}%</span>
+        <span>Props · pack</span><span>${(M.D / 0.0254).toFixed(0)} in · ${AC.batt.label}</span>
+        <span>Rate PID roll/pitch</span><span>P ${pid.roll[0]} I ${pid.roll[1]} D ${pid.roll[4]} FF ${pid.roll[2]}</span></div>
+        <p><b>Motors.</b> Each motor spools with a ${Math.round(M.tau * 1000)} ms lag. Thrust goes as rpm² and falls off as air flows up through the prop (climbing, or the rotor rising during a roll, which is where roll damping comes from). Pack sag under load lowers thrust as the battery drains.</p>
+        <span class="eq">T_i = Tmax·(V/Vref)²·ω_i²·(1 − v_up/(Vpitch·ω_i))·ground effect
+rotor drag = −k·ΣT·v_inplane   body drag = −½ρ|v|·CdA·v</span>
+        <p><b>Flight controller.</b> Betaflight-style: Actual rates turn sticks into rotation-rate targets, a rate PID with feed-forward, D on gyro and I-term relax turns them into wanted moments, and an air-mode mixer shares thrust between the four motors, giving up collective before it gives up attitude.</p>
+        <p><b>Prop wash.</b> Dropping fast and straight down puts the props in their own wake: thrust drops and the quad shakes until you get forward speed.</p>
+        <p><b>Simplified.</b> No blade flapping, no motor temperature, no filtering delays beyond the motor lag and D-term filter; the frame is rigid.</p></div>`;
+    }
+    const Ro = AC.rotor;
+    return `<div class="notes"><div class="kv">
+      <span>Flying weight</span><span>${Math.round(AC.mass * 1000)} g</span>
+      <span>Rotor diameter</span><span>${Math.round(Ro.R * 2000)} mm</span>
+      <span>Headspeed</span><span>${Math.round(Ro.om0 * 60 / (2 * Math.PI))} rpm</span>
+      <span>Collective range</span><span>${Math.round(Ro.pitchMin * R2D)}° to +${Math.round(Ro.pitchMax * R2D)}°</span>
+      <span>Pack</span><span>${AC.batt.label}</span></div>
+      <p><b>Rotor.</b> Thrust comes from blade-element theory with momentum inflow, so it depends on collective, rotor speed, climb or descent rate and forward speed (translational lift). The rotor has its own rpm: a governor holds headspeed with limited motor power, and on throttle hold the rotor is driven only by the air coming up through it, which is what makes an autorotation possible.</p>
+      <span class="eq">CT = (σa/2)·(θ/3 − λ/2)   λ = (v_climb + v_i)/(ΩR)
+v_i = T / (2ρA·√(V_fwd² + (v_climb + v_i)²))
+rotor torque = T·(v_climb + v_i) / Ω + profile drag</span>
+      <p><b>Flybarless controller.</b> Rate control on cyclic like a quad, heading hold on the tail, and the same Horizon, Trainer and Angle modes. The tail rotor is geared to the main rotor, so it keeps authority in autos.</p>
+      <p><b>Simplified.</b> No blade flapping dynamics or swashplate geometry; the head is treated as a stiff hub.</p></div>`;
+  }
   let perfCache = { key: '', html: '' };
   function notesHtml() {
+    if (ROTARY(AC)) return rotaryNotesHtml();
     const key = `${AC.id}|${env.rho.toFixed(4)}|${S.units}`;
     if (perfCache.key !== key) {
       const P = FL.performance(AC, env.rho);
@@ -1408,7 +1512,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   }
   function fpvCam(v, planeM) {
     const m = MODELS[AC.id];
-    const camW = M4.chain(planeM, M4.trans(m.cam[0], m.cam[1], m.cam[2]), M4.rotX(S.fpvTilt * D2R));
+    const camW = M4.chain(planeM, M4.trans(m.cam[0], m.cam[1], m.cam[2]), M4.rotX(tiltOf() * D2R));
     const aspect = v.w / v.h;
     const hf = S.fpvFov * D2R;
     let vf = aspect >= 1 ? 2 * Math.atan(Math.tan(hf / 2) / aspect) : 2 * Math.atan(Math.tan(hf / 2) * 1) ;
@@ -1446,8 +1550,8 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     const model = MODELS[AC.id];
     const partM = [];
     for (const p of model.parts) { const m = p.anim ? M4.chain(planeM, p.mat, p.anim(st)) : M4.mul(planeM, p.mat); partM.push(m); GLR.draw(R, p.mesh, m); }
-    const propM = M4.chain(planeM, model.prop.mat, M4.rotZ(propAng));
-    if (v.kind !== 'fpv') GLR.draw(R, model.prop.blades, propM);
+    const propMs = model.props.map((pr) => M4.chain(planeM, pr.mat, M4.rotZ(pr.ang)));
+    if (v.kind !== 'fpv') model.props.forEach((pr, i) => GLR.draw(R, pr.blades, propMs[i]));
     // shadow (sun overhead), drawn once per pixel via stencil
     const hgt = planeM[13];
     if (hgt < 120) {
@@ -1459,9 +1563,9 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       gl.disable(gl.POLYGON_OFFSET_FILL); gl.disable(gl.STENCIL_TEST);
       gl.depthMask(true); gl.disable(gl.BLEND);
     }
-    if (v.kind !== 'fpv' && st.n > 0.12) {
+    if (v.kind !== 'fpv') {
       gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
-      GLR.draw(R, model.prop.disc, propM, { alpha: 0.16 + 0.1 * st.n, unlit: true });
+      model.props.forEach((pr, i) => { const sp = pr.spin(st); if (sp > 0.12) GLR.draw(R, pr.disc, propMs[i], { alpha: 0.16 + 0.12 * sp, unlit: true }); });
       gl.depthMask(true); gl.disable(gl.BLEND);
     }
   }
@@ -1510,7 +1614,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
         ctx.beginPath(); ctx.moveTo(cx - fs * 1.2, cy); ctx.lineTo(cx - fs * 0.4, cy); ctx.moveTo(cx + fs * 0.4, cy); ctx.lineTo(cx + fs * 1.2, cy); ctx.moveTo(cx, cy - fs * 0.4); ctx.lineTo(cx, cy - fs * 0.15); ctx.stroke();
         if (full && v.cam) {
           const f = v.h / 2 / Math.tan(v.cam.fovy / 2);
-          const pc = eu.pitch + S.fpvTilt * D2R;
+          const pc = eu.pitch + tiltOf() * D2R;
           if (Math.abs(pc) < 1.2) {
             const off = f * Math.tan(pc);
             ctx.save(); ctx.translate(cx, cy); ctx.rotate(-eu.roll); ctx.translate(0, off);
@@ -1521,7 +1625,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
             ctx.restore();
           }
         }
-        osdText(S.mode === 'stab' ? 'STAB' : 'MANU', v.x + m, topY, 'left', fs);
+        osdText(modeOsd(S.mode), v.x + m, topY, 'left', fs);
         osdText(fmtTime(flightTime), v.x + v.w - m, topY, 'right', fs);
         osdText(`ALT ${U.alt(alt)}`, v.x + m, cy, 'left', fs);
         osdText(`${U.spd(st.tele.V)}`, v.x + v.w - m, cy, 'right', fs);
@@ -1547,7 +1651,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
         ctx.font = `${s2}px "Share Tech Mono", ui-monospace, Menlo, Consolas, monospace`;
         const y2 = v.y + v.h - m - lift;
         osdText(`ALT ${U.alt(alt)}  SPD ${U.spd(st.tele.V)}  THR ${Math.round(inp.thr * 100)}%${S.battery ? '  ' + st.vb.toFixed(1) + 'V' : ''}`, v.x + m, y2, 'left', s2);
-        osdText(`WIND ${U.wind(S.windSpd)} from ${compass(S.windDir)} · ${S.mode === 'stab' ? 'STAB' : 'MANUAL'}`, v.x + m, y2 - s2 * 1.4, 'left', s2, 'rgba(255,255,255,0.85)');
+        osdText(`WIND ${U.wind(S.windSpd)} from ${compass(S.windDir)} · ${modeName(S.mode).toUpperCase()}`, v.x + m, y2 - s2 * 1.4, 'left', s2, 'rgba(255,255,255,0.85)');
         ctx.font = `${fs}px "Share Tech Mono", ui-monospace, Menlo, Consolas, monospace`;
       }
       // warnings
@@ -1571,6 +1675,17 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   }
   function drawEng(v) {
     const t = st.tele, x = v.x + 12, y0 = v.y + (v.y < 4 ? 92 : 30);
+    if (ROTARY(AC)) {
+      const L2 = AC.kind === 'quad'
+        ? [`V  ${t.V.toFixed(1)} m/s   n ${t.nz.toFixed(2)} g`, `T  ${t.T.toFixed(1)} N   T/W max ${(t.tw || 0).toFixed(1)}`,
+           `motors ${st.mot.map((m) => Math.round(m * 100)).join(' ')}%`, `pack ${st.vb.toFixed(1)} V  ${st.I.toFixed(0)} A   wash ${(t.wash || 0).toFixed(2)}`]
+        : [`V  ${t.V.toFixed(1)} m/s   n ${t.nz.toFixed(2)} g`, `T  ${t.T.toFixed(1)} N   rotor ${Math.round(st.om * 60 / (2 * Math.PI))} rpm`,
+           `collective ${((t.coll || 0) * R2D).toFixed(1)}°   inflow ${(t.vi || 0).toFixed(1)} m/s`, `pack ${st.vb.toFixed(1)} V  ${st.I.toFixed(0)} A`];
+      ctx.font = '12px "Share Tech Mono", ui-monospace, monospace'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'rgba(15,21,25,0.72)'; ctx.fillRect(x - 6, y0 - 12, 230, L2.length * 17 + 8);
+      L2.forEach((l, i) => osdText(l, x, y0 + i * 17, 'left', 12, '#cfe9f3'));
+      return;
+    }
     const lines = [
       `α  ${(t.alpha * R2D).toFixed(1)}°   β ${(t.beta * R2D).toFixed(1)}°`,
       `V  ${t.V.toFixed(1)} m/s   q ${t.qbar.toFixed(0)} Pa`,
@@ -1608,7 +1723,9 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     if (!actx) return;
     const t = actx.currentTime;
     let g = S.sound && !paused && !st.crashed ? 0.012 + 0.05 * st.n : 0;
-    let f = (AC.kind === 'wing' ? 120 : 70) + (AC.kind === 'wing' ? 520 : 260) * st.n;
+    const K0 = { wing: [120, 520, 1.5], conventional: [70, 260, 2], quad: [170, 950, 1.5], heli: [0, 0, 2] }[AC.kind];
+    let f = K0[0] + K0[1] * st.n;
+    if (AC.kind === 'heli') { f = (st.om / (2 * Math.PI)) * 2; g = S.sound && !paused && !st.crashed ? 0.015 + 0.04 * (st.om / AC.rotor.om0) : 0; } // blade pass
     if (S.view !== 'fpv') {
       g /= 1 + losDist / 45;
       // Doppler for fly-bys (pilot at the origin)
@@ -1618,7 +1735,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     }
     gainN.gain.setTargetAtTime(g, t, 0.05);
     osc.frequency.setTargetAtTime(f, t, 0.04);
-    osc2.frequency.setTargetAtTime(f * (AC.kind === 'wing' ? 1.5 : 2), t, 0.04);
+    osc2.frequency.setTargetAtTime(f * K0[2], t, 0.04);
   }
 
   /* ---------------------------------------------------------------- loop */
@@ -1650,6 +1767,10 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     return { rates: S.rates, expo: S.expo, label: 'keyboard and touch', save: saveS };
   }
   function controls() {
+    if (ROTARY(AC)) {
+      const cut = cutOn || cutHeld;
+      return { thr: armed ? inp.thr : 0, a: inp.a, e: inp.e, r: inp.r, armed: armed && !cut, hold: cut, mode: { manual: 'acro', horizon: 'horizon', trainer: 'trainer', stab: 'angle' }[S.mode] || 'acro', lim: limNow() };
+    }
     const ex = (x, e) => { const k = e / 100; return x * (k * x * x + 1 - k); };
     const T = AC.trim, ut = userTrim(), RE = rateSource(false);
     return {
@@ -1751,7 +1872,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       const c = controls();
       let steps = 0;
       while (acc >= DT && steps < 60) {
-        const cc = S.mode === 'stab' ? FL.stabilize({ thr: c.thr, a: c.sa, e: c.se, r: c.r }, st, AC) : c;
+        const cc = ROTARY(AC) || S.mode === 'manual' ? c : FL.planeAssist(S.mode, { a: c.sa, e: c.se }, c, st, AC, limNow());
         FL.step(st, AC, cc, env, DT);
         acc -= DT; steps++;
       }
@@ -1760,7 +1881,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       courseTick(dt);
       if (!timerOn && armed && inp.thr > 0.1) timerOn = true;
       if (timerOn && !st.crashed) flightTime += dt;
-      propAng += st.n * dt * 60;
+      for (const pr of MODELS[AC.id].props) pr.ang += pr.spin(st) * pr.dir * dt * 60;
       if (st.crashed) {
         if (!crashAt) crashAt = now;
         if (!crashAnnounced) { crashAnnounced = true; showBanner('Crashed', `${st.crashMsg}. ${S.autoReset ? 'Resetting…' : 'Press R, flip reset, or tap here.'}`, true); }
