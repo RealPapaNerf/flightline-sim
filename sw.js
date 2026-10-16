@@ -1,7 +1,7 @@
 /* Flightline service worker: makes the installed app work offline at the field.
    The page is one file, so the cache is tiny. A new build changes CACHE, and the
    old cache is dropped on activate. */
-const CACHE = 'flightline-0c2a4c3b';
+const CACHE = 'flightline-3e41a2c2';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
 
 self.addEventListener('install', (e) => {

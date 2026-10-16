@@ -229,6 +229,42 @@ const FL = (function () {
       camTilt: 30,
       colR: 0.15,
     },
+    heli: {
+      id: 'heli',
+      name: '450 heli',
+      blurb: '450-class flybarless helicopter, 800 g, 720 mm rotor at 2900 rpm, 6S. Governor, throttle hold for autorotations, Normal or 3D pitch curve.',
+      kind: 'heli',
+      mass: 0.8,
+      I: [0.007, 0.022, 0.018],
+      rotor: {
+        R: 0.36, chord: 0.034, blades: 2, a: 5.7, Cd0: 0.013, kInd: 1.15, CLmax: 1.0, // blade-element and momentum inflow
+        om0: 304, J: 0.0025, Pmax: 750, govK: 0.02, spool: 0.16, friction: 0.0001, // headspeed (rad/s), inertia, motor power W, governor
+        h: 0.18, Kh: 25, tauF: 0.015, maxCyc: 0.2, blowback: 2.5, // hub height above CG, hub stiffness N·m/rad, flapping lag, cyclic limit rad
+        lt: 0.42, TtMax: 7, tauT: 0.02, spin: -1, // tail arm, tail thrust at full headspeed (N); main rotor turns clockwise seen from above
+        curves: { normal: [-4, 4.5, 11], '3d': [-11, 0, 11] }, // collective (°) at stick 0, ½, 1
+      },
+      body: { r: [0, 0, 0], CdA: [0.012, 0.03, 0.045], fin: 0.006, finX: -0.6 },
+      pid: { roll: [30, 200, 0.3, 2.5, 0.01], pitch: [30, 200, 0.3, 2.5, 0.01], yaw: [30, 150, 0.3, 1.5, 0] },
+      angle: { max: 55, k: 6, rate: 400 },
+      rates: { roll: { c: 120, m: 360, e: 0 }, pitch: { c: 120, m: 360, e: 0 }, yaw: { c: 200, m: 600, e: 0 } },
+      batt: { chem: 'lipo', cells: 6, mAh: 1300, R: 0.035, Imax: 0, Iidle: 1.0, Vref: 22.8, label: '6S 1300 LiPo' },
+      wheels: [],
+      points: [
+        { p: [0.09, 0.075, 0.17], name: 'skid', foot: true, impact: 3.5, slide: 99 },
+        { p: [0.09, -0.075, 0.17], name: 'skid', foot: true, impact: 3.5, slide: 99 },
+        { p: [-0.09, 0.075, 0.17], name: 'skid', foot: true, impact: 3.5, slide: 99 },
+        { p: [-0.09, -0.075, 0.17], name: 'skid', foot: true, impact: 3.5, slide: 99 },
+        { p: [-0.62, 0, -0.02], name: 'tail', impact: 2, slide: 4 },
+        { p: [0.19, 0, 0.04], name: 'canopy', impact: 2.5, slide: 6 },
+        { p: [0, 0, -0.2], name: 'rotor head', impact: 1.5, slide: 2 },
+      ],
+      contact: { kW: 0, cW: 0, kB: 1800, cB: 22, muRoll: 0, muLat: 0, muBody: 0.6 },
+      crash: { wheelImpact: 99 },
+      starts: ['pad', 'air'],
+      fpvCam: [0.2, 0, 0.02],
+      camTilt: 5,
+      colR: 0.38,
+    },
   };
 
   /* Build strips from a definition. Returns the aircraft object step() uses. */
@@ -361,6 +397,20 @@ const FL = (function () {
       }
       ac.hoverThr = (base - ac.motor.idle) / (1 - ac.motor.idle);
     }
+    if (ac.kind === 'heli') {
+      const Ro = ac.rotor;
+      Ro.A = Math.PI * Ro.R * Ro.R;
+      Ro.sigma = (Ro.blades * Ro.chord) / (Math.PI * Ro.R);
+      // blade tips at 8 azimuths: touching the ground while the rotor turns is a blade strike
+      for (let k = 0; k < 8; k++) { const az = (k / 8) * 2 * Math.PI; ac.points.push({ p: [Ro.R * Math.cos(az), Ro.R * Math.sin(az), -Ro.h], name: 'rotor blade', prop: true, rotor: true, strike: 0.2, impact: 0.5, slide: 0.5 }); }
+      // hover collective and its stick position on each pitch curve
+      const T = ac.mass * G, OmR = Ro.om0 * Ro.R, vi = Math.sqrt((Ro.kInd * T) / (2 * 1.225 * Ro.A));
+      const k = 0.5 * Ro.sigma * Ro.a * 1.225 * Ro.A * OmR * OmR;
+      ac.hoverPitch = 3 * (T / k + vi / OmR / 2);
+      const stickFor = (c) => { const d = ac.hoverPitch / D2R; return d < c[1] ? (0.5 * (d - c[0])) / (c[1] - c[0]) : 0.5 + (0.5 * (d - c[1])) / (c[2] - c[1]); };
+      ac.hoverThrCurve = { normal: stickFor(Ro.curves.normal), '3d': stickFor(Ro.curves['3d']) };
+      ac.hoverThr = ac.hoverThrCurve.normal;
+    }
     return ac;
   }
 
@@ -370,7 +420,7 @@ const FL = (function () {
       n: 0, sa: 0, se: 0, sr: 0, soc: 1, mAh: 0, vb: 0, I: 0,
       crashed: false, crashMsg: '', wow: false, held: false, t: 0, clw: 0,
       mot: [0, 0, 0, 0], pidI: [0, 0, 0], spPrev: [0, 0, 0], ff: [0, 0, 0], buf: [0, 0], wPrev: [0, 0, 0], dF: [0, 0, 0], // flight controller
-      om: 0, coll: 0, gov: 0, tailI: 0, // helicopter rotor
+      om: 0, coll: 0, gov: 0, tailI: 0, vi: 0, tilt: [0, 0], tt: 0, // helicopter rotor
       tele: { alpha: 0, beta: 0, V: 0, CL: 0, qbar: 0, T: 0, nz: 1, stallL: 0, stallR: 0 },
     };
   }
@@ -378,14 +428,14 @@ const FL = (function () {
   function reset(s, ac, where) {
     s.w = [0, 0, 0]; s.n = 0; s.sa = s.se = s.sr = 0;
     s.crashed = false; s.crashMsg = ''; s.mAh = 0; s.soc = 1; s.t = 0; s.held = false; s.clw = 0;
-    s.mot = [0, 0, 0, 0]; s.pidI = [0, 0, 0]; s.spPrev = [0, 0, 0]; s.ff = [0, 0, 0]; s.buf = [0, 0]; s.wPrev = [0, 0, 0]; s.dF = [0, 0, 0]; s.om = 0; s.coll = 0; s.gov = 0; s.tailI = 0;
+    s.mot = [0, 0, 0, 0]; s.pidI = [0, 0, 0]; s.spPrev = [0, 0, 0]; s.ff = [0, 0, 0]; s.buf = [0, 0]; s.wPrev = [0, 0, 0]; s.dF = [0, 0, 0]; s.om = 0; s.coll = 0; s.gov = 0; s.tailI = 0; s.vi = 0; s.tilt = [0, 0]; s.tt = 0;
     if (ac.kind === 'quad' || ac.kind === 'heli') {
       const zr = Math.max(...ac.points.map((pt) => pt.p[2]));
       if (where === 'air') {
         // hovering in front of the pilot, nose north
         s.p = [15, 0, -6]; s.q = [1, 0, 0, 0]; s.v = [0, 0, 0];
         if (ac.kind === 'quad') { const b = Math.sqrt((ac.mass * G) / (4 * ac.motor.Tmax)); s.mot = [b, b, b, b]; }
-        else { s.om = ac.rotor.om0; s.gov = 1; }
+        else { s.om = ac.rotor.om0; s.gov = 1; s.coll = ac.hoverPitch; s.vi = Math.sqrt((ac.mass * G) / (2 * 1.225 * ac.rotor.A)); }
       } else {
         // on the pad 8 m in front of the pilot, nose north
         s.p = [8, 1.5, -zr - 0.001]; s.q = [1, 0, 0, 0]; s.v = [0, 0, 0];
@@ -773,7 +823,117 @@ const FL = (function () {
     t.tw = (4 * Tmax) / (ac.mass * G); t.sp = sp; t.wash = wash;
   }
 
-  function stepHeli() { /* added with the helicopter */ }
+  /* ---------------- Helicopter (flybarless, governed) ----------------
+     ctl: { thr = collective stick 0..1, a, e, r, mode, lim, armed (motor allowed), hold (throttle hold), curve 'normal' | '3d' } */
+  function stepHeli(s, ac, ctl, env, dt) {
+    const Ro = ac.rotor, B = ac.batt, I = ac.I, rho = env.rho, w = s.w;
+    const motorOn = !!ctl.armed && !ctl.hold && !s.crashed && !(env.battery && s.soc <= 0);
+
+    // collective from the pitch curve (servo-rate limited)
+    const c = Ro.curves[ctl.curve] || Ro.curves.normal, x = clamp(ctl.thr, 0, 1);
+    const thDeg = x < 0.5 ? lerp(c[0], c[1], x / 0.5) : lerp(c[1], c[2], (x - 0.5) / 0.5);
+    s.coll = approach(s.coll, thDeg * D2R, 4 * dt);
+
+    const R = quatToMat(s.q);
+    const wind = env.wind || [0, 0, 0];
+    const vb = mulMtV(R, [s.v[0] - wind[0], s.v[1] - wind[1], s.v[2] - wind[2]]);
+    const OmR = Math.max(1e-3, s.om * Ro.R), A = Ro.A;
+    const vc = -vb[2], Vh = Math.hypot(vb[0], vb[1]); // climb along the shaft, speed in the rotor plane
+    const vhov = Math.sqrt((ac.mass * G) / (2 * rho * A));
+
+    // ---- thrust: blade element (CT = σa/2·(θ/3 − λ/2)) with momentum inflow (Glauert), fixed-point ----
+    const kT = 0.5 * Ro.sigma * Ro.a * rho * A * OmR * OmR, mu0 = Math.min(0.5, Vh / OmR);
+    // solve vi = κT(vi) / (2ρA·|V'|) by bisection (plain fixed-point iteration oscillates in descent)
+    const th = s.coll * (1 / 3 + (mu0 * mu0) / 2), Tof = (v) => kT * (th - (vc + v) / OmR / 2);
+    let lo = -40, hi = 40;
+    for (let it = 0; it < 22; it++) {
+      const m = 0.5 * (lo + hi);
+      const f = m - (Ro.kInd * Tof(m)) / (2 * rho * A * Math.max(0.4 * vhov, Math.hypot(Vh, vc + m)));
+      if (f > 0) hi = m; else lo = m;
+    }
+    const vi = 0.5 * (lo + hi);
+    let T = Tof(vi);
+    s.vi = vi;
+    // blade stall: mean blade lift coefficient 6·CT/σ can't pass about 1.0, so thrust needs headspeed
+    const Tstall = (Ro.CLmax / 6) * Ro.sigma * rho * A * OmR * OmR;
+    const bladeStall = Math.max(0, Math.abs(T) / Tstall - 1);
+    if (bladeStall > 0) T = Math.sign(T) * Tstall;
+    // vortex ring state: sinking at about the induced speed with little forward speed
+    const sink = -vc / vhov;
+    const vrs = clamp(1 - Math.abs(sink - 1.2) / 0.8, 0, 1) * clamp(1 - Vh / (1.5 * vhov), 0, 1);
+    const hR = Math.max(0.05, -s.p[2] + Ro.h);
+    const ge = 1 / (1 - Math.min(0.3, Math.pow(Ro.R / (4 * hR), 2)));
+    T *= ge * (1 - 0.35 * vrs);
+
+    // ---- rotor speed: governor vs aerodynamic torque (autorotation when the air drives the rotor) ----
+    const mu = Vh / OmR;
+    const P0 = (rho * A * OmR ** 3 * Ro.sigma * Ro.Cd0 * (1 + 4.65 * mu * mu) * (1 + 6 * bladeStall)) / 8; // stalled blades: big drag
+    const Qaero = (T * (vc + vi) + P0 * 1.12) / Math.max(s.om, 5); // tail rotor ≈ 12% of the main rotor's profile power
+    s.gov = approach(s.gov, motorOn ? 1 : 0, (s.om > 0.6 * Ro.om0 ? 1.5 : Ro.spool) * dt); // soft start, quick bailout
+    const Qmax = Ro.Pmax / Math.max(s.om, 30);
+    const Qm = motorOn ? clamp(Qaero + Ro.govK * (s.gov * Ro.om0 - s.om) * 50, 0, Qmax) : 0;
+    s.om = Math.max(0, s.om + ((Qm - Qaero - Ro.friction * s.om) / Ro.J) * dt);
+    const Pel = (Qm * s.om) / 0.8;
+    s.vb = Math.max(0, B.cells * cellOCV(B.chem, env.battery ? s.soc : 1) - (B.Iidle + Pel / 22) * B.R);
+    const Icur = B.Iidle + Pel / Math.max(s.vb, 1);
+    s.I = Icur;
+    if (env.battery) { s.mAh += (Icur * dt) / 3.6; s.soc = Math.max(0, 1 - s.mAh / B.mAh); }
+
+    // ---- flybarless controller: rate PID → wanted moments → disc tilt; heading hold → tail thrust ----
+    const sp = rotarySetpoints(ctl, R, w, ac);
+    const gains = [ac.pid.roll, ac.pid.pitch, ac.pid.yaw], alpha = [0, 0, 0];
+    const live = s.om > 0.3 * Ro.om0 && !s.crashed;
+    for (let k = 0; k < 3; k++) {
+      const g = gains[k], e = sp[k] - w[k];
+      const dsp = (sp[k] - s.spPrev[k]) / dt;
+      s.spPrev[k] = sp[k];
+      s.ff[k] += (dsp - s.ff[k]) * Math.min(1, dt / 0.02);
+      const relax = clamp(1 - Math.abs(s.ff[k]) / 40, 0, 1);
+      s.pidI[k] = live && !(s.wow && x < 0.4) ? clamp(s.pidI[k] + e * dt * relax, -g[3], g[3]) : 0;
+      const dw = (w[k] - s.wPrev[k]) / dt;
+      s.wPrev[k] = w[k];
+      s.dF[k] += (dw - s.dF[k]) * Math.min(1, dt / 0.006);
+      alpha[k] = g[0] * e + g[1] * s.pidI[k] + g[2] * s.ff[k] - (g[4] || 0) * s.dF[k];
+    }
+    const Iw = [I[0] * w[0], I[1] * w[1], I[2] * w[2]], gyro = cross(w, Iw);
+    const omr = s.om / Ro.om0;
+    const Kc = Ro.Kh * omr * omr + Math.max(0, T) * Ro.h; // moment per radian of disc tilt
+    const tiltCmd = [
+      live ? clamp((I[0] * alpha[0] + gyro[0]) / Math.max(Kc, 0.5), -Ro.maxCyc, Ro.maxCyc) : 0,
+      live ? clamp((I[1] * alpha[1] + gyro[1]) / Math.max(Kc, 0.5), -Ro.maxCyc, Ro.maxCyc) : 0,
+    ];
+    for (let k = 0; k < 2; k++) s.tilt[k] += (tiltCmd[k] - s.tilt[k]) * Math.min(1, dt / Ro.tauF);
+    // blowback: the disc flaps away from the relative wind
+    const tp = s.tilt[0] - Ro.blowback * (vb[1] / OmR) * s.coll, tq = s.tilt[1] + Ro.blowback * (vb[0] / OmR) * s.coll;
+    // tail: cancel the motor's reaction torque, then chase the yaw-rate setpoint
+    const react = -Ro.spin * Qm; // motor torque pushes the body the other way
+    const TtMax = Ro.TtMax * omr * omr;
+    const TtCmd = s.om > 5 ? clamp((I[2] * alpha[2] + gyro[2] - react) / Ro.lt, -TtMax, TtMax) : 0;
+    s.tt += (TtCmd - s.tt) * Math.min(1, dt / Ro.tauT); // tail servo and pitch slider lag
+    const Tt = clamp(s.tt, -TtMax, TtMax);
+
+    // ---- forces and moments ----
+    const F = [-T * tq, T * tp, -T];
+    const Mo = [Kc * tp, Kc * tq, Tt * Ro.lt + react];
+    if (vrs > 0) { // VRS: buffeting
+      s.buf[0] += (Math.random() * 2 - 1 - s.buf[0]) * Math.min(1, dt / 0.08);
+      s.buf[1] += (Math.random() * 2 - 1 - s.buf[1]) * Math.min(1, dt / 0.08);
+      Mo[0] += vrs * 0.5 * s.buf[0]; Mo[1] += vrs * 0.7 * s.buf[1]; F[2] += vrs * 1.5 * s.buf[0];
+    }
+    const Vn = Math.hypot(vb[0], vb[1], vb[2]), kd = 0.5 * rho * Vn, Cd = ac.body.CdA;
+    F[0] -= kd * Cd[0] * vb[0]; F[1] -= kd * Cd[1] * vb[1]; F[2] -= kd * Cd[2] * vb[2];
+    // tail fin and boom: weathervane in sideslip
+    const Yf = -0.5 * rho * Vn * ac.body.fin * 3 * vb[1];
+    F[1] += Yf; Mo[2] += ac.body.finX * Yf;
+    Mo[0] -= 0.03 * w[0]; Mo[1] -= 0.05 * w[1]; // rotor damping
+
+    const Fcb = finish(s, ac, F, Mo, R, env, dt);
+    s.n = omr;
+    const t = s.tele;
+    t.V = Vn; t.qbar = 0.5 * rho * Vn * Vn; t.T = T; t.alpha = 0; t.beta = 0; t.CL = 0; t.stallL = 0; t.stallR = 0;
+    t.nz = -(F[2] + Fcb[2]) / (ac.mass * G);
+    t.coll = s.coll; t.vi = vi; t.vrs = vrs; t.Pm = Qm * s.om; t.bladeStall = bladeStall;
+  }
 
   /* Assisted modes for planes. sticks: raw pilot sticks; manual: the surfaces the pilot would get in
      manual mode (rates, expo, trim applied); lim (degrees): { bank, pitch, tBank, tPitch }.

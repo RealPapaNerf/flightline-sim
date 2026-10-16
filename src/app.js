@@ -33,6 +33,7 @@
     quality: 1, scenery: 'med', aa: false, fps: false, eng: false, sound: true, units: 'imp',
     trim: {}, // user trims per aircraft, stick units, set from controller trim buttons
     course: true, best: {}, // gate course lap timer, best lap per aircraft (s)
+    curve: 'normal', // helicopter pitch curve: 'normal' or '3d' (idle up)
   };
   const load = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
   const store = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage blocked */ } };
@@ -497,7 +498,43 @@
     });
     return { parts: [{ mesh: GLR.mesh(R, g), mat: M4.ident() }], props, cam: BR(ac.fpvCam) };
   }
-  const MODELS = { goblin: buildGoblin(ACS.goblin), trainer: buildTrainer(ACS.trainer), quad: buildQuad(ACS.quad) };
+  function buildHeli(ac) {
+    const Ro = ac.rotor;
+    const red = [0.92, 0.16, 0.12], white = [0.95, 0.95, 0.93], dark = [0.08, 0.08, 0.09], frame = [0.22, 0.23, 0.25], alu = [0.72, 0.74, 0.78];
+    const blade = [0.12, 0.12, 0.13], tip = [1.0, 0.85, 0.15];
+    const g = new Geo();
+    g.box(-0.026, -0.08, -0.02, 0.026, 0.1, 0.11, frame); // side frames
+    g.box(-0.02, -0.075, 0.02, 0.02, -0.04, 0.12, { top: [0.2, 0.45, 0.9], bottom: dark, side: [0.2, 0.45, 0.9] }); // battery
+    g.blob(0, 0.015, -0.07, 0.06, 0.092, 0.2, red); // canopy
+    g.blob(0, 0.05, -0.17, 0.04, 0.042, 0.085, [0.12, 0.16, 0.22]); // windscreen
+    g.blob(0.024, -0.005, -0.08, 0.04, 0.06, 0.15, white); // white flash on the right side, for orientation
+    g.cyl(0, 0.1, 0, 0.005, 0.005, 0.08, 6, alu); // main shaft
+    g.box(-0.016, 0.168, -0.016, 0.016, 0.19, 0.016, alu); // rotor head
+    g.taper(0.1, 0.022, 0.022, 0.03, 0.62, 0.014, 0.014, 0.03, alu); // tail boom
+    slab(g, [-0.075, 0.03, 0.44], [0.075, 0.03, 0.44], [0.075, 0.03, 0.49], [-0.075, 0.03, 0.49], 0.004, 0.004, dark, dark, dark); // horizontal stab
+    slab(g, [0, -0.05, 0.6], [0, 0.11, 0.6], [0, 0.11, 0.655], [0, -0.05, 0.665], 0.004, 0.004, white, white, white, [1, 0, 0]); // fin
+    g.box(-0.012, 0.015, 0.6, 0.012, 0.045, 0.64, frame); // tail gearbox
+    // landing gear: two skids and four struts
+    for (const x of [-0.075, 0.075]) {
+      g.box(x - 0.005, -0.175, -0.17, x + 0.005, -0.165, 0.16, dark);
+      for (const z of [-0.09, 0.09]) g.box(x * 0.6 - 0.004, -0.17, z - 0.006, x * 0.6 + 0.004, -0.08, z + 0.006, dark);
+      g.box(x - 0.004, -0.168, -0.2, x + 0.004, -0.15, -0.17, dark); // upturned skid tip
+    }
+    const parts = [{ mesh: GLR.mesh(R, g), mat: M4.ident() }];
+    // main rotor: two blades with yellow tips; the disc tilts with the cyclic
+    const gb = new Geo();
+    for (const s of [1, -1]) {
+      gb.box(s > 0 ? 0.02 : -Ro.R * 0.85, -Ro.chord / 2, -0.003, s > 0 ? Ro.R * 0.85 : -0.02, Ro.chord / 2, 0.003, blade);
+      gb.box(s > 0 ? Ro.R * 0.85 : -Ro.R, -Ro.chord / 2, -0.003, s > 0 ? Ro.R : -Ro.R * 0.85, Ro.chord / 2, 0.003, tip);
+    }
+    const gd = new Geo(); gd.disc(Ro.R, 32, [0.55, 0.57, 0.6]);
+    const main = { blades: GLR.mesh(R, gb), disc: GLR.mesh(R, gd), mat: M4.trans(0, 0.185, 0), post: M4.rotX(-Math.PI / 2),
+      tilt: (s0) => M4.mul(M4.rotZ(-1.5 * s0.tilt[0]), M4.rotX(1.5 * s0.tilt[1])), spin: (s0) => s0.om / Ro.om0, dir: -1, ang: 0, hideFpv: true };
+    const tp = propMeshes(g, 2, 0.055, blade, [0.6, 0.6, 0.62]);
+    const tail = { blades: tp.blades, disc: tp.disc, mat: M4.mul(M4.trans(-0.03, 0.03, 0.62), M4.rotY(Math.PI / 2)), spin: (s0) => s0.om / Ro.om0, dir: 1, ang: 0 };
+    return { parts, props: [main, tail], cam: BR(ac.fpvCam) };
+  }
+  const MODELS = { goblin: buildGoblin(ACS.goblin), trainer: buildTrainer(ACS.trainer), quad: buildQuad(ACS.quad), heli: buildHeli(ACS.heli) };
 
   /* ---------------------------------------------------------------- sim state */
   const st = FL.makeState();
@@ -512,7 +549,7 @@
     const where = startOf(AC.id);
     FL.reset(st, AC, where);
     armed = where === 'air';
-    if (where === 'air') kb.thr = AC.kind === 'quad' ? AC.hoverThr : AC.kind === 'heli' ? AC.hoverThr : AC.kind === 'wing' ? 0.55 : 0.6;
+    if (where === 'air') kb.thr = AC.kind === 'quad' ? AC.hoverThr : AC.kind === 'heli' ? AC.hoverThrCurve[S.curve] : AC.kind === 'wing' ? 0.55 : 0.6;
     else kb.thr = 0;
     crashAt = 0; crashAnnounced = false; flightTime = 0; timerOn = where === 'air'; launchHold = 0; acc = 0; farWarned = false;
     for (let i = 0; i < 3; i++) gust[i] = 0;
@@ -534,7 +571,8 @@
     ['view-cycle', 'View: cycle'], ['view-los', 'View: line of sight'], ['view-fpv', 'View: FPV'], ['view-split', 'View: split'],
     ['mode-cycle', 'Flight mode: cycle'], ['mode-manual', 'Flight mode: manual / acro'], ['mode-horizon', 'Flight mode: horizon'], ['mode-trainer', 'Flight mode: trainer'], ['mode-stab', 'Flight mode: stabilised / angle'],
     ['stab-toggle', 'Stabilised mode: toggle'], ['stab-hold', 'Stabilised mode: while held / switch on'],
-    ['cut-toggle', 'Throttle cut: toggle'], ['cut-hold', 'Throttle cut: while held'],
+    ['cut-toggle', 'Throttle cut / heli throttle hold: toggle'], ['cut-hold', 'Throttle cut / heli throttle hold: while held'],
+    ['curve-toggle', 'Heli pitch curve: Normal / 3D'], ['curve-3d-hold', 'Heli pitch curve: 3D while held / switch on'],
     ['launch', 'Hand launch: throw now'],
     ['trim-e-up', 'Trim: nose up'], ['trim-e-down', 'Trim: nose down'],
     ['trim-a-left', 'Trim: roll left'], ['trim-a-right', 'Trim: roll right'],
@@ -712,7 +750,8 @@
       case 'mode-horizon': setMode('horizon'); break;
       case 'mode-trainer': setMode('trainer'); break;
       case 'mode-stab': setMode('stab'); break;
-      case 'cut-toggle': cutOn = !cutOn; flash(cutOn ? 'THROTTLE CUT ON' : 'THROTTLE CUT OFF'); break;
+      case 'cut-toggle': cutOn = !cutOn; flash(`${AC.kind === 'heli' ? 'THROTTLE HOLD' : 'THROTTLE CUT'} ${cutOn ? 'ON' : 'OFF'}`); break;
+      case 'curve-toggle': setCurve(S.curve === '3d' ? 'normal' : '3d'); break;
       case 'launch': if (st.held && armed) { FL.launch(st); timerOn = true; } break;
       case 'trim-e-up': trimStep('e', 1); break;
       case 'trim-e-down': trimStep('e', -1); break;
@@ -741,6 +780,7 @@
       chPrev.set(ch.id, on);
       if (ch.action === 'cut-hold') { cut = cut || on; continue; }
       if (ch.action === 'stab-hold') { if (was === undefined ? on : on !== was) setMode(on ? 'stab' : 'manual'); continue; }
+      if (ch.action === 'curve-3d-hold') { if (was === undefined ? on : on !== was) setCurve(on ? '3d' : 'normal'); continue; }
       if (was === undefined) continue; // no edge on first sight
       if (on && !was) { fire(ch.action); repeatT.set(ch.id, 0.45); }
       else if (on && REPEATS.has(ch.action)) {
@@ -801,6 +841,8 @@
         else if (c === 'KeyP' || c === 'Space') togglePause();
         else if (c === 'KeyF') toggleFull();
         else if (c === 'KeyL' && st.held && armed) { FL.launch(st); timerOn = true; }
+        else if (c === 'KeyH') fire('cut-toggle');
+        else if (c === 'KeyI') fire('curve-toggle');
         else if (c === 'Digit1') setView('los'); else if (c === 'Digit2') setView('fpv'); else if (c === 'Digit3') setView('split');
       }
     }
@@ -1224,6 +1266,7 @@
   function cycleView() { setView({ los: 'split', split: 'fpv', fpv: 'los' }[S.view]); }
   function setMode(m) { if (!MODES.includes(m)) m = 'manual'; if (m !== S.mode) flash(modeName(m).toUpperCase()); S.mode = m; saveS(); refreshBar(); syncSheet(); }
   function cycleMode() { setMode(MODES[(MODES.indexOf(S.mode) + 1) % MODES.length]); }
+  function setCurve(c) { c = c === '3d' ? '3d' : 'normal'; if (c !== S.curve && AC.kind === 'heli') flash(c === '3d' ? '3D CURVE' : 'NORMAL CURVE'); S.curve = c; saveS(); syncSheet(); }
   function setAircraft(id) { S.aircraft = id; AC = ACS[id]; saveS(); doReset(); refreshBar(); buildSheet(); }
   function cycleAircraft() { const ids = Object.keys(ACS); setAircraft(ids[(ids.indexOf(S.aircraft) + 1) % ids.length]); }
   function syncPause() { paused = userPaused || sheetOpen() || wiz.open || ctl.open; }
@@ -1266,6 +1309,9 @@
       { title: 'Aircraft', items: [
         seg('aircraft', 'Model', Object.values(ACS).map((a) => [a.id, a.name]), AC.blurb, () => S.aircraft, (v) => setAircraft(v)),
         seg('start', 'Reset puts you', AC.starts.map((s) => [s, START_LABEL[s]]), AC.kind === 'wing' ? 'Hand launch: arm with throttle down, then push throttle above 70% and the model is thrown once the motor is wound up (or press L to throw at any throttle). Real technique applies: full power, and maybe a touch of up elevator.' : '', () => startOf(AC.id), (v) => { S.start[AC.id] = v; doReset(); refreshBar(); }),
+        ...(AC.kind === 'heli' ? [seg('curve', 'Pitch curve', [['normal', 'Normal'], ['3d', '3D (idle up)']],
+          `Normal: ${AC.rotor.curves.normal.join('° / ')}° at the bottom, middle and top of the stick; hover is at about ${Math.round(AC.hoverThrCurve.normal * 100)}%. 3D: ${AC.rotor.curves['3d'].join('° / ')}°, with zero pitch at mid stick so you can fly inverted; hover is at about ${Math.round(AC.hoverThrCurve['3d'] * 100)}%. The governor holds ${Math.round((AC.rotor.om0 * 60) / (2 * Math.PI))} rpm in both. Throttle hold (H, or a controller channel) stops the motor and leaves the collective live, for autorotations.`,
+          () => S.curve, (v) => setCurve(v))] : []),
         seg('mode', 'Flight mode', MODES.map((m) => [m, modeName(m)]), ROTARY(AC)
           ? 'Acro: sticks command rotation rates. Horizon: levels near centre stick and becomes acro at full stick, so hard stick means a flip. Acro trainer: acro, but stopped at the trainer limits. Angle: sticks command bank and pitch.'
           : 'Manual: sticks move the surfaces. Horizon: levels near centre stick and becomes manual at full stick, so hard stick means a roll. Trainer: manual, but held at the trainer limits. Stabilised: sticks command bank and pitch. None of them stop a stall.', () => S.mode, (v) => setMode(v)),
@@ -1414,19 +1460,27 @@ rotor drag = −k·ΣT·v_inplane   body drag = −½ρ|v|·CdA·v</span>
         <p><b>Prop wash.</b> Dropping fast and straight down puts the props in their own wake: thrust drops and the quad shakes until you get forward speed.</p>
         <p><b>Simplified.</b> No blade flapping, no motor temperature, no filtering delays beyond the motor lag and D-term filter; the frame is rigid.</p></div>`;
     }
-    const Ro = AC.rotor;
+    const Ro = AC.rotor, rpm = (om) => Math.round((om * 60) / (2 * Math.PI)), pid = AC.pid;
     return `<div class="notes"><div class="kv">
       <span>Flying weight</span><span>${Math.round(AC.mass * 1000)} g</span>
-      <span>Rotor diameter</span><span>${Math.round(Ro.R * 2000)} mm</span>
-      <span>Headspeed</span><span>${Math.round(Ro.om0 * 60 / (2 * Math.PI))} rpm</span>
-      <span>Collective range</span><span>${Math.round(Ro.pitchMin * R2D)}° to +${Math.round(Ro.pitchMax * R2D)}°</span>
+      <span>Rotor</span><span>${Math.round(Ro.R * 2000)} mm, ${Ro.blades} blades, ${Math.round(Ro.chord * 1000)} mm chord (σ ${Ro.sigma.toFixed(3)})</span>
+      <span>Headspeed · tip speed</span><span>${rpm(Ro.om0)} rpm · ${Math.round(Ro.om0 * Ro.R)} m/s</span>
+      <span>Hover collective</span><span>${(AC.hoverPitch / D2R).toFixed(1)}° (stick ${Math.round(AC.hoverThrCurve.normal * 100)}% Normal, ${Math.round(AC.hoverThrCurve['3d'] * 100)}% 3D)</span>
+      <span>Pitch curves</span><span>Normal ${Ro.curves.normal.join(' / ')}° · 3D ${Ro.curves['3d'].join(' / ')}°</span>
+      <span>Blade lift slope · Cd0 · CLmax</span><span>${Ro.a} /rad · ${Ro.Cd0} · ${Ro.CLmax}</span>
+      <span>Motor power · rotor inertia</span><span>${Ro.Pmax} W · ${Ro.J} kg·m²</span>
+      <span>Rate PID roll/pitch</span><span>P ${pid.roll[0]} I ${pid.roll[1]} FF ${pid.roll[2]}</span>
       <span>Pack</span><span>${AC.batt.label}</span></div>
-      <p><b>Rotor.</b> Thrust comes from blade-element theory with momentum inflow, so it depends on collective, rotor speed, climb or descent rate and forward speed (translational lift). The rotor has its own rpm: a governor holds headspeed with limited motor power, and on throttle hold the rotor is driven only by the air coming up through it, which is what makes an autorotation possible.</p>
-      <span class="eq">CT = (σa/2)·(θ/3 − λ/2)   λ = (v_climb + v_i)/(ΩR)
-v_i = T / (2ρA·√(V_fwd² + (v_climb + v_i)²))
-rotor torque = T·(v_climb + v_i) / Ω + profile drag</span>
-      <p><b>Flybarless controller.</b> Rate control on cyclic like a quad, heading hold on the tail, and the same Horizon, Trainer and Angle modes. The tail rotor is geared to the main rotor, so it keeps authority in autos.</p>
-      <p><b>Simplified.</b> No blade flapping dynamics or swashplate geometry; the head is treated as a stiff hub.</p></div>`;
+      <p><b>Rotor thrust.</b> Blade-element theory with momentum inflow, solved every step, so thrust depends on collective, headspeed, climb or descent rate and forward speed. Forward speed lowers the induced velocity (translational lift), which is why 15–45 km/h takes less power than a hover. Mean blade lift is capped at CLmax, so a slow rotor can't make much thrust no matter how much pitch you pull.</p>
+      <span class="eq">T = ½σa·ρA(ΩR)²·[θ(1/3 + μ²/2) − λ/2]     λ = (v_climb + v_i)/(ΩR)
+v_i = κT / (2ρA·√(V_fwd² + (v_climb + v_i)²))     κ = ${Ro.kInd}
+T ≤ (CLmax/6)·σρA(ΩR)²</span>
+      <p><b>Headspeed.</b> The rotor is its own state. A governor holds ${rpm(Ro.om0)} rpm up to ${Ro.Pmax} W of motor power. On throttle hold the motor stops and only the air drives the rotor: with the collective low and the heli descending, air flowing up through the disc keeps it turning (autorotation); leave the collective up and it slows down fast. Bank that headspeed for the flare and the cushion.</p>
+      <span class="eq">J·dΩ/dt = Q_motor − [T·(v_climb + v_i) + 1.12·P0] / Ω − friction
+P0 = ρA(ΩR)³·σ·Cd0·(1 + 4.65μ²) / 8</span>
+      <p><b>Vortex ring.</b> Descending straight down at about the hover induced velocity (1–2 m/s here) puts the rotor in its own wake: thrust drops up to 35% and the heli shakes until you add forward speed.</p>
+      <p><b>Flybarless controller.</b> Rate PID on cyclic with feed-forward; the wanted moment becomes disc tilt through the hub stiffness and thrust offset. The tail chases a yaw-rate target and cancels the motor's reaction torque, with a ${Math.round(Ro.tauT * 1000)} ms lag, so a collective punch kicks the tail a little. Horizon, Trainer and Angle work as on the quad.</p>
+      <p><b>Simplified.</b> Uniform inflow (no wake skew or blade-by-blade loads), no blade flapping dynamics beyond a short tilt lag and blowback, a stiff hub, and no tail-rotor stall.</p></div>`;
   }
   let perfCache = { key: '', html: '' };
   function notesHtml() {
@@ -1550,7 +1604,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     const model = MODELS[AC.id];
     const partM = [];
     for (const p of model.parts) { const m = p.anim ? M4.chain(planeM, p.mat, p.anim(st)) : M4.mul(planeM, p.mat); partM.push(m); GLR.draw(R, p.mesh, m); }
-    const propMs = model.props.map((pr) => M4.chain(planeM, pr.mat, M4.rotZ(pr.ang)));
+    const propMs = model.props.map((pr) => (pr.tilt ? M4.chain(planeM, pr.mat, pr.tilt(st), pr.post, M4.rotZ(pr.ang)) : M4.chain(planeM, pr.mat, M4.rotZ(pr.ang))));
     if (v.kind !== 'fpv') model.props.forEach((pr, i) => GLR.draw(R, pr.blades, propMs[i]));
     // shadow (sun overhead), drawn once per pixel via stencil
     const hgt = planeM[13];
@@ -1577,12 +1631,20 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   }
   const fmtTime = (t) => `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
   let blink = 0;
+  // throttle readout; a heli shows collective pitch and headspeed instead
+  const thrText = (pct) => (AC.kind === 'heli'
+    ? `${st.coll >= 0 ? '+' : ''}${(st.coll / D2R).toFixed(1)}° ${Math.round((st.om * 60) / (2 * Math.PI))} RPM`
+    : `THR ${Math.round(inp.thr * 100)}${pct ? '%' : ''}`);
   function warnings() {
     const w = [];
     if (st.held && !armed) w.push(['THROTTLE DOWN TO ARM', '#ffd36a']);
     else if (st.held) w.push(['THROTTLE UP TO LAUNCH', '#ffd36a']);
     else if (!armed) w.push(['THROTTLE DOWN TO ARM', '#ffd36a']);
-    if (cutOn || cutHeld) w.push(['THROTTLE CUT', '#ff9d42']);
+    if (cutOn || cutHeld) w.push([AC.kind === 'heli' ? 'THROTTLE HOLD' : 'THROTTLE CUT', '#ff9d42']);
+    if (AC.kind === 'heli' && !st.crashed) {
+      if (armed && !(cutOn || cutHeld) && st.wow && st.om < 0.95 * AC.rotor.om0) w.push(['SPOOLING UP', '#ffd36a']);
+      else if (!st.wow && st.om < 0.8 * AC.rotor.om0 && blink % 1 < 0.6) w.push(['LOW HEADSPEED', '#ff6157']);
+    }
     if (S.battery && st.soc <= 0) w.push(['BATTERY EMPTY', '#ff6157']);
     else if (S.battery && st.vb / AC.batt.cells < (AC.batt.chem === 'liion' ? 3.1 : 3.45) && st.n > 0.05) w.push(['LOW BATTERY', '#ff9d42']);
     const d = Math.hypot(st.p[0], st.p[1]);
@@ -1636,7 +1698,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
         }
         const by = v.y + v.h - m - fs * 0.2 - lift;
         if (S.battery) osdText(`${st.vb.toFixed(1)}V ${Math.round(st.mAh)}mAh`, v.x + m, by, 'left', fs);
-        osdText(`THR ${Math.round(inp.thr * 100)}`, cx, by, 'center', fs);
+        osdText(thrText(false), cx, by, 'center', fs);
         // home arrow + distance
         const hd = Math.hypot(st.p[0], st.p[1]);
         const brg = Math.atan2(-st.p[1], -st.p[0]) - eu.yaw;
@@ -1650,7 +1712,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
         const s2 = Math.max(11, fs * 0.8);
         ctx.font = `${s2}px "Share Tech Mono", ui-monospace, Menlo, Consolas, monospace`;
         const y2 = v.y + v.h - m - lift;
-        osdText(`ALT ${U.alt(alt)}  SPD ${U.spd(st.tele.V)}  THR ${Math.round(inp.thr * 100)}%${S.battery ? '  ' + st.vb.toFixed(1) + 'V' : ''}`, v.x + m, y2, 'left', s2);
+        osdText(`ALT ${U.alt(alt)}  SPD ${U.spd(st.tele.V)}  ${thrText(true)}${S.battery ? '  ' + st.vb.toFixed(1) + 'V' : ''}`, v.x + m, y2, 'left', s2);
         osdText(`WIND ${U.wind(S.windSpd)} from ${compass(S.windDir)} · ${modeName(S.mode).toUpperCase()}`, v.x + m, y2 - s2 * 1.4, 'left', s2, 'rgba(255,255,255,0.85)');
         ctx.font = `${fs}px "Share Tech Mono", ui-monospace, Menlo, Consolas, monospace`;
       }
@@ -1680,7 +1742,8 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
         ? [`V  ${t.V.toFixed(1)} m/s   n ${t.nz.toFixed(2)} g`, `T  ${t.T.toFixed(1)} N   T/W max ${(t.tw || 0).toFixed(1)}`,
            `motors ${st.mot.map((m) => Math.round(m * 100)).join(' ')}%`, `pack ${st.vb.toFixed(1)} V  ${st.I.toFixed(0)} A   wash ${(t.wash || 0).toFixed(2)}`]
         : [`V  ${t.V.toFixed(1)} m/s   n ${t.nz.toFixed(2)} g`, `T  ${t.T.toFixed(1)} N   rotor ${Math.round(st.om * 60 / (2 * Math.PI))} rpm`,
-           `collective ${((t.coll || 0) * R2D).toFixed(1)}°   inflow ${(t.vi || 0).toFixed(1)} m/s`, `pack ${st.vb.toFixed(1)} V  ${st.I.toFixed(0)} A`];
+           `collective ${((t.coll || 0) * R2D).toFixed(1)}°   inflow ${(t.vi || 0).toFixed(1)} m/s`, `shaft ${(t.Pm || 0).toFixed(0)} W   pack ${st.vb.toFixed(1)} V  ${st.I.toFixed(0)} A`,
+           `vortex ring ${Math.round((t.vrs || 0) * 100)}%   blade stall ${Math.round(Math.min(1, t.bladeStall || 0) * 100)}%`];
       ctx.font = '12px "Share Tech Mono", ui-monospace, monospace'; ctx.textBaseline = 'middle';
       ctx.fillStyle = 'rgba(15,21,25,0.72)'; ctx.fillRect(x - 6, y0 - 12, 230, L2.length * 17 + 8);
       L2.forEach((l, i) => osdText(l, x, y0 + i * 17, 'left', 12, '#cfe9f3'));
@@ -1768,8 +1831,10 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   }
   function controls() {
     if (ROTARY(AC)) {
-      const cut = cutOn || cutHeld;
-      return { thr: armed ? inp.thr : 0, a: inp.a, e: inp.e, r: inp.r, armed: armed && !cut, hold: cut, mode: { manual: 'acro', horizon: 'horizon', trainer: 'trainer', stab: 'angle' }[S.mode] || 'acro', lim: limNow() };
+      const cut = cutOn || cutHeld, heli = AC.kind === 'heli';
+      // heli: the left stick is collective, live even with the motor held; hold stops the motor only
+      return { thr: armed || heli ? inp.thr : 0, a: inp.a, e: inp.e, r: inp.r, armed: armed && !cut, hold: cut, curve: S.curve,
+        mode: { manual: 'acro', horizon: 'horizon', trainer: 'trainer', stab: 'angle' }[S.mode] || 'acro', lim: limNow() };
     }
     const ex = (x, e) => { const k = e / 100; return x * (k * x * x + 1 - k); };
     const T = AC.trim, ut = userTrim(), RE = rateSource(false);
