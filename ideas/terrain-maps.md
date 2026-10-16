@@ -1,8 +1,8 @@
 # Terrain maps from lidar
 
-**Status: done (v1), except the wind.** The map format, the loader, the chunked
-terrain and every query that reads the ground are built and shipping. What is
-left is listed at the bottom.
+**Status: done (v1).** The map format, the loader, the chunked terrain, every
+query that reads the ground, and the terrain-shaped wind are all built and
+shipping. What is left is listed at the bottom, and none of it is code.
 
 ## Built
 
@@ -29,20 +29,25 @@ left is listed at the bottom.
   P.526's knife-edge diffraction, so a quad down in a canyon loses the link and
   one 50 m higher does not.
 - **Orthophoto colours draped over it**, where a map carries an image.
+- **Terrain-shaped wind**: the flow follows the ground (ridge lift and lee
+  sink, `w = V.grad(h)`, measured over a stencil that widens with height so it
+  decays properly), a wake behind whatever is upwind on the same model the sim
+  already used for trees and barns, and valley channelling sampled at three
+  radii. On a 200 m ridge in 10 m/s that is 6.8 m/s up the windward face and
+  12.7 m/s down in the lee; a wind blowing straight across a 300 m canyon
+  leaves 0.72 m/s in the bottom of it. Settings → Map, on by default.
 - **A builder**: [terrain-and-maps-builder](https://github.com/RealPapaNerf/terrain-and-maps-builder).
 - **A library**: [maps-folder](https://github.com/RealPapaNerf/maps-folder).
 
 ## Left to do
 
-- **Terrain-shaped wind.** Flow up windward slopes and down lee slopes, rotor
-  behind ridges, canyon channelling. This is where real mountain SAR flights get
-  into trouble, and it is the biggest single thing still missing. Everything it
-  needs is now in place: the heightfield, the gradient at any point, and a ray
-  cast. The existing `leeAt` already does this for discrete obstacles; terrain
-  wants a field computed from the slope and the wind direction instead.
 - **The real maps.** Cedar City, Brian Head, Timpanogos, Zion. The builder is
   written and tested; it needs a machine that can reach
   `elevation.nationalmap.gov`.
 - **Frame time on an actual Chromebook.** The triangle counts are measured and
   within budget, but a software rasteriser says nothing about a real GPU.
 - **Imagery.** The NAIP service URLs in the builder are unverified.
+
+Beyond v1, if the wind turns out to want more: a real separation bubble with
+reversed flow in it, mountain wave downstream of a ridge, and thermals off
+sunlit slopes. None of those is in here — what is in here is three local rules.

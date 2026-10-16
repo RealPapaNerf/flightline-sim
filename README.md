@@ -317,8 +317,15 @@ costs the radio link real signal, the OSD gains an **AGL** readout of height
 above the ground below, and RTL flies to the map's home.
 
 Field elevation comes from the map, so density altitude follows it without being
-asked. Terrain-shaped wind — upslope flow, lee sink, ridge rotor — is not built
-yet.
+asked.
+
+**The ground shapes the wind too.** The air flows up a windward slope and sinks
+down a lee one, a valley turns it to run along itself, and behind a ridge it is
+sheltered, sinking and rough. On a 200 m ridge in a 10 m/s wind that is about
+6.8 m/s of lift on the windward face and 12.7 m/s of sink in the lee — enough
+that a trainer cannot outclimb it, which is the point. A wind blowing straight
+across a 300 m canyon leaves under 1 m/s in the bottom. Settings → Map →
+*Terrain-shaped wind*, on by default; it does nothing without a map.
 
 **Making maps:**
 [terrain-and-maps-builder](https://github.com/RealPapaNerf/terrain-and-maps-builder)
