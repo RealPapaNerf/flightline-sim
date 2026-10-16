@@ -607,41 +607,67 @@ const FL = (function () {
     };
   }
 
-  function reset(s, ac, where, packC = 20) {
+  /* Put the aircraft at a start position. `where` is one of the aircraft's own
+     start names for the built-in field, or an object from a map's `starts`:
+     { n, e, yawDeg, aglM, speedMs }, with aglM measured from the ground.
+     `ground` is anything with heightAt(n, e) — a loaded map's terrain — so a
+     start on a hillside starts on the hillside. */
+  function reset(s, ac, where, packC = 20, ground = null) {
+    const gAt = ground && ground.heightAt ? ground : null;
+    const up = (n, e) => (gAt ? gAt.heightAt(n, e) : 0);
     s.bT = packC; s.ice = null; s.iceProp = 0; s.iceLens = 0; s.iceMass = 0; s.iceGl = 0; s.shed = 0;
     s.w = [0, 0, 0]; s.n = 0; s.sa = s.se = s.sr = s.sf = 0; s.gear = 1;
     s.crashed = false; s.crashMsg = ''; s.mAh = 0; s.soc = 1; s.t = 0; s.held = false; s.clw = 0;
     s.mot = [0, 0, 0, 0]; s.pidI = [0, 0, 0]; s.spPrev = [0, 0, 0]; s.ff = [0, 0, 0]; s.buf = [0, 0]; s.wPrev = [0, 0, 0]; s.dF = [0, 0, 0]; s.om = 0; s.coll = 0; s.gov = 0; s.tailI = 0; s.vi = 0; s.tilt = [0, 0]; s.tt = 0;
+
+    // a start position out of a map file: put it where the map says
+    if (where && typeof where === 'object') {
+      const n = +where.n || 0, e = +where.e || 0, agl = +where.aglM || 0;
+      const psi = (+where.yawDeg || 0) * D2R;
+      // on the ground means the lowest contact point touching, not the CG on the ground
+      const zr = agl > 0.05 ? 0 : Math.max(0, ...[...ac.points, ...ac.wheels].map((pt) => pt.p[2])) + 0.001;
+      s.p = [n, e, -up(n, e) - agl - zr];
+      s.q = quatFromEuler(0, agl > 0.05 ? 0.02 : 0, psi);
+      const V = +where.speedMs || 0;
+      s.v = V > 0 ? mulMV(quatToMat(s.q), [V, 0, 0]) : [0, 0, 0];
+      if (V > 0 || agl > 0.05) {
+        if (ac.kind === 'quad') { const b = Math.sqrt((ac.mass * G) / (4 * ac.motor.Tmax)); s.mot = [b, b, b, b]; }
+        else if (ac.kind === 'heli') { s.om = ac.rotor.om0; s.gov = 1; s.coll = ac.hoverPitch; s.vi = Math.sqrt((ac.mass * G) / (2 * 1.225 * ac.rotor.A)); }
+        else s.n = ac.kind === 'wing' ? 0.45 : 0.6;
+      }
+      return;
+    }
+
     if (ac.kind === 'quad' || ac.kind === 'heli') {
       const zr = Math.max(...ac.points.map((pt) => pt.p[2]));
       if (where === 'air') {
         // hovering in front of the pilot, nose north
-        s.p = [15, 0, -6]; s.q = [1, 0, 0, 0]; s.v = [0, 0, 0];
+        s.p = [15, 0, -up(15, 0) - 6]; s.q = [1, 0, 0, 0]; s.v = [0, 0, 0];
         if (ac.kind === 'quad') { const b = Math.sqrt((ac.mass * G) / (4 * ac.motor.Tmax)); s.mot = [b, b, b, b]; }
         else { s.om = ac.rotor.om0; s.gov = 1; s.coll = ac.hoverPitch; s.vi = Math.sqrt((ac.mass * G) / (2 * 1.225 * ac.rotor.A)); }
       } else {
         // on the pad 8 m in front of the pilot, nose north
-        s.p = [8, 1.5, -zr - 0.001]; s.q = [1, 0, 0, 0]; s.v = [0, 0, 0];
+        s.p = [8, 1.5, -up(8, 1.5) - zr - 0.001]; s.q = [1, 0, 0, 0]; s.v = [0, 0, 0];
       }
       return;
     }
     if (where === 'air') {
       // downwind leg in front of the pilot, flying west (pilot's right to left)
       const V = ac.kind === 'wing' ? 18 : 15;
-      s.p = [60, 40, -40];
+      s.p = [60, 40, -up(60, 40) - 40];
       s.q = quatFromEuler(0, 0.02, -Math.PI / 2);
       s.v = mulMV(quatToMat(s.q), [V, 0, 0]);
       s.n = ac.kind === 'wing' ? 0.45 : 0.6;
     } else if (where === 'launch') {
       // held in the pilot's hand, pointing north (away from the pilot), nose up 10°
-      s.p = [0.6, 0.45, -1.7];
+      s.p = [0.6, 0.45, -up(0.6, 0.45) - 1.7];
       s.q = quatFromEuler(0, 10 * D2R, 0);
       s.v = [0, 0, 0];
       s.held = true;
     } else {
       // runway, west end, pointing east, wheels just touching
       const zw = ac.wheels.length ? ac.wheels[0].p[2] : 0.05;
-      s.p = [12, -52, -zw - 0.002];
+      s.p = [12, -52, -up(12, -52) - zw - 0.002];
       s.q = quatFromEuler(0, 0, Math.PI / 2);
       s.v = [0, 0, 0];
     }
@@ -680,6 +706,11 @@ const FL = (function () {
     };
   }
 
+  /* One reusable result for the terrain query. The ground is asked for at up to
+     ten contact points, 400 times a second; allocating there would make the
+     garbage collector part of the flight model. */
+  const gProbe = { up: 0, dn: 0, de: 0, nN: 0, nE: 0, nD: -1, cls: 0 };
+
   /* Second half of every step, shared by all aircraft: gravity, ground contact, crash checks
      and integration. F and Mo are the body-frame force and moment from the aircraft itself. */
   function finish(s, ac, F, Mo, R, env, dt) {
@@ -690,42 +721,72 @@ const FL = (function () {
     const Fw = mulMV(R, F);
     Fw[2] += m * G;
 
-    // --- ground contact: spring–damper per point, regularised Coulomb friction ---
-    const C = ac.contact;
-    let wow = false, crash = null;
+    /* --- ground contact: spring–damper per point, regularised Coulomb friction ---
+       The ground is whatever env.terrain says it is. Without one it is the flat
+       plane at NED z = 0 this started out as, and the arithmetic below reduces
+       to exactly that: the normal becomes (0, 0, -1), the perpendicular depth
+       becomes the vertical one, the closing speed becomes the descent rate and
+       the tangent plane becomes the horizontal one.
+
+       With a terrain the spring pushes along the surface normal and friction
+       acts in the surface's tangent plane, so a model set down on a slope
+       slides down it instead of gripping a horizontal plane it is not touching,
+       and a hard arrival is judged on the speed into the slope rather than on
+       descent rate — which is the difference between a survivable uphill
+       landing and a crash into a hillside at the same sink rate. */
+    const C = ac.contact, T = env.terrain || null;
+    let wow = false, crash = null, touching = false;
     const Fcb = [0, 0, 0];
     const contactPt = (pt, isWheel) => {
       const r = pt.p;
       const rw = mulMV(R, r);
-      const pz = s.p[2] + rw[2];
+      let gUp = 0, nN = 0, nE = 0, nD = -1;
+      if (T) {
+        T.probe(s.p[0] + rw[0], s.p[1] + rw[1], gProbe);
+        gUp = gProbe.up; nN = gProbe.nN; nE = gProbe.nE; nD = gProbe.nD;
+      }
+      const pz = s.p[2] + rw[2] + gUp; // > 0: the point is below the surface
       if (pz <= 0) return;
+      touching = true;
+      const depth = pz * -nD; // vertical overlap turned perpendicular to the slope
       const vp = mulMV(R, cross(w, r));
       vp[0] += s.v[0]; vp[1] += s.v[1]; vp[2] += s.v[2];
+      const vn = vp[0] * nN + vp[1] * nE + vp[2] * nD; // along the outward normal
+      const closing = -vn; // into the surface, positive
       const k = isWheel ? C.kW : C.kB, c = isWheel ? C.cW : C.cB;
-      const N = Math.max(0, k * pz + c * vp[2]);
-      let fx = 0, fy = 0, rolled = false;
+      const N = Math.max(0, k * depth + c * closing);
+      // velocity in the surface's tangent plane
+      const tN = vp[0] - vn * nN, tE = vp[1] - vn * nE, tD = vp[2] - vn * nD;
+      let fx = 0, fy = 0, fz = 0, rolled = false;
       if (isWheel) {
         const stA = pt.steer && ac.defl.r ? (s.sr / ac.defl.r) * ac.steerMax : 0;
         const fwv = mulMV(R, [Math.cos(stA), Math.sin(stA), 0]);
-        const nh = Math.hypot(fwv[0], fwv[1]);
+        // the wheel rolls along its heading flattened into the surface
+        const fd = fwv[0] * nN + fwv[1] * nE + fwv[2] * nD;
+        let hx = fwv[0] - fd * nN, hy = fwv[1] - fd * nE, hz = fwv[2] - fd * nD;
+        const nh = Math.hypot(hx, hy, hz);
         if (nh > 0.3) {
-          const hx = fwv[0] / nh, hy = fwv[1] / nh;
-          const vl = vp[0] * hx + vp[1] * hy, vt = -vp[0] * hy + vp[1] * hx;
-          const Fl = -C.muRoll * N * sat(vl / 0.3), Ft = -C.muLat * N * sat(vt / 0.1);
-          fx = Fl * hx - Ft * hy; fy = Fl * hy + Ft * hx; rolled = true;
+          hx /= nh; hy /= nh; hz /= nh;
+          // sideways: the surface normal crossed with the rolling direction
+          const lx = nE * hz - nD * hy, ly = nD * hx - nN * hz, lz = nN * hy - nE * hx;
+          const vl = vp[0] * hx + vp[1] * hy + vp[2] * hz;
+          const vs = vp[0] * lx + vp[1] * ly + vp[2] * lz;
+          const Fl = -C.muRoll * N * sat(vl / 0.3), Ft = -C.muLat * N * sat(vs / 0.1);
+          fx = Fl * hx + Ft * lx; fy = Fl * hy + Ft * ly; fz = Fl * hz + Ft * lz;
+          rolled = true;
         }
       }
       if (!rolled) {
-        const vh = Math.hypot(vp[0], vp[1]);
-        if (vh > 1e-6) { const f = (-C.muBody * N * sat(vh / 0.2)) / vh; fx = f * vp[0]; fy = f * vp[1]; }
+        const vt = Math.hypot(tN, tE, tD);
+        if (vt > 1e-6) { const f = (-C.muBody * N * sat(vt / 0.2)) / vt; fx = f * tN; fy = f * tE; fz = f * tD; }
       }
-      const Fc = [fx, fy, -N];
+      const Fc = [fx + N * nN, fy + N * nE, fz + N * nD];
       Fw[0] += Fc[0]; Fw[1] += Fc[1]; Fw[2] += Fc[2];
       const fb = mulMtV(R, Fc);
       Fcb[0] += fb[0]; Fcb[1] += fb[1]; Fcb[2] += fb[2];
       const mc = cross(r, fb);
       Mo[0] += mc[0]; Mo[1] += mc[1]; Mo[2] += mc[2];
-      const impact = vp[2], slide = Math.hypot(vp[0], vp[1]);
+      const impact = closing, slide = Math.hypot(tN, tE, tD);
       if (isWheel) {
         wow = true;
         if (impact > ac.crash.wheelImpact) crash = 'Hard landing — gear folded';
@@ -740,6 +801,17 @@ const FL = (function () {
     if (!ac.retract || s.gear > 0.5) for (const wh of ac.wheels) contactPt(wh, true);
     for (const b of ac.points) contactPt(b, false);
     s.wow = wow;
+    /* A model dragging on a slope steeper than atan(mu) gets tripped by its own
+       feet and tumbles. Friction torque then spins it faster than the explicit
+       integrator can follow, the contact points' own r x w velocity runs away,
+       and a few tenths of a second later the state goes non-finite and the
+       numerical-error guard below silently puts it back on the pad with the
+       crash flag cleared — so a genuine crash on a hillside would read as a
+       teleport. A model in contact with the ground and rotating at 40 rad/s
+       (380 rpm, well past the ~31 rad/s a 5" quad can command in the air) has
+       tumbled, and tumbled is crashed. Catching it here keeps the crash
+       honest and keeps the integrator inside its range. */
+    if (!crash && touching && Math.hypot(w[0], w[1], w[2]) > 40) crash = 'Tumbled — it rolled down the slope';
     if (crash && env.crashes && !s.crashed) { s.crashed = true; s.crashMsg = crash; }
 
     // --- integrate (semi-implicit Euler, quaternion attitude) ---
@@ -761,7 +833,7 @@ const FL = (function () {
 
 
     if (!Number.isFinite(s.p[0] + s.p[1] + s.p[2] + s.q[0] + w[0] + w[1] + w[2])) {
-      reset(s, ac, ac.starts[0]);
+      reset(s, ac, ac.starts[0], 20, env.terrain || null);
       s.crashMsg = 'Simulation reset (numerical error)';
     }
     return Fcb;
