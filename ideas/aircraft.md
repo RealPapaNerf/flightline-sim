@@ -52,6 +52,9 @@ prop today, not a curve.
 
 ## Others mentioned or worth having
 
-- your forward-flying lifting-body quad — closer than it was: a tail-sitter already has
-  wings on a four-motor airframe, so this is a build sheet away
+- ~~your forward-flying lifting-body quad~~ — **built.** *Fit → Lifting body* in the
+  builder puts a wing across the middle of the frame at whatever angle you rig it,
+  and the strip model flies it. See
+  [the format doc](../docs/aircraft-format.md#lifting-bodies-on-a-quad) for why the
+  sign of that angle is the whole exercise.
 - your helicopter, once it flies

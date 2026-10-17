@@ -443,11 +443,12 @@ const FL = (function () {
     },
   };
 
-  /* Build strips from a definition. Returns the aircraft object step() uses. */
-  function build(def) {
-    const ac = JSON.parse(JSON.stringify(def));
-    ac.strips = [];
-    if (ac.kind === 'quad' || ac.kind === 'heli') return buildRotary(ac);
+  /* Cut every lifting surface into strips and push them onto ac.strips.
+     Shared by the planes, the tail-sitters and — since a quad may now carry a
+     lifting body — by the multirotors too, which is why it is a function
+     rather than the first half of build(). Returns the wing totals build()
+     needs to place the neutral point. */
+  function buildStrips(ac) {
     let wingArea = 0, wingSpan = 0, wingSlope = 4;
     for (const sf of ac.surfaces) {
       const sides = sf.vertical ? [0] : sf.mirror ? [1, -1] : [1];
@@ -540,6 +541,15 @@ const FL = (function () {
         }
       }
     }
+    return { wingArea, wingSpan, wingSlope };
+  }
+
+  /* Build strips from a definition. Returns the aircraft object step() uses. */
+  function build(def) {
+    const ac = JSON.parse(JSON.stringify(def));
+    ac.strips = [];
+    if (ac.kind === 'quad' || ac.kind === 'heli') return buildRotary(ac);
+    const { wingArea, wingSpan, wingSlope } = buildStrips(ac);
     ac.S = wingArea; ac.b = wingSpan;
     const wingStrips = ac.strips.filter((s) => s.role === 'wing');
     ac.flapArea = wingStrips.reduce((t, x) => t + (x.kf ? x.area : 0), 0) / (wingStrips.reduce((t, x) => t + x.area, 0) || 1);
@@ -595,6 +605,34 @@ const FL = (function () {
 
   function buildRotary(ac) {
     ac.S = 0; ac.b = ac.kind === 'quad' ? 2 * Math.max(...ac.motors.map(([x, y]) => Math.hypot(x, y))) * 0.71 + ac.motor.D : 2 * ac.rotor.R; ac.mac = 0; ac.ARw = 1; ac.xShift = 0; ac.SM = 0;
+    /* A lifting body: a wing in the middle of the frame, at an angle to the
+       plane of the props. A quad leaning over to go forward is a quad holding
+       its whole airframe at an angle of attack, so a wing bolted across the
+       frame carries part of the weight at cruise and the motors carry less of
+       it — which is the whole point of a long-range build, and of a speed
+       quad's aero shell.
+
+       The surfaces go through exactly the same strip builder as a plane's, so
+       the stall, the induced drag, the ground effect and the icing are the
+       same code and not a second, friendlier copy of it. What a quad does not
+       get is the neutral point and the static margin: its centre of gravity is
+       the body origin by definition and the flight controller holds the
+       attitude, so there is nothing for a static margin to mean.
+
+       ac.b stays the motor span. It is the length ground effect and shed ice
+       are scaled by, and the quad is still a quad. */
+    if (ac.surfaces && ac.surfaces.length) {
+      const { wingArea, wingSpan } = buildStrips(ac);
+      ac.S = wingArea;
+      ac.lbSpan = wingSpan;
+      ac.ARw = wingArea > 0 ? (wingSpan * wingSpan) / wingArea : 1;
+      const ws = ac.strips.reduce((t, x) => t + x.area, 0);
+      ac.mac = ws > 0 ? ac.strips.reduce((t, x) => t + x.area * x.chord, 0) / ws : 0;
+      // a lifting body has no moving surfaces; stripForces still asks for the limit
+      ac.defl = ac.defl || { a: 0, e: 0, r: 0, f: 0, flapMax: 0 };
+      ac.flapArea = 0;
+      ac.deda = 0;
+    }
     if (ac.kind === 'quad') {
       // collective thrust for hover, as a stick position (thrust ∝ motor command²)
       const base = hoverCommand(ac);
@@ -1184,13 +1222,21 @@ const FL = (function () {
     const shake = (wash * 0.14 + s.shed * 0.12) * ((M.Tmax * Math.abs(ac.motors[0][0])) / (13.5 * 0.078)); // prop wash, or ice thrown unevenly off a prop; scales with the quad's size
     Mo[0] += shake * s.buf[0]; Mo[1] += shake * s.buf[1];
     F[0] -= ac.rotorDrag * Ttot * vb[0]; F[1] -= ac.rotorDrag * Ttot * vb[1];
+    // a lifting body, if it has one: the same strip model the planes fly
+    let sf = null;
+    if (ac.strips.length) {
+      const gw = env.gw || [0, 0, 0];
+      sf = stripForces(s, ac, vb, [w[0] - gw[0], w[1] - gw[1], w[2] - gw[2]], R, rho, env, 0, dt, F, Mo);
+    }
     const Vn = Math.hypot(vb[0], vb[1], vb[2]), kd = 0.5 * rho * Vn, Cd = ac.body.CdA;
     F[0] -= kd * Cd[0] * vb[0]; F[1] -= kd * Cd[1] * vb[1]; F[2] -= kd * Cd[2] * vb[2];
 
     const Fcb = finish(s, ac, F, Mo, R, env, dt);
     s.n = (s.mot[0] + s.mot[1] + s.mot[2] + s.mot[3]) / 4;
     const t = s.tele;
-    t.V = Vn; t.qbar = 0.5 * rho * Vn * Vn; t.T = Ttot; t.alpha = 0; t.beta = 0; t.CL = 0; t.stallL = 0; t.stallR = 0;
+    t.V = Vn; t.qbar = 0.5 * rho * Vn * Vn; t.T = Ttot;
+    t.alpha = sf ? sf.alpha : 0; t.beta = Vn > 0.3 ? Math.asin(clamp(vb[1] / Vn, -1, 1)) : 0;
+    t.CL = sf ? s.clw : 0; t.stallL = sf ? sf.stallL : 0; t.stallR = sf ? sf.stallR : 0;
     t.nz = -(F[2] + Fcb[2]) / (ac.mass * G);
     t.tw = (4 * Tmax) / (ac.mass * G); t.sp = sp; t.wash = wash;
   }

@@ -130,7 +130,11 @@ const ACF = (function (FL) {
     n: i(1, 14),
     y0: n(0, 6), y1: n(0.01, 6),
     xLE0: n(-8, 8), xLE1: n(-8, 8), c0: n(0.01, 2.5), c1: n(0.01, 2.5), z0: n(-3, 3),
-    dihedral: opt(n(-60, 60)), inc0: opt(n(-15, 15)), inc1: opt(n(-15, 15)), sweepLoad: opt(n(-1, 1)),
+    /* Incidence runs to ±90°, not to the ±15° a wing on a fuselage ever
+       wants. A quad's lifting body is a wing rigged out of the plane of the
+       props by thirty or forty degrees, and clamping that to 15 would quietly
+       turn an exported aircraft into a different one. */
+    dihedral: opt(n(-60, 60)), inc0: opt(n(-90, 90)), inc1: opt(n(-90, 90)), sweepLoad: opt(n(-1, 1)),
     foil: FOIL, flaps: a(6, FLAP, []),
   });
   const POINT = o({
@@ -203,6 +207,14 @@ const ACF = (function (FL) {
     motor: o({ Tmax: n(0.05, 600), tau: n(0.005, 1), idle: n(0, 0.3), kQ: n(0.0005, 0.5), Vp: n(1, 200), D: n(0.01, 1.5) }),
     rotorDrag: n(0, 0.2),
     gear: opt(b()), gimbal: opt(b()),
+    /* A lifting body: a wing across the middle of the frame, set at an angle
+       to the plane of the props. Optional, and a quad without one flies
+       exactly as it always did. The surfaces are the same shape as a plane's,
+       so the same strip model carries them; `lift` is what the model builder
+       draws it from, because a wing in the prop plane is drawn very
+       differently from a wing on a fuselage. */
+    surfaces: opt(a(4, SURFACE)),
+    lift: opt(o({ span: n(0.02, 4), rootChord: n(0.01, 2), tipChord: n(0.01, 2), angle: n(0, 90), sweep: n(-45, 60, 0) })),
     look: QUAD_LOOK,
   });
   /* A tail-sitter: four motors thrusting along the nose, wings in the cruise
@@ -351,7 +363,9 @@ const ACF = (function (FL) {
     if (m.source) file.source = clean(m.source, 200);
     if (spec) file.spec = normSpec(spec, { errors: [], warnings: [] });
     file.def = clean2 || def;
-    return { file, errors: out.errors };
+    // warnings matter on the way out too: a field the table clamps on export
+    // is a field the file no longer describes
+    return { file, errors: out.errors, warnings: out.warnings };
   }
   const text = (def, meta, spec) => JSON.stringify(write(def, meta, spec).file, null, 2) + '\n';
 
@@ -408,6 +422,15 @@ const ACF = (function (FL) {
     f('thrustPerMotor', 'quad', 'Power', 'Thrust per motor, full throttle', 'g', 30, 60000, 10, (p) => Math.round(1.25 * p.mass), 'From the motor manufacturer\'s thrust table, at your cell count and prop. The default is 5:1 thrust to weight.'),
     f('camTilt', ALL, 'Airframe', 'Camera tilt', '°', -20, 60, 1, (p) => (p.kind === 'quad' ? (p.propD >= 10 ? 10 : 30) : 0), 'Down from level. A camera platform flies with it at zero; a racer tilts it up by flying nose-down.'),
     f('rateMax', 'quad', 'Airframe', 'Max rotation rate', '°/s', 100, 1800, 10, (p) => Math.round(clamp(700 * Math.pow(0.127 / (p.propD * IN), 0.9), 200, 900))),
+    // ---- lifting body (quads) ----
+    f('lbSpan', 'quad', 'Lifting body', 'Wing span', 'mm', 50, 3000, 10, (p) => Math.round(1.15 * p.wheelbase), 'Tip to tip, across the middle of the frame. About the wheelbase is a plate that fits between the arms; much more than that and it is a wing with a quad bolted to it.'),
+    f('lbChord', 'quad', 'Lifting body', 'Wing chord', 'mm', 20, 1500, 5, (p) => Math.round(0.42 * p.lbSpan), 'Root to tip is the same unless you taper it below.'),
+    f('lbTipChord', 'quad', 'Lifting body', 'Tip chord', 'mm', 10, 1500, 5, (p) => p.lbChord),
+    f('lbSweep', 'quad', 'Lifting body', 'Leading-edge sweep', '°', -30, 60, 1, 0),
+    f('lbAngle', 'quad', 'Lifting body', 'Angle from the prop plane', '°', 0, 90, 1, 30,
+      'The angle between the wing\u2019s chord line and the plane of the props, leading edge up. A quad leans nose-down to go forward, which tips the whole frame \u2014 and a wing lying flat in the prop plane then meets the air on its top surface and pushes *down*. Rigging it leading-edge-up by more than you lean is what makes it a lifting body: at a lean of \u03c6 the wing flies at this angle minus \u03c6. 30\u00b0 suits a 20\u00b0 cruise. 0\u00b0 is a flat plate in the prop plane, 90\u00b0 stands it on edge.'),
+    fe('lbAirfoil', 'quad', 'Lifting body', 'Section', [['flat', 'Flat-bottomed'], ['semi', 'Semi-symmetrical'], ['symmetric', 'Symmetrical (a plate)'], ['reflex', 'Reflexed']], 'symmetric',
+      'A plate between the arms is symmetrical. A moulded wing with a top surface is semi-symmetrical or flat-bottomed, and makes lift at zero angle of attack \u2014 which also means it makes lift in the hover, where you do not want any.'),
     // ---- power ----
     f('propPitch', ALL, 'Power', 'Prop pitch', 'in', 1, 20, 0.1, (p) => round(0.5 * p.propD, 1)),
     f('blades', ALL, 'Power', 'Blades', '', 2, 4, 1, (p) => (p.kind === 'quad' ? (p.propD < 6 ? 3 : 2) : 2)),
@@ -447,6 +470,7 @@ const ACF = (function (FL) {
     if (raw.gimbal !== undefined) sp.gimbal = !!raw.gimbal;
     if (raw.packTop !== undefined) sp.packTop = !!raw.packTop;
     if (raw.quadGear !== undefined) sp.quadGear = !!raw.quadGear;
+    if (raw.liftBody !== undefined) sp.liftBody = !!raw.liftBody;
     for (const fd of SPEC_FIELDS) {
       if (!wants(fd, kind)) continue;
       const have = Object.prototype.hasOwnProperty.call(raw, fd.k) ? raw[fd.k] : undefined;
@@ -465,9 +489,10 @@ const ACF = (function (FL) {
         sp[fd.k] = fd.k === 'blades' || fd.k === 'cellsS' || fd.k === 'cellsP' ? Math.round(y) : y;
       }
     }
-    const known = new Set(['kind', 'name', 'id', 'blurb', 'gimbal', 'packTop', 'quadGear'].concat(SPEC_FIELDS.map((x) => x.k)));
+    const known = new Set(['kind', 'name', 'id', 'blurb', 'gimbal', 'packTop', 'quadGear', 'liftBody'].concat(SPEC_FIELDS.map((x) => x.k)));
     for (const k of Object.keys(raw)) if (!known.has(k)) out.warnings.push(`spec.${k}: not a build-sheet field, ignored`);
     if (sp.tipChord > sp.rootChord * 1.5) out.warnings.push('spec.tipChord: wider than the root — the wing is tapered the wrong way');
+    if (sp.liftBody && sp.lbSpan < 0.6 * sp.wheelbase) out.warnings.push('spec.lbSpan: narrower than two thirds of the wheelbase — a lifting body that small is mostly drag');
     return sp;
   }
   const specDefaults = (kind) => normSpec({ kind }, { errors: [], warnings: [] });
@@ -709,7 +734,60 @@ const ACF = (function (FL) {
     };
     const def = FL.quadDef(o);
     for (const k of ['arm', 'foot', 'footX', 'footY', 'pack', 'cam']) delete def[k];
+    if (sp.liftBody) Object.assign(def, liftBodyOf(sp));
     return def;
+  }
+
+  /* A lifting body on a quad, as a surface the strip model can fly and a
+     shape the model builder can draw.
+
+     The wing sits across the middle of the frame with its quarter chord on
+     the centre of gravity, so it adds lift without adding a pitching moment
+     the controller then has to trim out — which is what a plate between the
+     arms actually does.
+
+     `angle` is the one number worth getting right, and the sign of it is the
+     thing that catches people out. A quad leans **nose-down** to go forward,
+     which tips the frame's up-vector forward with it — so a wing lying flat
+     in the plane of the props meets the oncoming air on its *top* surface and
+     makes downforce, not lift. At a lean of φ a wing in the prop plane is at
+     −φ, not +φ.
+
+     So the angle is measured leading edge **up** from the prop plane, and it
+     has to be bigger than the lean you cruise at: the wing flies at
+     `angle − φ`. Thirty degrees suits a twenty-degree cruise. Zero is a flat
+     plate, which is what a speed quad's aero shell is, and a speed quad is
+     not using it to carry weight.
+
+     Low aspect ratio is the other thing that makes this work. A plate between
+     the arms has an aspect ratio near 2, which means a lift-curve slope half
+     a wing's and a stall that arrives late and gently — so a lifting body is
+     still doing something at 40° of lean, where a real wing would have given
+     up long before. */
+  function liftBodyOf(sp) {
+    const b2 = sp.lbSpan / 1000 / 2, cR = sp.lbChord / 1000, cT = Math.min(sp.lbTipChord, sp.lbChord * 2) / 1000;
+    const areaTot = (cR + cT) * b2;
+    const AR = (2 * b2) * (2 * b2) / Math.max(areaTot, 1e-6);
+    const F = AIRFOILS[sp.lbAirfoil] || AIRFOILS.symmetric;
+    const xLE0 = 0.25 * cR;                              // quarter chord on the CG
+    const xLE1 = xLE0 - b2 * Math.tan(sp.lbSweep * D2R);
+    const inc = sp.lbAngle;                              // leading edge up from the prop plane
+    return {
+      surfaces: [{
+        name: 'lifting body', role: 'wing', mirror: true, n: 4,
+        y0: 0, y1: round(b2, 4),
+        xLE0: round(xLE0, 4), xLE1: round(xLE1, 4),
+        c0: round(cR, 4), c1: round(cT, 4), z0: 0,
+        dihedral: 0, inc0: inc, inc1: inc, sweepLoad: 0,
+        foil: {
+          a: slopeOf(AR), CL0: F.CL0, CLmax: F.CLmax, CLmin: F.CLmin,
+          M: 22,              // a thick low-aspect plate stalls softly
+          CD0: 0.019, e: 0.78, Cm0: F.Cm0, CN90: 1.7,
+        },
+        flaps: [],
+      }],
+      lift: { span: round(2 * b2, 4), rootChord: round(cR, 4), tipChord: round(cT, 4), angle: sp.lbAngle, sweep: sp.lbSweep },
+    };
   }
   function fromSpec(spec) {
     const sp = spec && spec.__norm ? spec : normSpec(spec || {}, { errors: [], warnings: [] });
@@ -782,18 +860,24 @@ const ACF = (function (FL) {
     const s = FL.makeState();
     FL.reset(s, ac, 'air', Tc === undefined ? 20 : Tc);
     s.p[2] = -60;
-    let iz = 0, I = 0, V = 0, nn = 0;
+    let iz = 0, I = 0, V = 0, nn = 0, lift = 0;
     for (let k = 0, n2 = Math.round(18 / DT); k < n2; k++) {
       const ez = -s.p[2] - 60;
       iz += ez * DT;
       const thr = clamp(bench.hoverThr * 1.25 - 0.03 * ez - 0.01 * iz + 0.02 * s.v[2], 0, 1);
       FL.step(s, ac, { thr, a: 0, e: -0.35, r: 0, armed: true, mode: 'angle', lim: { bank: 55, pitch: 55 } }, env, DT);
-      if (s.t > 10) { I += s.I; V += s.tele.V; nn++; }
+      if (s.t > 10) {
+        I += s.I; V += s.tele.V; nn++;
+        // a lifting body's share of the work: at a steady cruise the flow is
+        // level, so the wing's lift is vertical to within the induced angle
+        if (ac.S > 0) lift += (0.5 * rho * s.tele.V * s.tele.V * ac.S * s.tele.CL) / W;
+      }
     }
     bench.cruiseV = nn ? V / nn : 0;
     bench.cruiseI = nn ? I / nn : 0;
     bench.cruiseMin = minutes(bench.cruiseI);
     bench.cruiseKm = (bench.cruiseMin / 60) * bench.cruiseV * 3.6;
+    if (ac.S > 0 && nn) bench.lbLift = lift / nn;
     return bench;
   }
 

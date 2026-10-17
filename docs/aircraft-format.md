@@ -101,9 +101,10 @@ points, gains — follows from those twelve numbers.
 
 `kind` is `plane` (wing, stabiliser and fin), `wing` (a plank or flying wing
 with elevons) or `quad`. `id` and `name` are free text; `blurb` is one or two
-sentences for the picker. Quads also take three true/false fields: `quadGear`
-(landing legs), `gimbal` (a three-camera pod) and `packTop` (battery above the
-frame, default true).
+sentences for the picker. Quads also take four true/false fields: `quadGear`
+(landing legs), `gimbal` (a three-camera pod), `packTop` (battery above the
+frame, default true) and `liftBody` (a wing across the middle of the frame —
+see [Lifting bodies on a quad](#lifting-bodies-on-a-quad)).
 
 In the builder panel, a field you have not set is marked **auto** and follows
 its default, so moving the span moves the chord, the tail, the prop and the
@@ -121,6 +122,17 @@ column the default is the same.
 | `wheelbase` | quad | mm | 60 … 2000 | – | – | `220` |
 | `camTilt` | all | ° | -20 … 60 | `0` | `0` | `30` |
 | `rateMax` | quad | °/s | 100 … 1800 | – | – | `700` |
+
+#### Lifting body — quads with `liftBody: true`
+
+| field | applies to | unit | range | default |
+|---|---|---|---|---|
+| `lbSpan` | quad | mm | 50 … 3000 | `1.15 × wheelbase` |
+| `lbChord` | quad | mm | 20 … 1500 | `0.42 × lbSpan` |
+| `lbTipChord` | quad | mm | 10 … 1500 | `lbChord` |
+| `lbSweep` | quad | ° | -30 … 60 | `0` |
+| `lbAngle` | quad | ° | 0 … 90 | `30` |
+| `lbAirfoil` | quad | — | flat / semi / symmetric / reflex | `symmetric` |
 
 #### Wing
 
@@ -452,6 +464,12 @@ somewhere clear by default.
 | `rotorDrag` | 0 … 0.2 | **required** | in-plane rotor drag, N per N of thrust per m/s |
 | `gear` | true / false | *optional* | quad: draw landing legs |
 | `gimbal` | true / false | *optional* | quad: a three-camera pod instead of an FPV camera |
+| `surfaces` | list ≤ 4 | *optional* | quad: a lifting body, as the same surface shape a plane uses |
+| `lift.span` | 0.02 … 4 | *optional* | quad: what the model draws the lifting body from, metres |
+| `lift.rootChord` | 0.01 … 2 | *optional* | quad: root chord, metres |
+| `lift.tipChord` | 0.01 … 2 | *optional* | quad: tip chord, metres |
+| `lift.angle` | 0 … 90 | *optional* | quad: how far the leading edge is rigged up out of the plane of the props, degrees |
+| `lift.sweep` | -45 … 60 | *optional* | quad: leading-edge sweep, degrees |
 | `look.front` | 3 × (0…1) | *optional* | quad: front props |
 | `look.rear` | 3 × (0…1) | *optional* | quad: rear props |
 | `look.frame` | 3 × (0…1) | *optional* | quad: arms and plates |
@@ -607,6 +625,69 @@ to the surfaces has the deflection to fly it with.
 | `look.rear` | 3 × (0…1) | *optional* | quad: rear props |
 | `look.frame` | 3 × (0…1) | *optional* | quad: arms and plates |
 | `look.wrap` | 3 × (0…1) | *optional* | quad: battery wrap |
+
+## Lifting bodies on a quad
+
+A quad may carry a **lifting body**: a wing across the middle of the frame,
+set at an angle to the plane of the props, so that in forward flight some of
+the weight is carried by air rather than by the motors. That is what a
+long-range build with a wing on it is for, and it is the same idea as a speed
+quad's aero shell.
+
+Turn it on in the builder (Fit → Lifting body) or with `liftBody: true` in a
+build sheet. In a definition it is an ordinary `surfaces` entry — the same
+shape a plane's wing is — plus a `lift` block the model draws it from. It goes
+through the same strip model as every other wing in the sim: the same stall,
+the same induced drag, the same ground effect, the same icing.
+
+### The sign of the angle, which is the whole thing
+
+A quad leans **nose-down** to fly forward. That tips the frame's up-vector
+forward with it — which is exactly why the thrust pushes you along — and it
+means **a wing lying flat in the plane of the props meets the oncoming air on
+its top surface.** At a lean of φ, a wing in the prop plane is at an angle of
+attack of **−φ**, not +φ. It pushes down, and it costs you range:
+
+| rig angle | carries, at a 19° cruise | cruise | range |
+|---|---|---|---|
+| no lifting body | — | 54 km/h on 13.9 A | 18.6 km |
+| `lbAngle: 0` | **−41%** | 51 km/h on 20.8 A | 11.7 km |
+| `lbAngle: 20` | 1% | 52 km/h on 13.6 A | 18.5 km |
+| `lbAngle: 30` | 24% | 45 km/h on 9.2 A | **23.6 km** |
+| `lbAngle: 40` | 25% | 40 km/h on 8.5 A | 22.4 km |
+| `lbAngle: 90` | 7% | 26 km/h on 9.8 A | 12.7 km |
+
+(A 7-inch, 1.2 kg quad on 6S2P Li-ion with a 345 mm lifting body;
+`node test/liftbody_test.js` prints this table and checks it.)
+
+So **`lbAngle` is measured leading edge up from the plane of the props, and it
+has to be bigger than the lean you cruise at.** The wing flies at
+`lbAngle − φ`. Thirty degrees suits a twenty-degree cruise; the default is 30.
+Zero is a flat plate, which is what a speed quad's shell is — and a speed quad
+is not using it to carry weight.
+
+### Why it keeps working at angles a wing would not
+
+A plate between the arms has an aspect ratio near 2, which gives it a
+lift-curve slope about half a wing's and a stall that arrives late and
+gently (`M: 22` in the generated foil, against 30 for foam and 40 for balsa).
+That is why a lifting body is still doing something at 40° of lean, where a
+real wing would have given up long before — and it is also why it never makes
+very much lift per square inch. A bigger one carries more and cruises slower.
+
+### What it does not change
+
+Nothing in the hover. A wing standing still makes no lift, so the hover
+current, the hover time, the punch-out and the thrust-to-weight are all
+exactly what they were. `ac.b` also stays the motor span, because that is the
+length ground effect and shed ice are scaled by, and the quad is still a quad.
+
+Nor does it get a static margin. A quad's centre of gravity is the body origin
+by definition and the flight controller holds the attitude, so there is
+nothing for a static margin to mean. The wing's quarter chord is put on the
+centre of gravity instead, so it adds lift without adding a pitching moment
+the controller then has to trim out — which is what a plate between the arms
+actually does.
 
 ## Tail-sitters
 

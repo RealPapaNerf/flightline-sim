@@ -1031,6 +1031,27 @@
         g.box(Math.min(sx * G.x * 0.55, sx * G.x), G.y, -rail, Math.max(sx * G.x * 0.55, sx * G.x), G.y + 2 * rail, rail, carbon); // out to the rail
       }
     }
+    /* A lifting body, if it has one: a wing across the middle of the frame,
+       pitched leading-edge-up out of the plane of the props by its own angle.
+       Rotating about the render x axis is what does that — the leading edge
+       is at negative z (forward), so a positive rotation lifts it. Seeing the
+       angle is most of the value of drawing it at all: a plate lying flat in
+       the prop plane and a wing rigged at 35° are the same five numbers on
+       the build sheet and completely different aircraft. */
+    if (ac.lift) {
+      const LB = ac.lift, b2 = LB.span / 2, cR = LB.rootChord, cT = LB.tipChord;
+      const xLE0 = 0.25 * cR, xLE1 = xLE0 - b2 * Math.tan((LB.sweep || 0) * D2R);
+      const wTop = LK.front || [1.0, 0.45, 0.1], wBot = scl(carbon, 1.6), wSide = LK.rear || [0.85, 0.87, 0.9];
+      g.with(M4.rotX(LB.angle * D2R), () => {
+        for (const sx of [1, -1]) {
+          slab(g, [0, 0, -xLE0], [sx * b2, 0, -xLE1], [sx * b2, 0, cT - xLE1], [0, 0, cR - xLE0],
+            0.1 * cR, 0.1 * cT, wTop, wBot, wSide);
+          // a band at the tip, the right way up, so you can see which way it is rigged
+          if (sx > 0) g.quad([sx * b2 * 0.6, 0.05 * cR + 0.001, -xLE1 * 0.8], [sx * b2 * 0.95, 0.05 * cT + 0.001, -xLE1 * 0.95],
+            [sx * b2 * 0.95, 0.05 * cT + 0.001, 0.6 * cT - xLE1 * 0.95], [sx * b2 * 0.6, 0.05 * cR + 0.001, 0.6 * cR - xLE1 * 0.8], dark);
+        }
+      });
+    }
     const props = [], blades = LK.blades || 3, mr = 0.013 * (D / 0.127), mh = 0.018 * Math.sqrt(D / 0.127);
     ac.motors.forEach(([x, y, q], i) => {
       const P = BR([x, y, 0]);
@@ -2916,7 +2937,7 @@
   }
 
   /* ---------- Settings → Builder ---------- */
-  const GROUPS = ['Airframe', 'Wing', 'Tail', 'Fuselage', 'Controls', 'Power', 'Battery'];
+  const GROUPS = ['Airframe', 'Lifting body', 'Wing', 'Tail', 'Fuselage', 'Controls', 'Power', 'Battery'];
   function bldBenchHtml() {
     const b = bld.bench;
     if (bld.benchErr) return `<div class="help" style="color:var(--bad)">These numbers would not solve: ${esc(bld.benchErr)}</div>`;
@@ -2933,9 +2954,10 @@
         <span>Punch-out: current · sag</span><span>${b.punchI.toFixed(0)} A · ${b.punchVcell.toFixed(2)} V/cell</span>
         <span>Cruise (nose 19° down)</span><span>${sp(b.cruiseV)} on ${b.cruiseI.toFixed(1)} A</span>
         <span>Cruise time · range</span><span>${b.cruiseMin.toFixed(0)} min · ${(S.units === 'imp' ? (b.cruiseKm / 1.609).toFixed(1) + ' mi' : b.cruiseKm.toFixed(1) + ' km')}</span>
+        ${b.ac.lift ? `<span>Lifting body (${Math.round(b.ac.lift.angle)}° to the props)</span><span>${Math.round(b.ac.S * 1550)} in², carries ${Math.round(b.lbLift * 100)}% at cruise</span>` : ''}
         <span>Pack</span><span>${esc(B.label)}, ${Math.round(B.R * 1000)} mΩ</span>
         <span>Full throttle draws</span><span>${B.Imax.toFixed(0)} A (${Math.round(B.Imax * B.Vref)} W)</span></div>
-        <div class="help">Hover, punch and pack numbers come straight from the thrust and battery equations the sim steps through; cruise is flown for 18 seconds at the current air density (${env.rho.toFixed(3)} kg/m³) and pack temperature.</div>`;
+        <div class="help">Hover, punch and pack numbers come straight from the thrust and battery equations the sim steps through; cruise is flown for 18 seconds at the current air density (${env.rho.toFixed(3)} kg/m³) and pack temperature.${b.ac.lift ? ` The lifting body is flying at ${Math.round(b.ac.lift.angle - 19)}° of its own there, because the cruise is flown 19° nose-down and the wing is rigged ${Math.round(b.ac.lift.angle)}° up from the props.` : ''}</div>`;
     }
     const rows = b.rows.filter((r, i) => i % Math.max(1, Math.round(b.rows.length / 5)) === 0 || i === b.rows.length - 1)
       .map((r) => `<tr><td>${sp(r.V)}</td><td>${(r.alpha * R2D).toFixed(1)}°</td><td>${Math.round(r.thr * 100)}%</td><td>${Math.round((r.e - (b.ac.trim.e || 0)) * 100)}%</td></tr>`).join('');
@@ -2962,6 +2984,7 @@
       <div class="help">${bld.kind === 'wing' ? 'A plank or flying wing: elevons, no tail, usually a pusher and a hand launch.' : bld.kind === 'quad' ? 'Four motors in an X, Betaflight-style rates.' : 'Wing, stabiliser, fin, and whatever gear you give it.'}</div>
       <div class="setrow" style="margin-top:8px"><input class="txt" id="bName" type="text" value="${esc(bld.name)}" placeholder="Name" style="flex:2 1 160px"><input class="txt" id="bAuthor" type="text" value="${esc(S.author || '')}" placeholder="Your name (author)" style="flex:1 1 120px"></div>`;
     for (const grp of GROUPS) {
+      if (grp === 'Lifting body' && !sp.liftBody) continue; // nothing to set until it has one
       const fields = ACF.SPEC_FIELDS.filter((fd) => ACF.wants(fd, bld.kind) && fd.group === grp);
       if (!fields.length) continue;
       h += `<div class="bgrp">${grp}</div>`;
@@ -2979,7 +3002,8 @@
       }
     }
     if (bld.kind === 'quad') {
-      const bools = [['quadGear', 'Landing gear', 'Skids under the frame, for a lifter.'], ['gimbal', 'Gimbal pod', 'A three-camera pod under the nose instead of an FPV camera.'], ['packTop', 'Pack on top', 'Off puts the battery underneath.']];
+      const bools = [['quadGear', 'Landing gear', 'Skids under the frame, for a lifter.'], ['gimbal', 'Gimbal pod', 'A three-camera pod under the nose instead of an FPV camera.'], ['packTop', 'Pack on top', 'Off puts the battery underneath.'],
+        ['liftBody', 'Lifting body', 'A wing across the middle of the frame, so some of the weight is carried by air and not by the motors. Long-range builds and speed quads both do this.']];
       h += '<div class="bgrp">Fit</div>';
       for (const [k, l, hp] of bools) {
         const cur = sp[k] !== undefined ? sp[k] : (k === 'quadGear' ? sp.propD >= 10 : k === 'packTop');

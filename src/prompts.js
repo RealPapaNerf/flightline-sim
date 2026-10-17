@@ -70,6 +70,16 @@ sensible default beats a number you made up.
                    thrustPerMotor (g, at full throttle on my cell count,
                      from the motor maker's thrust table)
                    rateMax (deg/s)
+                   liftBody (true/false) - a wing across the middle of the
+                     frame, for a long-range or speed build. With it:
+                     lbSpan, lbChord, lbTipChord (mm), lbSweep (degrees),
+                     lbAngle (degrees the leading edge is rigged UP out of
+                     the plane of the props - it must be MORE than the lean
+                     you cruise at, because a quad leans nose-down to fly
+                     forward and a wing flat in the prop plane then pushes
+                     down; 30 suits a 20-degree cruise),
+                     lbAirfoil (flat/semi/symmetric/reflex; a plate between
+                     the arms is symmetric)
     all:           camTilt (degrees down from level)
                    quadGear, gimbal, packTop (true/false)
 

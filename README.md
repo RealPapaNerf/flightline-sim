@@ -93,6 +93,21 @@ come back and change it, and exported as a file when you want to keep or share i
 landing, `U` raises and lowers the gear, and both can go on a radio switch. The OSD
 shows the flap setting and warns when the gear is up.
 
+**Lifting bodies on a quad.** Turn on *Fit → Lifting body* in the builder and the
+quad gets a wing across the middle of the frame, so that in forward flight some
+of the weight is carried by air instead of by the motors — a long-range build,
+or the idea a speed quad's aero shell is a version of.
+
+The one number that matters is the angle it is rigged at, and its sign is the
+thing that catches people out: a quad leans **nose-down** to go forward, which
+tips the frame's up-vector forward with it, so a wing lying flat in the plane of
+the props meets the air on its *top* surface and pushes down. The angle is
+measured leading edge up from the props and has to be bigger than the lean you
+cruise at. On the 7-inch, 1.2 kg example, rigging it 30° up takes the cruise from
+13.9 A to 9.2 A and the range from 18.6 km to 23.6 km; rigging it flat costs you
+a third of the range. [`aircraft/lb7-longrange.json`](aircraft/lb7-longrange.json)
+is one built, and `node test/liftbody_test.js` prints the whole table.
+
 **Tail-sitters** stand on their tail, hover on the props, then pitch over and fly
 horizontally — the shape the fastest drones in the world are built in.
 [`aircraft/speed-tailsitter.json`](aircraft/speed-tailsitter.json) is one in the class

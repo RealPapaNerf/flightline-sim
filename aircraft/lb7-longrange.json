@@ -1,0 +1,363 @@
+{
+  "format": "flightline-aircraft/1",
+  "author": "Flightline",
+  "version": "1",
+  "source": "built in the aircraft builder to show what a lifting body is worth",
+  "spec": {
+    "kind": "quad",
+    "name": "7\" lifting body",
+    "id": "lb7-longrange",
+    "blurb": "7-inch long-range quad with a 345 mm wing across the frame, rigged 32° up from the props. 1.2 kg on 6S2P Li-ion: the wing carries about a quarter of the weight at cruise and the range goes up by a quarter with it.",
+    "packTop": true,
+    "quadGear": false,
+    "liftBody": true,
+    "mass": 1200,
+    "propD": 7,
+    "wheelbase": 300,
+    "thrustPerMotor": 1500,
+    "camTilt": 20,
+    "rateMax": 517,
+    "lbSpan": 345,
+    "lbChord": 150,
+    "lbTipChord": 110,
+    "lbSweep": 14,
+    "lbAngle": 32,
+    "lbAirfoil": "symmetric",
+    "propPitch": 3.5,
+    "blades": 2,
+    "cellChem": "liion",
+    "cellsS": 6,
+    "cellsP": 2,
+    "cellmAh": 3000,
+    "cellR": 23,
+    "watts": 2080,
+    "motorKV": 1300,
+    "pitchSpeed": 0
+  },
+  "def": {
+    "id": "lb7-longrange",
+    "name": "7\" lifting body",
+    "blurb": "7-inch long-range quad with a 345 mm wing across the frame, rigged 32° up from the props. 1.2 kg on 6S2P Li-ion: the wing carries about a quarter of the weight at cruise and the range goes up by a quarter with it.",
+    "notes": "Assumed: 1,200 g all-up with the wing and the pack; 1,500 gf per motor on 6S from a 2806.5-class motor on a 7x3.5; 6S2P of P30B-class 18650s at 23 mOhm a cell. The lifting body is a 345 mm symmetrical plate between the arms, 150 mm at the root tapering to 110, swept 14 degrees, rigged 32 degrees leading-edge-up from the plane of the props. That last number is the one that matters: a quad leans nose-down to fly forward, so a wing flat in the prop plane would push down. At the 19-degree cruise the sim benches, this wing flies at 13 degrees and carries about a quarter of the weight. Weigh yours and put a real thrust figure in.",
+    "mass": 1.2,
+    "I": [
+      0.007295,
+      0.007952,
+      0.013131
+    ],
+    "body": {
+      "r": [
+        0,
+        0,
+        0
+      ],
+      "CdA": [
+        0.01265,
+        0.01486,
+        0.03161
+      ]
+    },
+    "batt": {
+      "chem": "liion",
+      "cells": 6,
+      "mAh": 6000,
+      "R": 0.072,
+      "Imax": 93.7,
+      "Iidle": 0.62,
+      "Vref": 22.2,
+      "label": "6S2P 6,000 Li-ion",
+      "cool": [
+        0.162,
+        0.065
+      ],
+      "cell": {
+        "d": 0.0185,
+        "l": 0.065
+      },
+      "series": 6,
+      "parallel": 2
+    },
+    "wheels": [],
+    "points": [
+      {
+        "p": [
+          0.0615,
+          0.0446,
+          0.0318
+        ],
+        "name": "frame",
+        "impact": 6,
+        "slide": 99,
+        "foot": true
+      },
+      {
+        "p": [
+          0.0615,
+          -0.0446,
+          0.0318
+        ],
+        "name": "frame",
+        "impact": 6,
+        "slide": 99,
+        "foot": true
+      },
+      {
+        "p": [
+          -0.0615,
+          0.0446,
+          0.0318
+        ],
+        "name": "frame",
+        "impact": 6,
+        "slide": 99,
+        "foot": true
+      },
+      {
+        "p": [
+          -0.0615,
+          -0.0446,
+          0.0318
+        ],
+        "name": "frame",
+        "impact": 6,
+        "slide": 99,
+        "foot": true
+      },
+      {
+        "p": [
+          0.1061,
+          0.1061,
+          0.012720000000000002
+        ],
+        "name": "front right motor",
+        "impact": 6,
+        "slide": 99,
+        "prop": true,
+        "motor": 0,
+        "strike": 3
+      },
+      {
+        "p": [
+          0.1061,
+          -0.1061,
+          0.012720000000000002
+        ],
+        "name": "front left motor",
+        "impact": 6,
+        "slide": 99,
+        "prop": true,
+        "motor": 1,
+        "strike": 3
+      },
+      {
+        "p": [
+          -0.1061,
+          0.1061,
+          0.012720000000000002
+        ],
+        "name": "rear right motor",
+        "impact": 6,
+        "slide": 99,
+        "prop": true,
+        "motor": 2,
+        "strike": 3
+      },
+      {
+        "p": [
+          -0.1061,
+          -0.1061,
+          0.012720000000000002
+        ],
+        "name": "rear left motor",
+        "impact": 6,
+        "slide": 99,
+        "prop": true,
+        "motor": 3,
+        "strike": 3
+      },
+      {
+        "p": [
+          0,
+          0,
+          -0.0175
+        ],
+        "name": "battery",
+        "impact": 5,
+        "slide": 10
+      },
+      {
+        "p": [
+          0.0902,
+          0,
+          -0.0159
+        ],
+        "name": "camera",
+        "impact": 4,
+        "slide": 8
+      }
+    ],
+    "contact": {
+      "kW": 0,
+      "cW": 0,
+      "kB": 2769.230769230769,
+      "cB": 24.45718393752327,
+      "muRoll": 0,
+      "muLat": 0,
+      "muBody": 0.7
+    },
+    "crash": {
+      "wheelImpact": 99
+    },
+    "starts": [
+      "pad",
+      "air"
+    ],
+    "fpvCam": [
+      0.0934,
+      0,
+      -0.0159
+    ],
+    "camTilt": 20,
+    "colR": 0.204,
+    "pid": {
+      "roll": [
+        23.7,
+        126,
+        0.3,
+        0.35,
+        0.0194
+      ],
+      "pitch": [
+        23.7,
+        126,
+        0.3,
+        0.35,
+        0.0194
+      ],
+      "yaw": [
+        16.6,
+        57,
+        0.3,
+        0.5,
+        0
+      ]
+    },
+    "angle": {
+      "max": 55,
+      "k": 7,
+      "rate": 500
+    },
+    "rates": {
+      "roll": {
+        "c": 70,
+        "m": 517,
+        "e": 0
+      },
+      "pitch": {
+        "c": 70,
+        "m": 517,
+        "e": 0
+      },
+      "yaw": {
+        "c": 70,
+        "m": 414,
+        "e": 0
+      }
+    },
+    "kind": "quad",
+    "motors": [
+      [
+        0.1061,
+        0.1061,
+        1
+      ],
+      [
+        0.1061,
+        -0.1061,
+        -1
+      ],
+      [
+        -0.1061,
+        0.1061,
+        -1
+      ],
+      [
+        -0.1061,
+        -0.1061,
+        1
+      ]
+    ],
+    "motor": {
+      "Tmax": 14.71,
+      "tau": 0.044,
+      "idle": 0.05,
+      "kQ": 0.0222,
+      "Vp": 39.7,
+      "D": 0.1778
+    },
+    "rotorDrag": 0.012,
+    "gear": false,
+    "gimbal": false,
+    "surfaces": [
+      {
+        "name": "lifting body",
+        "role": "wing",
+        "mirror": true,
+        "n": 4,
+        "y0": 0,
+        "y1": 0.1725,
+        "xLE0": 0.0375,
+        "xLE1": -0.0055,
+        "c0": 0.15,
+        "c1": 0.11,
+        "z0": 0,
+        "dihedral": 0,
+        "inc0": 32,
+        "inc1": 32,
+        "sweepLoad": 0,
+        "foil": {
+          "a": 3.381,
+          "CL0": 0,
+          "CLmax": 1.1,
+          "CLmin": -1.1,
+          "M": 22,
+          "CD0": 0.019,
+          "e": 0.78,
+          "Cm0": 0,
+          "CN90": 1.7
+        },
+        "flaps": []
+      }
+    ],
+    "lift": {
+      "span": 0.345,
+      "rootChord": 0.15,
+      "tipChord": 0.11,
+      "angle": 32,
+      "sweep": 14
+    },
+    "look": {
+      "front": [
+        1,
+        0.45,
+        0.1
+      ],
+      "rear": [
+        0.86,
+        0.88,
+        0.91
+      ],
+      "frame": [
+        0.14,
+        0.14,
+        0.15
+      ],
+      "wrap": [
+        0.2,
+        0.5,
+        0.8
+      ],
+      "blades": 2
+    }
+  }
+}
