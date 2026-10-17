@@ -116,6 +116,17 @@ seconds on `T`, and runs at 653 km/h until the pack gives out about forty second
 later. The OSD says HOVER, TRANSITION or FORWARD FLIGHT; Angle is the mode to hover
 in. `node test/vtol_test.js` flies the whole sortie and prints the numbers.
 
+[`aircraft/blown-wing-twin.json`](aircraft/blown-wing-twin.json) is the other
+shape: a one-metre **twin-motor blown wing**. Two motors either side of the
+centreline cannot pitch it — there is nothing above or below the middle to
+pitch *with* — so it yaws on differential thrust and flies pitch and roll on
+elevons sitting in the propwash, which is the only thing holding its attitude
+with the nose straight up and no airspeed. It hovers for five minutes, tips
+over, and runs at 97 km/h. `node test/vtol_test.js aircraft/blown-wing-twin.json`
+proves the wash is what is flying it: settled to a standstill it answers full
+pitch stick at 420°/s, and with the wash taken away it cannot hold the hover
+at all.
+
 Nothing in an aircraft file is ever executed. It is read with `JSON.parse` and copied
 field by field against a table of rules: every number range-checked and clamped, every
 clamp reported in words, anything unrecognised dropped and listed.

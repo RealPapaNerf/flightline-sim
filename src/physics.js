@@ -1066,7 +1066,8 @@ const FL = (function () {
     let dWash = 0; // slipstream speed-up behind a tractor prop (momentum theory, part developed)
     if (P.wash && T > 0) {
       const A = (Math.PI * P.D * P.D) / 4, Vx = Math.max(0, Vax);
-      dWash = (P.eta || 0.5) * (Math.sqrt(Vx * Vx + (2 * T) / (rho * A)) - Vx);
+      // `=== undefined`, not `||`: a file that says eta is zero means zero
+      dWash = (P.eta === undefined ? 0.5 : P.eta) * (Math.sqrt(Vx * Vx + (2 * T) / (rho * A)) - Vx);
     }
     const F = [T, 0, 0];
     const Mo = cross(P.r, F);
@@ -1391,7 +1392,8 @@ const FL = (function () {
     let dWash = 0;
     if (Ttot > 0) {
       const A = (Math.PI * M.D * M.D) / 4, Vx = Math.max(0, vb[0]);
-      dWash = (ac.washEta || 0.5) * (Math.sqrt(Vx * Vx + (2 * (Ttot / nM)) / (rho * A)) - Vx);
+      // `=== undefined`, not `||`: a file that says the wash is zero means zero
+      dWash = (ac.washEta === undefined ? 0.5 : ac.washEta) * (Math.sqrt(Vx * Vx + (2 * (Ttot / nM)) / (rho * A)) - Vx);
     }
     const gw = env.gw || [0, 0, 0], wa = [w[0] - gw[0], w[1] - gw[1], w[2] - gw[2]];
     const sf = stripForces(s, ac, vb, wa, R, rho, env, dWash, dt, F, Mo);

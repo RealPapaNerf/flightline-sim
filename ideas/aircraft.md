@@ -43,10 +43,12 @@ prop today, not a curve.
 - **The helicopter in a file.** It imports and exports, but the build sheet has no `heli` kind.
 - **A measured thrust curve** instead of static thrust plus pitch speed.
 - **Slotted and Fowler flaps.** The flap channel is a plain hinged surface.
-- **A quadplane.** The tail-sitter (`kind: "vtol"`) is built — it pitches the whole
-  airframe over and flies on its own body. One that keeps its wing level and tilts only
-  its motors, or carries separate lift and cruise motors, needs a second thrust axis the
-  format does not have.
+- **A quadplane.** Tail-sitters are built, in both shapes: the four-motor cruciform
+  (`aircraft/speed-tailsitter.json`) and the twin-motor blown wing
+  (`aircraft/blown-wing-twin.json`), which flies pitch and roll on elevons in its own
+  propwash. Both pitch the whole airframe over. One that keeps its wing level and tilts
+  only its motors, or carries separate lift and cruise motors, still needs a second
+  thrust axis the format does not have.
 - **An autopilot that knows about transitions.** ALT HOLD, LOITER and RTL are off on a
   tail-sitter today.
 

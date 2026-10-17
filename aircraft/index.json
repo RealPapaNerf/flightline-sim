@@ -10,6 +10,13 @@
       "author": "RealPapaNerf"
     },
     {
+      "file": "blown-wing-twin.json",
+      "name": "Blown-wing VTOL",
+      "kind": "vtol",
+      "blurb": "Twin-motor flying wing that stands on its tail. The two props blow over the elevons, which is the only thing holding its attitude at zero airspeed \u2014 then it tips over and flies away as a wing at 97 km/h.",
+      "author": "Flightline"
+    },
+    {
       "file": "camera-platform-2m.json",
       "name": "2 m camera platform",
       "kind": "conventional",

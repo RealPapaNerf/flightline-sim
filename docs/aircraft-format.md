@@ -691,10 +691,13 @@ actually does.
 
 ## Tail-sitters
 
-`kind: "vtol"` is four motors thrusting along the nose and wings in the cruise
-frame: it stands on its tail, hovers on the props, pitches over, and flies
-horizontally. `aircraft/speed-tailsitter.json` is one, in the class of the
-Peregreen V4 that holds the Guinness record at 657.59 km/h.
+`kind: "vtol"` is two to eight motors thrusting along the nose and wings in
+the cruise frame: it stands on its tail, hovers on the props, pitches over,
+and flies horizontally. Two of them ship: `aircraft/speed-tailsitter.json`, a
+four-motor cruciform in the class of the Peregreen V4 that holds the Guinness
+record at 657.59 km/h, and `aircraft/blown-wing-twin.json`, a one-metre
+**twin-motor blown wing** — see [Blown wings](#blown-wings) below, which is
+where the interesting part is.
 
 **The one idea.** There is no hover controller and no forward controller.
 There is one attitude the aircraft should be holding, which starts vertical and
@@ -720,12 +723,13 @@ tail-sitter otherwise lives on.
 | `motors` | `[x, y, spin]` | `[x, y, z, spin]` |
 | pitch | from the x offsets | from the **z** offsets |
 | yaw | from the prop torque | from the **y** offsets |
-| roll | from the y offsets | from the **prop torque** — so it rolls lazily and pitches hard |
+| roll | from the y offsets | from the **prop torque**, or from the surfaces — see below |
 | thrust at speed | falls to a quarter and stops there | falls to **zero** at the pitch speed, which is what sets the top speed |
 | lift | none | the strip model, in the cruise frame |
 
-It needs motors above and below the centreline to pitch with, and some wing
-area to fly on; the validator checks both.
+It needs some wing area to fly on, and it needs *some* way to reach every
+axis; the validator checks both. Motors above and below the centreline are one
+way to pitch it. Control surfaces in the propwash are the other.
 
 **Giving it lift.** A speed machine's lift comes from its fuselage and its arm
 fairings, so the aircraft file says so directly: the body is one surface with a
@@ -733,6 +737,61 @@ low aspect ratio, a slow lift curve and a late stall, and the four arms are two
 mirrored pairs at ±45° of dihedral — a cruciform wing. A surface with
 `"hidden": true` is not drawn by the 3-D model, which is how the fuselage can
 be a lifting body to the physics and a fuselage to your eyes.
+
+### Blown wings
+
+A **twin-motor** tail-sitter has no motors above or below the centreline at
+all, so the table above runs out: there is nothing to pitch it with. What it
+has instead is two propellers blowing over a wing, and elevons sitting in that
+slipstream. That is a blown wing, and it is the only reason it can hold an
+attitude with the nose straight up and no airspeed.
+
+Two fields make it work.
+
+**`surf`** says which axes belong to the control surfaces, as the angular
+acceleration (rad/s²) at which an axis asks for full deflection. An axis named
+there is flown by the surfaces and the motor mixer leaves it alone rather than
+fighting them for it:
+
+```json
+"surf": { "roll": 18, "pitch": 16, "yaw": 0 }
+```
+
+so pitch and roll are on the elevons and yaw stays on differential thrust,
+which is what two motors either side of the centreline are good for.
+
+**`washEta`** is how much of the slipstream reaches the surfaces behind the
+propellers — 0 to 1, and 0.5 if the file does not say. A strip whose centre is
+inside 0.6 prop diameters of a motor and behind it is marked at build time and
+sees the momentum-theory slipstream added to its own airspeed:
+
+```
+dWash = washEta · (√(Vx² + 2(T/n)/(ρA)) − Vx)
+```
+
+On the twin that ships, six of the fourteen strips are blown, and in the hover
+they are flying in about 15 m/s of the aircraft's own making.
+
+**It is worth measuring rather than asserting**, so `vtol_test` does. Settle
+the twin to a genuine standstill — 11 mm/s — ask for full pitch stick, and it
+answers at 420°/s inside a quarter of a second. Set `washEta` to zero and it
+cannot hold the hover at all: it is tumbling away at 20 m/s before the stick
+even moves.
+
+**Two things to know if you write one.**
+
+*Use a symmetrical section.* A cambered or reflexed wing makes lift in its own
+propwash with the nose straight up, and in a hover that lift is **horizontal** —
+the aircraft walks away from you, forever, and the attitude controller has no
+reason to stop it because nothing about the attitude is wrong. The twin that
+ships drifted a quarter of a metre a second with a reflexed plank section in
+it. Symmetrical, it holds station to 20 cm.
+
+*Balance the propellers.* With roll on the surfaces the mixer stops using
+propeller torque for it, so the reaction torque of the props becomes a
+disturbance the elevons have to fight rather than a control input. Counter-
+rotating pairs cancel it in the steady state, which is what the `spin` column
+of `motors` is for.
 
 **What this does not do.** The autopilot has no transition in it, so ALT HOLD,
 LOITER and RTL are off on a tail-sitter. There is no compressibility anywhere

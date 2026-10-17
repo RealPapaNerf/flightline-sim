@@ -31,9 +31,17 @@ const pad = (env) => { const s = FL.makeState(); FL.reset(s, ac, 'pad', 20); ret
 const holder = (tgt) => { let iz = 0; return (s) => { const ez = -s.p[2] - tgt; iz = FL.clamp(iz + ez * DT, -20, 20); return FL.clamp(H - 0.05 * ez - 0.01 * iz + 0.03 * s.v[2], 0, 1); }; };
 
 console.log(`${ac.name}  (${path.basename(file)})`);
-console.log(`  ${(ac.mass * 1000).toFixed(0)} g, ${ac.batt.label}, four ${(ac.motor.D / 0.0254).toFixed(1)}-inch props`);
+const NM = ac.motors.length;
+const WORD = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight'][NM] || String(NM);
+console.log(`  ${(ac.mass * 1000).toFixed(0)} g, ${ac.batt.label}, ${WORD} ${(ac.motor.D / 0.0254).toFixed(1)}-inch prop${NM === 1 ? '' : 's'}`);
 console.log(`  wing area ${(ac.S * 1e4).toFixed(0)} cm² over ${ac.strips.length} strips, span ${(ac.b * 1000).toFixed(0)} mm, static margin ${(ac.SM * 100).toFixed(1)}% MAC`);
-console.log(`  thrust to weight ${((4 * ac.motor.Tmax) / W).toFixed(1)} : 1, hover stick ${(H * 100).toFixed(0)}%, pitch speed ${ac.motor.Vp} m/s (${kmh(ac.motor.Vp).toFixed(0)} km/h)`);
+console.log(`  thrust to weight ${((NM * ac.motor.Tmax) / W).toFixed(1)} : 1, hover stick ${(H * 100).toFixed(0)}%, pitch speed ${ac.motor.Vp} m/s (${kmh(ac.motor.Vp).toFixed(0)} km/h)`);
+// which axes the control surfaces fly, and how much of the wing sits in the propwash
+if (ac.surf) {
+  const own = ['roll', 'pitch', 'yaw'].filter((k) => ac.surf[k] > 0);
+  const blown = ac.strips.filter((s) => s.wash).length;
+  console.log(`  ${own.length ? own.join(' and ') + ' on the control surfaces' : 'every axis on the motors'}, the rest on differential thrust; ${blown} of ${ac.strips.length} strips sit in the propwash`);
+}
 console.log(`  transition takes ${ac.trans.time} s and it cruises at ${deg(ac.trans.pitch).toFixed(1)}° nose-up\n`);
 
 console.log('== on its tail ==');
@@ -44,7 +52,14 @@ console.log('== on its tail ==');
 
 { const s = pad(); let top = 0;
   fly(s, { thr: 1 }, 2, envOf(true), (st) => { top = Math.max(top, -st.v[2]); });
-  ok(-s.p[2] > 20, 'leaves the pad at full throttle', `${(-s.p[2]).toFixed(0)} m up in 2 s, peak climb ${top.toFixed(0)} m/s (${kmh(top).toFixed(0)} km/h)`); }
+  /* How high it gets in two seconds has to be measured against what its own
+     thrust allows, not against a number. A 7:1 racer and a 2.6:1 utility
+     tail-sitter are both working properly and one of them climbs four times
+     as fast. The ideal is ½·(T/W − 1)·g·t²; anything over 45% of that has
+     spooled up, left the ground and is still accelerating. */
+  const ideal = 0.5 * ((NM * ac.motor.Tmax) / W - 1) * FL.G * 4;
+  ok(-s.p[2] > 0.45 * ideal, 'leaves the pad at full throttle',
+    `${(-s.p[2]).toFixed(0)} m up in 2 s (${((-s.p[2] / ideal) * 100).toFixed(0)}% of the ${ideal.toFixed(0)} m its thrust allows), peak climb ${top.toFixed(0)} m/s (${kmh(top).toFixed(0)} km/h)`); }
 
 { // hold a hover at 30 m and see how far it wanders
   const s = pad(); const thr = holder(30); let drift = 0, alt = [];
@@ -56,6 +71,48 @@ console.log('== on its tail ==');
     `height ${lo.toFixed(1)}–${hi.toFixed(1)} m, wandered ${drift.toFixed(1)} m, ${s.I.toFixed(0)} A, pack ${(s.soc * 100).toFixed(0)}%`);
   const Ih = s.I;
   console.log(`      hover costs ${Ih.toFixed(0)} A (${(Ih * s.vb / 1000).toFixed(1)} kW) → ${((ac.batt.mAh * 0.8) / 1000 / Ih * 60).toFixed(1)} min of hovering`); }
+
+/* Is the wing actually blown?
+   A tail-sitter that flies an axis on its control surfaces has nothing to fly
+   it with at zero airspeed except what the propellers make. That is the whole
+   design, so it is worth measuring rather than asserting.
+
+   Measuring it fairly takes some care. "Take the wash away and see if it
+   falls over" does not work twice over: a perfectly balanced aircraft with no
+   authority at all just hangs there, and one that is sinking even slightly
+   has real airflow along its chord — a tail-sitter's wing is large, and 2 m/s
+   of sink is enough for the elevons to bite. So this settles it to a genuine
+   standstill first, checks that it is standing still, then asks for a lean
+   and reads the pitch rate in the quarter of a second before any translation
+   can build up. That is the authority the propwash is buying. */
+if (ac.surf && ['roll', 'pitch', 'yaw'].some((k) => ac.surf[k] > 0)) {
+  console.log('\n== is the wing actually blown? ==');
+  const punch = (model) => {
+    const s = FL.makeState(); FL.reset(s, model, 'pad', 20);
+    const env = { rho: 1.225, wind: [0, 0, 0], battery: false, crashes: false, wx: { T: 20, lwc: 0, mvd: 0, rain: 0 } };
+    let iz = 0, rate = 0, still = 0;
+    const SETTLE = 14;
+    for (let i = 0, n = Math.round((SETTLE + 0.25) / DT); i < n; i++) {
+      const t = i * DT;
+      const ez = -s.p[2] - 8;
+      iz = FL.clamp(iz + ez * DT, -20, 20);
+      const thr = FL.clamp(model.hoverThr - 0.12 * ez - 0.03 * iz + 0.12 * s.v[2], 0, 1);
+      if (t >= SETTLE && still === 0) still = Math.hypot(s.v[0], s.v[1], s.v[2]);
+      FL.step(s, model, { thr, a: 0, e: t >= SETTLE ? 1 : 0, r: 0, fwd: 0, armed: true, mode: 'acro' }, env, DT);
+      if (t >= SETTLE) rate = Math.max(rate, Math.abs(s.w[1]));
+    }
+    return { rate: deg(rate), still };
+  };
+  const wet = punch(ac);
+  const dry = punch(FL.build(Object.assign(JSON.parse(JSON.stringify(read.def)), { washEta: 0 })));
+  ok(wet.still < 0.3, 'on its own propwash it settles to a standstill',
+    `drifting ${(wet.still * 1000).toFixed(0)} mm/s after ${14} s`);
+  ok(wet.rate > 40, 'and full pitch stick from there gets an answer',
+    `${wet.rate.toFixed(0)}°/s in a quarter of a second, on ${(ac.washEta * 100).toFixed(0)}% wash`);
+  // without the wash it either cannot hold station at all or cannot rotate
+  ok(dry.still > 1 || dry.rate < wet.rate / 4, 'take the propwash away and it cannot hold the hover at all — the wash is what flies it',
+    `drifting ${(dry.still).toFixed(1)} m/s by the time the stick moves, against ${(wet.still * 1000).toFixed(0)} mm/s with it`);
+}
 
 console.log('\n== transition and run ==');
 { const s = pad(); const thr = holder(80); let tDone = null, vAt = [], minAlt = 1e9;
@@ -107,7 +164,7 @@ console.log('\n== back to a hover, and down ==');
 
 { const t0 = process.hrtime.bigint();
   const s = pad(); fly(s, { thr: 0.6, a: 0.2, e: 0.1, r: 0.05 }, 10, envOf(true));
-  console.log(`\nCPU: ${(Number(process.hrtime.bigint() - t0) / 1e6 / 10).toFixed(2)} ms per simulated second (${ac.strips.length} strips, 4 motors)`); }
+  console.log(`\nCPU: ${(Number(process.hrtime.bigint() - t0) / 1e6 / 10).toFixed(2)} ms per simulated second (${ac.strips.length} strips, ${NM} motors)`); }
 
 console.log(`\n${fails ? fails + ' CHECK(S) FAILED' : 'all checks passed'}`);
 process.exit(fails ? 1 : 0);

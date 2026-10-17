@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<!-- built by tools/build.py from src/ (ded6c34f); edit the sources, not this file -->
+<!-- built by tools/build.py from src/ (df49a645); edit the sources, not this file -->
 <title>Flightline RC Sim</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Browser RC flight trainer: Nano Goblin and trainer flight models, line of sight, FPV and split view, USB transmitter support.">
@@ -1496,7 +1496,8 @@ const FL = (function () {
     let dWash = 0; // slipstream speed-up behind a tractor prop (momentum theory, part developed)
     if (P.wash && T > 0) {
       const A = (Math.PI * P.D * P.D) / 4, Vx = Math.max(0, Vax);
-      dWash = (P.eta || 0.5) * (Math.sqrt(Vx * Vx + (2 * T) / (rho * A)) - Vx);
+      // `=== undefined`, not `||`: a file that says eta is zero means zero
+      dWash = (P.eta === undefined ? 0.5 : P.eta) * (Math.sqrt(Vx * Vx + (2 * T) / (rho * A)) - Vx);
     }
     const F = [T, 0, 0];
     const Mo = cross(P.r, F);
@@ -1821,7 +1822,8 @@ const FL = (function () {
     let dWash = 0;
     if (Ttot > 0) {
       const A = (Math.PI * M.D * M.D) / 4, Vx = Math.max(0, vb[0]);
-      dWash = (ac.washEta || 0.5) * (Math.sqrt(Vx * Vx + (2 * (Ttot / nM)) / (rho * A)) - Vx);
+      // `=== undefined`, not `||`: a file that says the wash is zero means zero
+      dWash = (ac.washEta === undefined ? 0.5 : ac.washEta) * (Math.sqrt(Vx * Vx + (2 * (Ttot / nM)) / (rho * A)) - Vx);
     }
     const gw = env.gw || [0, 0, 0], wa = [w[0] - gw[0], w[1] - gw[1], w[2] - gw[2]];
     const sf = stripForces(s, ac, vb, wa, R, rho, env, dWash, dt, F, Mo);

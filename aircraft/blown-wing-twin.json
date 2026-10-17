@@ -1,0 +1,366 @@
+{
+  "format": "flightline-aircraft/1",
+  "author": "Flightline",
+  "version": "1",
+  "source": "designed here; every assumption is in the notes",
+  "def": {
+    "id": "blown-wing-twin",
+    "name": "Blown-wing VTOL",
+    "blurb": "Twin-motor flying wing that stands on its tail. The two props blow over the elevons, which is the only thing holding its attitude at zero airspeed — then it tips over and flies away as a wing at 97 km/h.",
+    "notes": "Designed here rather than copied: a one-metre twin-motor tail-sitting flying wing, the kind people build from a plank wing with two motors on the leading edge. Assumed, because none of it is published: 1,350 g all-up; 1,730 gf per motor on 6S (a 2806.5-class motor on a 7x4); 32 m/s pitch speed, from 4 inches of pitch at about 29,000 rpm with two thirds of it reaching the air; 6S 3,000 LiPo at 3.5 mOhm a cell; 62 cm2 of head-on drag area on a 75 x 85 mm pod. The section is symmetrical on purpose: a cambered or reflexed wing makes lift in its own propwash with the nose straight up, and that lift is horizontal when you are hovering, so the aircraft walks away from you. Cambered, this one drifted a quarter of a metre a second; symmetrical, it holds station to 20 cm. Yaw is on differential thrust and pitch and roll are on the elevons, because there are no motors above or below the centreline to pitch it with. So the elevons hold the attitude in the hover flying on nothing but the slipstream the two props make, and taking that away drops it inside a second: node test/vtol_test.js aircraft/blown-wing-twin.json measures exactly that.",
+    "mass": 1.35,
+    "I": [
+      0.1241,
+      0.0147,
+      0.1348
+    ],
+    "body": {
+      "r": [
+        -0.04,
+        0,
+        0
+      ],
+      "CdA": [
+        0.0062,
+        0.03,
+        0.055
+      ]
+    },
+    "batt": {
+      "chem": "lipo",
+      "cells": 6,
+      "mAh": 3000,
+      "R": 0.021,
+      "Imax": 108,
+      "Iidle": 0.9,
+      "Vref": 22.8,
+      "label": "6S 3,000 LiPo",
+      "cool": [
+        0.16,
+        0.064
+      ]
+    },
+    "wheels": [],
+    "points": [
+      {
+        "p": [
+          0.2776,
+          0,
+          0
+        ],
+        "name": "nose",
+        "impact": 4,
+        "slide": 10
+      },
+      {
+        "p": [
+          -0.1224,
+          0.055,
+          0.055
+        ],
+        "name": "tail leg",
+        "impact": 3.5,
+        "slide": 99,
+        "foot": true
+      },
+      {
+        "p": [
+          -0.1224,
+          0.055,
+          -0.055
+        ],
+        "name": "tail leg",
+        "impact": 3.5,
+        "slide": 99,
+        "foot": true
+      },
+      {
+        "p": [
+          -0.1224,
+          -0.055,
+          0.055
+        ],
+        "name": "tail leg",
+        "impact": 3.5,
+        "slide": 99,
+        "foot": true
+      },
+      {
+        "p": [
+          -0.1224,
+          -0.055,
+          -0.055
+        ],
+        "name": "tail leg",
+        "impact": 3.5,
+        "slide": 99,
+        "foot": true
+      },
+      {
+        "p": [
+          -0.0183,
+          0.5,
+          0
+        ],
+        "name": "right wingtip",
+        "impact": 3,
+        "slide": 12
+      },
+      {
+        "p": [
+          -0.0183,
+          -0.5,
+          0
+        ],
+        "name": "left wingtip",
+        "impact": 3,
+        "slide": 12
+      },
+      {
+        "p": [
+          0.12,
+          0.19,
+          0
+        ],
+        "name": "right motor",
+        "impact": 6,
+        "slide": 99,
+        "prop": true,
+        "motor": 0,
+        "strike": 3
+      },
+      {
+        "p": [
+          0.12,
+          -0.19,
+          0
+        ],
+        "name": "left motor",
+        "impact": 6,
+        "slide": 99,
+        "prop": true,
+        "motor": 1,
+        "strike": 3
+      },
+      {
+        "p": [
+          0.0726,
+          0,
+          0.0425
+        ],
+        "name": "belly",
+        "impact": 5,
+        "slide": 12
+      }
+    ],
+    "contact": {
+      "kW": 0,
+      "cW": 0,
+      "kB": 3400,
+      "cB": 42,
+      "muRoll": 0,
+      "muLat": 0,
+      "muBody": 0.7
+    },
+    "crash": {
+      "wheelImpact": 99
+    },
+    "starts": [
+      "pad",
+      "air"
+    ],
+    "fpvCam": [
+      0.2926,
+      0,
+      0
+    ],
+    "camTilt": 0,
+    "colR": 0.5,
+    "pid": {
+      "roll": [
+        22,
+        95,
+        0.3,
+        0.4,
+        0.02
+      ],
+      "pitch": [
+        26,
+        110,
+        0.3,
+        0.4,
+        0.02
+      ],
+      "yaw": [
+        14,
+        50,
+        0.3,
+        0.5,
+        0
+      ]
+    },
+    "angle": {
+      "max": 45,
+      "k": 6,
+      "rate": 300
+    },
+    "rates": {
+      "roll": {
+        "c": 70,
+        "m": 360,
+        "e": 0
+      },
+      "pitch": {
+        "c": 70,
+        "m": 360,
+        "e": 0
+      },
+      "yaw": {
+        "c": 50,
+        "m": 220,
+        "e": 0
+      }
+    },
+    "kind": "vtol",
+    "motors": [
+      [
+        0.12,
+        0.19,
+        0,
+        1
+      ],
+      [
+        0.12,
+        -0.19,
+        0,
+        -1
+      ]
+    ],
+    "motor": {
+      "Tmax": 17,
+      "tau": 0.05,
+      "idle": 0.06,
+      "kQ": 0.022,
+      "Vp": 32,
+      "D": 0.178
+    },
+    "staticMargin": 0.07,
+    "surfaces": [
+      {
+        "name": "wing",
+        "role": "wing",
+        "mirror": true,
+        "n": 7,
+        "y0": 0,
+        "y1": 0.5,
+        "xLE0": 0.2376,
+        "xLE1": -0.0283,
+        "c0": 0.33,
+        "c1": 0.15,
+        "z0": 0,
+        "dihedral": 0,
+        "inc0": 0,
+        "inc1": -1.5,
+        "sweepLoad": 0.25,
+        "foil": {
+          "a": 4.0015,
+          "CL0": 0,
+          "CLmax": 1,
+          "CLmin": -1,
+          "M": 26,
+          "CD0": 0.016,
+          "e": 0.84,
+          "Cm0": 0,
+          "CN90": 1.65
+        },
+        "flaps": [
+          {
+            "y0": 0.1,
+            "y1": 0.46,
+            "chord": 0.0624,
+            "a": -1,
+            "e": -1,
+            "side": "mirror"
+          }
+        ]
+      }
+    ],
+    "defl": {
+      "a": 0.36,
+      "e": 0.36,
+      "r": 0,
+      "flapMax": 0.6
+    },
+    "flexQ": 1400,
+    "servoRate": 9,
+    "trans": {
+      "time": 2.2,
+      "pitch": 0.0611,
+      "vAir": 20
+    },
+    "shape": {
+      "fuseW": 0.075,
+      "fuseH": 0.085
+    },
+    "surf": {
+      "roll": 18,
+      "pitch": 16,
+      "yaw": 0
+    },
+    "washEta": 0.72,
+    "rotorDrag": 0.012,
+    "look": {
+      "top": [
+        0.98,
+        0.72,
+        0.1
+      ],
+      "bottom": [
+        0.12,
+        0.13,
+        0.15
+      ],
+      "side": [
+        0.86,
+        0.6,
+        0.08
+      ],
+      "tip": [
+        0.2,
+        0.8,
+        0.95
+      ],
+      "accent": [
+        0.08,
+        0.08,
+        0.09
+      ],
+      "fuse": [
+        0.93,
+        0.93,
+        0.91
+      ],
+      "fuseBottom": [
+        0.12,
+        0.13,
+        0.15
+      ],
+      "canopy": [
+        0.1,
+        0.12,
+        0.16
+      ],
+      "dark": [
+        0.07,
+        0.07,
+        0.08
+      ],
+      "metal": [
+        0.72,
+        0.74,
+        0.78
+      ],
+      "blades": 2
+    }
+  }
+}
