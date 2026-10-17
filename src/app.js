@@ -938,6 +938,42 @@
     const pm = propMeshes(g, 2, 0.127, dark);
     return { parts, props: [{ blades: pm.blades, disc: pm.disc, mat: M4.trans(0, 0, -0.455), spin: (s0) => s0.n, dir: 1, ang: 0 }], cam: BR(ac.fpvCam) };
   }
+  /* ---- quad fit ----------------------------------------------------------------
+     Where the landing gear, the pack and the camera sit on a quad, in render
+     coordinates, read out of the definition's own contact points.
+
+     This is the piece that keeps a quad the right way up, so it is worth
+     spelling out. The body frame is FRD: +x forward, +y right, **+z down**.
+     The render frame is Y-up. So a point 160 mm below the centre of gravity
+     has p[2] = +0.16 and belongs at render y = −0.16, and BR() is what does
+     that (`-p[2]`). Negating it a second time on the way into the geometry is
+     exactly the bug that used to stand the 13-inch and 10-inch quads on their
+     landing gear with the battery hanging off the underside.
+
+     Nothing here invents a position: the feet are under the frame because the
+     file says they are 160 mm down, and the pack is on top because the file
+     says it is 88 mm up. test/quadmodel_test.js checks the signs against every
+     built-in quad and every file in aircraft/. */
+  function quadFit(ac) {
+    const down = (p) => -p[2]; // body down -> render height
+    const feet = (ac.points || []).filter((pt) => pt.foot);
+    const pack = (ac.points || []).find((pt) => pt.name === 'battery');
+    const eye = (ac.points || []).find((pt) => pt.name === 'camera' || pt.name === 'gimbal');
+    const reach = (f) => feet.reduce((a, pt) => Math.max(a, Math.abs(f(pt))), 0);
+    const gear = feet.length
+      // y: the lowest foot, which is where the skid rests. x: how far out the
+      // feet are to the sides. z: how far fore and aft, with the skid running
+      // a quarter past the feet at each end, the way a real skid does.
+      ? { y: -Math.max(...feet.map((pt) => pt.p[2])), x: Math.max(reach((pt) => pt.p[1]), 0.02), z: Math.max(1.25 * reach((pt) => pt.p[0]), 0.03) }
+      : null;
+    return {
+      gear,
+      // up: the pack is on top of the frame rather than slung underneath
+      pack: pack ? { y: down(pack.p), up: pack.p[2] < 0 } : { y: 0.03, up: true },
+      cam: eye ? [eye.p[1], down(eye.p), -eye.p[0]] : [0, 0, 0],
+    };
+  }
+  /* ---- end quad fit ---- */
   function buildQuad(ac) {
     const LK = ac.look || {}, k = Math.abs(ac.motors[0][0]) / 0.078, D = ac.motor.D;
     const carbon = LK.frame || [0.14, 0.14, 0.15], dark = [0.06, 0.06, 0.07], bell = [0.72, 0.74, 0.78];
@@ -951,32 +987,37 @@
     g.box(-0.03 * k, -0.004, -0.055 * k, 0.03 * k, 0.004, 0.055 * k, carbon); // bottom plate
     g.box(-0.02 * k, 0.004, -0.028 * k, 0.02 * k, 0.026, 0.028 * k, dark); // stack
     g.box(-0.028 * k, 0.026, -0.05 * k, 0.028 * k, 0.03, 0.05 * k, carbon); // top plate
-    const B = ac.batt, pz = ac.points.find((pt) => pt.name === 'battery').p[2];
+    const B = ac.batt, fit = quadFit(ac), up = fit.pack.up;
+    // the plate the pack is strapped to: the top one if it rides on top, the bottom one if it hangs under
+    const deck = up ? 0.03 : -0.004;
     if (B.cell) { // Li-ion pack: the cells themselves, lying fore–aft in rows
       const d = B.cell.d, len = B.cell.l, n = B.series * B.parallel, rows = n > 6 ? 2 : 1, per = Math.ceil(n / rows);
-      const y0 = pz < 0 ? 0.03 : -0.004 - rows * d, wrap = LK.wrap || [0.2, 0.5, 0.8];
+      const y0 = up ? deck : deck - rows * d, wrap = LK.wrap || [0.2, 0.5, 0.8];
       for (let r = 0; r < rows; r++) for (let i = 0; i < per; i++) {
         const x = (i - (per - 1) / 2) * d, y = y0 + (r + 0.5) * d;
         g.with(M4.mul(M4.trans(x, y, len / 2), M4.rotX(-Math.PI / 2)), () => g.cyl(0, 0, 0, d / 2, d / 2, len, 7, (i + r) % 2 ? wrap : scl(wrap, 0.85)));
       }
-      g.box(-per * d / 2 - 0.002, y0 + (pz < 0 ? rows * d : 0) - 0.003, -0.01, per * d / 2 + 0.002, y0 + (pz < 0 ? rows * d : 0) + 0.003, 0.01, dark); // strap
+      const sy = up ? y0 + rows * d : y0; // the strap goes over the outer face
+      g.box(-per * d / 2 - 0.002, sy - 0.003, -0.01, per * d / 2 + 0.002, sy + 0.003, 0.01, dark); // strap
     } else {
-      g.box(-0.018, 0.03, -0.038, 0.018, 0.062, 0.038, { top: [0.98, 0.78, 0.15], bottom: dark, side: [0.98, 0.78, 0.15], front: dark, back: dark }); // LiPo
-      g.box(-0.019, 0.044, -0.008, 0.019, 0.063, 0.008, dark); // strap
+      const t = 0.032, y0 = up ? deck : deck - t;
+      g.box(-0.018, y0, -0.038, 0.018, y0 + t, 0.038, { top: [0.98, 0.78, 0.15], bottom: dark, side: [0.98, 0.78, 0.15], front: dark, back: dark }); // LiPo
+      const sy = up ? y0 + t : y0;
+      g.box(-0.019, sy - 0.0015, -0.008, 0.019, sy + 0.0015, 0.008, dark); // strap
     }
-    const cam = BR(ac.points.find((pt) => pt.name === 'camera' || pt.name === 'gimbal').p);
+    const cam = fit.cam;
     if (ac.gimbal) { // three-camera pod (day, night, thermal) under the nose
       g.box(-0.004, cam[1] + 0.03, cam[2] + 0.01, 0.004, 0.0, cam[2] + 0.02, dark);
       g.box(-0.045, cam[1] - 0.025, cam[2] - 0.02, 0.045, cam[1] + 0.03, cam[2] + 0.035, [0.2, 0.21, 0.23]);
       for (const [x, y, c] of [[-0.022, 0.012, [0.1, 0.1, 0.12]], [0.022, 0.012, [0.12, 0.08, 0.06]], [0, -0.012, [0.35, 0.2, 0.1]]]) g.with(M4.trans(x, cam[1] + y, cam[2] - 0.02), () => g.with(M4.rotX(-Math.PI / 2), () => g.cyl(0, 0, 0, 0.009, 0.008, 0.008, 8, c)));
     } else g.box(-0.016 * Math.sqrt(k), cam[1] - 0.015, cam[2] - 0.012, 0.016 * Math.sqrt(k), cam[1] + 0.015, cam[2] + 0.012, dark); // FPV camera
     g.box(-0.004, 0.005, 0.05 * k, 0.004, 0.06 * Math.sqrt(k), 0.056 * k, dark); // antenna
-    if (ac.gear) { // landing gear: two hoops under the frame
-      const fy = -ac.points.find((pt) => pt.foot).p[2], fx = ac.points.find((pt) => pt.foot).p[1];
+    if (ac.gear && fit.gear) { // landing gear: two skids under the frame, on a pair of struts each
+      const G = fit.gear, rail = 0.006 * Math.sqrt(k);
       for (const sx of [-1, 1]) {
-        g.box(sx * fx - 0.006, -fy, -0.16, sx * fx + 0.006, -fy + 0.012, 0.16, dark); // skid
-        for (const z of [-0.09, 0.09]) g.box(sx * fx * 0.55 - 0.006, -fy, z - 0.006, sx * fx * 0.55 + 0.006, 0, z + 0.006, carbon);
-        g.box(sx * fx * 0.55, -fy, -0.006, sx * fx, -fy + 0.012, 0.006, carbon);
+        g.box(sx * G.x - rail, G.y, -G.z, sx * G.x + rail, G.y + 2 * rail, G.z, dark); // skid
+        for (const z of [-0.75 * G.z, 0.75 * G.z]) g.box(sx * G.x * 0.55 - rail, G.y, z - rail, sx * G.x * 0.55 + rail, 0, z + rail, carbon); // strut
+        g.box(Math.min(sx * G.x * 0.55, sx * G.x), G.y, -rail, Math.max(sx * G.x * 0.55, sx * G.x), G.y + 2 * rail, rail, carbon); // out to the rail
       }
     }
     const props = [], blades = LK.blades || 3, mr = 0.013 * (D / 0.127), mh = 0.018 * Math.sqrt(D / 0.127);

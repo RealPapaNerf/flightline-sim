@@ -395,7 +395,7 @@ const FL = (function () {
       blurb: '13-inch heavy lifter with landing gear and a three-camera gimbal pod, on a 12S2P 21700 Li-ion pack (P50B-class: 10,000 mAh, 120 A). 3.7 kg, about 4.6:1 thrust to weight. Big props spool slowly and it carries a lot of momentum: plan your stops.',
       mass: 3.7,
       I: [0.07, 0.08, 0.13],
-      arm: 0.205, foot: 0.16, footX: 0.12, footY: 0.14, gear: true, gimbal: true, pack: [0, 0, 0.07], cam: [0.15, 0, 0.1],
+      arm: 0.205, foot: 0.16, footX: 0.12, footY: 0.14, gear: true, gimbal: true, pack: [0, 0, -0.088], cam: [0.15, 0, 0.1],
       motor: { Tmax: 42, tau: 0.09, idle: 0.06, kQ: 0.04, Vp: 30, D: 0.33 },
       body: { r: [0, 0, 0], CdA: [0.04, 0.045, 0.09] },
       pid: { roll: [14, 60, 0.3, 0.4, 0.012], pitch: [14, 60, 0.3, 0.4, 0.012], yaw: [9, 30, 0.3, 0.6, 0] },
