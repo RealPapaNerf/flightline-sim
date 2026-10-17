@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<!-- built by tools/build.py from src/ (34b4babd); edit the sources, not this file -->
+<!-- built by tools/build.py from src/ (95862082); edit the sources, not this file -->
 <title>Flightline RC Sim</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Browser RC flight trainer: Nano Goblin and trainer flight models, line of sight, FPV and split view, USB transmitter support.">
@@ -169,6 +169,10 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; heigh
 .brow .tag[disabled] { opacity: 1; }
 .brow .tag.set { color: var(--accent); border-color: var(--accent); cursor: pointer; }
 .brow .help { grid-column: 1 / -1; font-size: 12px; color: var(--muted); line-height: 1.4; margin: -2px 0 4px; }
+.bldview { position: relative; width: 100%; aspect-ratio: 4 / 3; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #141b21; touch-action: none; }
+.bldview canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+.bldview canvas:active { cursor: grabbing; }
+@supports not (aspect-ratio: 1) { .bldview { height: 240px; } }
 .bench { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--panel-2); }
 .bench .kv { margin-bottom: 0; }
 .bench .kv + .tbl { margin-top: 10px; }
@@ -6723,7 +6727,14 @@ if (typeof module !== 'undefined') module.exports = NET;
     return GLR.mesh(R, g);
   })();
 
-  /* ---------------------------------------------------------------- aircraft meshes */
+  /* ---------------------------------------------------------------- aircraft meshes
+     Every mesh below is built in `MR` rather than in `R`. They are the same
+     renderer almost all the time — but the builder's preview has a second
+     WebGL context of its own, and a buffer belongs to the context that
+     created it, so the preview sets MR to its own renderer for the length of
+     one modelFor() call. Nothing else in the file has two renderers to choose
+     between, which is why this is the only place the indirection exists. */
+  let MR = R; // the renderer the meshes below are built in
   const BR = (p) => [p[1], -p[2], -p[0]]; // body FRD -> render local (x right, y up, z aft)
   // closed slab from 4 mid-plane corners; thickness along `dir` (render local)
   function slab(g, a, b, c, d, t0, t1, top, bot, side, dir = [0, 1, 0]) {
@@ -6738,7 +6749,7 @@ if (typeof module !== 'undefined') module.exports = NET;
     const gb = new Geo();
     for (let i = 0; i < blades; i++) gb.with(M4.rotZ((i / blades) * Math.PI * 2), () => gb.box(0, -rad * 0.07, -0.004, rad, rad * 0.07, 0.004, col));
     const gd = new Geo(); gd.disc(rad, 24, discCol || [0.75, 0.77, 0.8]);
-    return { blades: GLR.mesh(R, gb), disc: GLR.mesh(R, gd) };
+    return { blades: GLR.mesh(MR, gb), disc: GLR.mesh(MR, gd) };
   }
   const flapDefl = (ac, st, s) => clamp(st.ka * s.sa + st.ke * s.se + st.kr * s.sr + (st.kf || 0) * s.sf, -ac.defl.flapMax, ac.defl.flapMax);
 
@@ -6763,14 +6774,14 @@ if (typeof module !== 'undefined') module.exports = NET;
     slab(g, P(0.07, 0, -0.015), P(0.035, 0, -0.09), P(-0.005, 0, -0.09), P(-0.01, 0, -0.015), 0.006, 0.004, top, top, side, [1, 0, 0]);
     // motor
     g.with(M4.trans(0, 0, -X(-0.022)), () => g.with(M4.rotX(Math.PI / 2), () => g.cyl(0, -0.006, 0, 0.012, 0.012, 0.014, 8, [0.6, 0.6, 0.62])));
-    const parts = [{ mesh: GLR.mesh(R, g), mat: M4.ident() }];
+    const parts = [{ mesh: GLR.mesh(MR, g), mat: M4.ident() }];
     // elevons
     const hingeZ = -X(0.035);
     for (const s of [1, -1]) {
       const ge = new Geo();
       slab(ge, [0.05 * s, 0, 0], [0.285 * s, 0, 0], [0.285 * s, 0, 0.035], [0.05 * s, 0, 0.035], 0.012, 0.008, top, bot, side);
       const st = ac.strips.find((x) => x.role === 'wing' && x.side === s && x.tau > 0);
-      parts.push({ mesh: GLR.mesh(R, ge), mat: M4.trans(0, 0, hingeZ), anim: (st0) => M4.rotX(flapDefl(ac, st, st0)) });
+      parts.push({ mesh: GLR.mesh(MR, ge), mat: M4.trans(0, 0, hingeZ), anim: (st0) => M4.rotX(flapDefl(ac, st, st0)) });
     }
     const pm = propMeshes(g, 3, 0.038, dark);
     const propZ = -ac.prop.r[0];
@@ -6800,19 +6811,19 @@ if (typeof module !== 'undefined') module.exports = NET;
     g.box(-0.17, -0.08, 0.044, 0.17, -0.07, 0.056, [0.7, 0.7, 0.72]);
     for (const x of [-0.17, 0.17]) g.box(x - 0.006, -0.135, 0.044, x + 0.006, -0.07, 0.056, [0.7, 0.7, 0.72]);
     wheel(0, -0.32); wheel(-0.185, 0.05); wheel(0.185, 0.05);
-    const parts = [{ mesh: GLR.mesh(R, g), mat: M4.ident() }];
+    const parts = [{ mesh: GLR.mesh(MR, g), mat: M4.ident() }];
     for (const s of [1, -1]) {
       const ga = new Geo();
       slab(ga, [0.36 * s, 0, 0], [0.75 * s, 0, 0], [0.75 * s, 0, 0.05], [0.36 * s, 0, 0.05], 0.022, 0.018, top, bot, side);
       const st = ac.strips.find((x) => x.role === 'wing' && x.side === s && x.tau > 0);
-      parts.push({ mesh: GLR.mesh(R, ga), mat: M4.chain(M4.trans(0, 0.1, 0), M4.rotZ(s * G2), M4.trans(0, 0, 0.104)), anim: (st0) => M4.rotX(flapDefl(ac, st, st0)) });
+      parts.push({ mesh: GLR.mesh(MR, ga), mat: M4.chain(M4.trans(0, 0.1, 0), M4.rotZ(s * G2), M4.trans(0, 0, 0.104)), anim: (st0) => M4.rotX(flapDefl(ac, st, st0)) });
     }
     const gE = new Geo(); slab(gE, [-0.25, 0, 0], [0.25, 0, 0], [0.25, 0, 0.045], [-0.25, 0, 0.045], 0.01, 0.008, top, bot, side);
     const stE = ac.strips.find((x) => x.role === 'tail' && x.tau > 0);
-    parts.push({ mesh: GLR.mesh(R, gE), mat: M4.trans(0, 0, 0.715), anim: (st0) => M4.rotX(flapDefl(ac, stE, st0)) });
+    parts.push({ mesh: GLR.mesh(MR, gE), mat: M4.trans(0, 0, 0.715), anim: (st0) => M4.rotX(flapDefl(ac, stE, st0)) });
     const gR = new Geo(); slab(gR, [0, 0.03, 0], [0, 0.2, 0], [0, 0.2, 0.055], [0, 0.03, 0.055], 0.008, 0.006, bot, bot, bot, [1, 0, 0]);
     const stR = ac.strips.find((x) => x.role === 'fin' && x.tau > 0);
-    parts.push({ mesh: GLR.mesh(R, gR), mat: M4.trans(0, 0, 0.735), anim: (st0) => M4.rotY(-flapDefl(ac, stR, st0)) });
+    parts.push({ mesh: GLR.mesh(MR, gR), mat: M4.trans(0, 0, 0.735), anim: (st0) => M4.rotY(-flapDefl(ac, stR, st0)) });
     const pm = propMeshes(g, 2, 0.127, dark);
     return { parts, props: [{ blades: pm.blades, disc: pm.disc, mat: M4.trans(0, 0, -0.455), spin: (s0) => s0.n, dir: 1, ang: 0 }], cam: BR(ac.fpvCam) };
   }
@@ -6906,7 +6917,7 @@ if (typeof module !== 'undefined') module.exports = NET;
       const pm = propMeshes(g, blades, D / 2, col, col);
       props.push({ blades: pm.blades, disc: pm.disc, mat: M4.mul(M4.trans(P[0], mh + 0.002, P[2]), M4.rotX(-Math.PI / 2)), spin: (s0) => s0.mot[i], dir: q, ang: i, hideFpv: true });
     });
-    return { parts: [{ mesh: GLR.mesh(R, g), mat: M4.ident() }], props, cam: BR(ac.fpvCam) };
+    return { parts: [{ mesh: GLR.mesh(MR, g), mat: M4.ident() }], props, cam: BR(ac.fpvCam) };
   }
   function buildHeli(ac) {
     const Ro = ac.rotor;
@@ -6930,7 +6941,7 @@ if (typeof module !== 'undefined') module.exports = NET;
       for (const z of [-0.09, 0.09]) g.box(x * 0.6 - 0.004, -0.17, z - 0.006, x * 0.6 + 0.004, -0.08, z + 0.006, dark);
       g.box(x - 0.004, -0.168, -0.2, x + 0.004, -0.15, -0.17, dark); // upturned skid tip
     }
-    const parts = [{ mesh: GLR.mesh(R, g), mat: M4.ident() }];
+    const parts = [{ mesh: GLR.mesh(MR, g), mat: M4.ident() }];
     // main rotor: two blades with yellow tips; the disc tilts with the cyclic
     const gb = new Geo();
     for (const s of [1, -1]) {
@@ -6938,7 +6949,7 @@ if (typeof module !== 'undefined') module.exports = NET;
       gb.box(s > 0 ? Ro.R * 0.85 : -Ro.R, -Ro.chord / 2, -0.003, s > 0 ? Ro.R : -Ro.R * 0.85, Ro.chord / 2, 0.003, tip);
     }
     const gd = new Geo(); gd.disc(Ro.R, 32, [0.55, 0.57, 0.6]);
-    const main = { blades: GLR.mesh(R, gb), disc: GLR.mesh(R, gd), mat: M4.trans(0, 0.185, 0), post: M4.rotX(-Math.PI / 2),
+    const main = { blades: GLR.mesh(MR, gb), disc: GLR.mesh(MR, gd), mat: M4.trans(0, 0.185, 0), post: M4.rotX(-Math.PI / 2),
       tilt: (s0) => M4.mul(M4.rotZ(-1.5 * s0.tilt[0]), M4.rotX(1.5 * s0.tilt[1])), spin: (s0) => s0.om / Ro.om0, dir: -1, ang: 0, hideFpv: true };
     const tp = propMeshes(g, 2, 0.055, blade, [0.6, 0.6, 0.62]);
     const tail = { blades: tp.blades, disc: tp.disc, mat: M4.mul(M4.trans(-0.03, 0.03, 0.62), M4.rotY(Math.PI / 2)), spin: (s0) => s0.om / Ro.om0, dir: 1, ang: 0 };
@@ -7009,7 +7020,7 @@ if (typeof module !== 'undefined') module.exports = NET;
           const sgn = fl.side === 'mirror' ? sd : 1;
           const stub = { ka: (fl.a || 0) * sgn, ke: fl.e || 0, kr: fl.r || 0, kf: fl.f || 0 };
           const base = M4.mul(vert ? M4.ident() : M4.mul(M4.trans(0, -sf.z0, 0), M4.rotZ(sd * dih)), M4.trans(0, 0, -X(hingeX)));
-          moving.push({ mesh: GLR.mesh(R, gm), mat: base, anim: vert ? (s0) => M4.rotY(-flapDefl(ac, stub, s0)) : (s0) => M4.rotX(flapDefl(ac, stub, s0)) });
+          moving.push({ mesh: GLR.mesh(MR, gm), mat: base, anim: vert ? (s0) => M4.rotY(-flapDefl(ac, stub, s0)) : (s0) => M4.rotX(flapDefl(ac, stub, s0)) });
         }
       }
     }
@@ -7052,7 +7063,7 @@ if (typeof module !== 'undefined') module.exports = NET;
         const nosewheel = p[2] < -0.001 && Math.abs(p[0]) < 1e-6; // ahead of the CG on the centreline
         const pivot = M4.trans(p[0], legTop, p[2]);
         const axis = nosewheel ? (k) => M4.rotX(-1.45 * k) : (k) => M4.rotZ((p[0] > 0 ? -1.45 : 1.45) * k);
-        parts.push({ mesh: GLR.mesh(R, gw), mat: pivot, anim: (s0) => axis(1 - clamp(s0.gear, 0, 1)) });
+        parts.push({ mesh: GLR.mesh(MR, gw), mat: pivot, anim: (s0) => axis(1 - clamp(s0.gear, 0, 1)) });
       }
     }
     // --- propulsion ---
@@ -7068,13 +7079,13 @@ if (typeof module !== 'undefined') module.exports = NET;
         const pm = propMeshes(g, blades, D / 2, dark, mo[2] < 0 ? top : sideC);
         props.push({ blades: pm.blades, disc: pm.disc, mat: M4.trans(P[0], P[1], P[2] - 0.016), spin: (s0) => s0.mot[i], dir: mo[3], ang: i * 0.7, hideFpv: true });
       });
-      parts.unshift({ mesh: GLR.mesh(R, g), mat: M4.ident() });
+      parts.unshift({ mesh: GLR.mesh(MR, g), mat: M4.ident() });
       return { parts: parts.concat(moving), props, cam: BR(ac.fpvCam) };
     }
     const pz = -ac.prop.r[0];
     g.with(M4.trans(0, 0, pz + (ac.prop.wash ? 0.01 : -0.01)), () => g.with(M4.rotX(ac.prop.wash ? -Math.PI / 2 : Math.PI / 2), () => g.cyl(0, 0, 0, ac.prop.D * 0.09, ac.prop.D * 0.05, ac.prop.D * 0.12, 8, metal)));
     const pm = propMeshes(g, (LK.blades || 2), ac.prop.D / 2, dark);
-    parts.unshift({ mesh: GLR.mesh(R, g), mat: M4.ident() });
+    parts.unshift({ mesh: GLR.mesh(MR, g), mat: M4.ident() });
     return {
       parts: parts.concat(moving),
       props: [{ blades: pm.blades, disc: pm.disc, mat: M4.trans(0, 0, pz), spin: (s0) => s0.n, dir: 1, ang: 0 }],
@@ -8185,6 +8196,9 @@ if (typeof module !== 'undefined') module.exports = NET;
       const ac = FL.build(ACF.autoTrim(bldDef()));
       bld.bench = ac.kind === 'quad' ? Object.assign({ kind: 'quad', ac }, ACF.quadBench(ac, env.rho, packStartC())) : Object.assign({ kind: 'plane', ac }, ACF.planeBench(ac, env.rho));
       bld.benchErr = null;
+      pvBuild(ac);
+      const dims = $('#bldDims');
+      if (dims) dims.textContent = pv.dims;
     } catch (e) { bld.bench = null; bld.benchErr = e.message; }
     const box = $('#bldBench');
     if (box) box.innerHTML = bldBenchHtml();
@@ -8603,6 +8617,182 @@ if (typeof module !== 'undefined') module.exports = NET;
     box.querySelectorAll('[data-url]').forEach((b0) => b0.addEventListener('click', () => loadAircraftUrl(b0.dataset.url, true)));
   }
 
+  /* ---------- Settings → Builder: the preview ----------
+     The build sheet is twenty numbers, and twenty numbers do not tell you
+     that you have just drawn a plank with a tail or put the pack under the
+     props. So the builder draws the aircraft the sheet describes, from the
+     same mesh code the sim flies, turning on a grid you can read the size
+     off, with the control surfaces sweeping and the props turning.
+
+     It has a WebGL context of its own, because the flight view owns its
+     canvas and its viewport and sharing one would mean rebuilding the
+     world's uniforms twice a frame. A buffer belongs to the context that
+     made it, which is what `MR` above is for.
+
+     The canvas element is created once and moved into the panel, never
+     recreated: the builder rebuilds its whole form on every keystroke, and a
+     canvas that came and went with it would leak a WebGL context per
+     character typed. */
+  const pv = {
+    R: null, canvas: null, model: null, grid: null, err: null,
+    yaw: 0.7, pitch: 0.3, zoom: 1, auto: true, drag: null, t: 0, rad: 1, mid: 0, dims: '',
+  };
+  const PV_SUN = (() => { const v = [0.4, 0.82, 0.42], l = Math.hypot(...v); return v.map((x) => x / l); })();
+  /* Lengths here are model-shop lengths, not flying ones: a 5-inch quad is
+     350 mm across and U.dist would round it to "1 ft". Inches and millimetres
+     under a metre, feet and metres over it. */
+  const pvLen = (m) => (S.units === 'imp'
+    ? (m < 0.3048 ? `${(m / 0.0254).toFixed(1)} in` : `${(m * 3.28084).toFixed(1)} ft`)
+    : (m < 1 ? `${Math.round(m * 1000)} mm` : `${m.toFixed(2)} m`));
+  function pvInit() {
+    if (pv.canvas || pv.err) return;
+    const c = document.createElement('canvas');
+    c.id = 'bldView';
+    c.setAttribute('aria-label', 'The aircraft the build sheet describes');
+    let r = null;
+    try { r = GLR.create(c, true); } catch (e) { r = null; }
+    if (!r) { pv.err = 'This browser would not give the preview a WebGL context of its own.'; return; }
+    pv.canvas = c; pv.R = r;
+    const gl2 = r.gl, L2 = r.L;
+    gl2.useProgram(r.prog);
+    gl2.uniform3fv(L2.uSun, PV_SUN);
+    gl2.uniform3fv(L2.uSkyAmb, [0.56, 0.6, 0.66]);
+    gl2.uniform3fv(L2.uGndAmb, [0.26, 0.27, 0.3]);
+    gl2.uniform3fv(L2.uSunCol, [0.85, 0.82, 0.75]);
+    gl2.uniform3fv(L2.uFog, [0.09, 0.12, 0.14]);
+    gl2.uniform2fv(L2.uFogRange, [40, 200]);
+    gl2.uniform1f(L2.uFogK, 0);
+    gl2.enable(gl2.DEPTH_TEST);
+    gl2.disable(gl2.CULL_FACE);
+    gl2.clearColor(0.078, 0.105, 0.125, 1);
+    // drag to turn it, wheel or pinch to come closer
+    const at = (ev) => (ev.touches && ev.touches[0] ? ev.touches[0] : ev);
+    const down = (ev) => { const e0 = at(ev); pv.drag = { x: e0.clientX, y: e0.clientY }; pv.auto = false; };
+    const move = (ev) => {
+      if (!pv.drag) return;
+      const e0 = at(ev);
+      pv.yaw -= (e0.clientX - pv.drag.x) * 0.012;
+      pv.pitch = clamp(pv.pitch + (e0.clientY - pv.drag.y) * 0.008, -1.3, 1.3);
+      pv.drag = { x: e0.clientX, y: e0.clientY };
+      ev.preventDefault();
+    };
+    const up = () => { pv.drag = null; };
+    c.addEventListener('pointerdown', down);
+    addEventListener('pointermove', move, { passive: false });
+    addEventListener('pointerup', up);
+    c.addEventListener('wheel', (ev) => { pv.zoom = clamp(pv.zoom * (ev.deltaY > 0 ? 1.12 : 0.89), 0.45, 3); ev.preventDefault(); }, { passive: false });
+  }
+  function pvFree() {
+    if (!pv.R || !pv.model) return;
+    for (const p0 of pv.model.parts) GLR.freeMesh(pv.R, p0.mesh);
+    for (const pr of pv.model.props) { GLR.freeMesh(pv.R, pr.blades); GLR.freeMesh(pv.R, pr.disc); }
+    pv.model = null;
+  }
+  /* A ground grid under it, in squares you can count. The square is a round
+     number chosen so there are eight or so across the aircraft, which is what
+     turns "it looks about right" into "that wing is 1.2 m". */
+  function pvGrid(rad) {
+    if (pv.grid) GLR.freeMesh(pv.R, pv.grid.mesh);
+    const raw = (2 * rad) / 8;
+    const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+    const cell = [1, 2, 5, 10].map((k) => k * pow).find((v) => v >= raw * 0.85) || pow * 10;
+    const n = Math.ceil((rad * 1.6) / cell);
+    const g = new Geo(), dim = [0.24, 0.3, 0.35], lit = [0.42, 0.52, 0.6];
+    const w = cell * 0.012;
+    for (let i = -n; i <= n; i++) {
+      const col = i === 0 ? lit : dim, x = i * cell, ext = n * cell;
+      g.quad([x - w, 0, -ext], [x + w, 0, -ext], [x + w, 0, ext], [x - w, 0, ext], col);
+      g.quad([-ext, 0, x - w], [ext, 0, x - w], [ext, 0, x + w], [-ext, 0, x + w], col);
+    }
+    pv.grid = { mesh: GLR.mesh(pv.R, g), cell };
+  }
+  // the model the sheet describes, built in the preview's own context
+  function pvBuild(ac) {
+    if (!pv.R) pvInit();
+    if (!pv.R) return;
+    pvFree();
+    const keep = MR;
+    MR = pv.R;
+    try { pv.model = modelFor(ac); } catch (e) { pv.model = null; pv.err = e.message; } finally { MR = keep; }
+    if (!pv.model) return;
+    // how big it is: the span, and anything that sticks out further
+    let rad = 0.5 * (ac.b || 1);
+    for (const pt of ac.points || []) rad = Math.max(rad, Math.hypot(pt.p[0], pt.p[1], pt.p[2]));
+    for (const wh of ac.wheels || []) rad = Math.max(rad, Math.hypot(wh.p[0], wh.p[1], wh.p[2]));
+    let lo = 0, hi = 0;
+    for (const pt of (ac.points || []).concat(ac.wheels || [])) { lo = Math.min(lo, -pt.p[2]); hi = Math.max(hi, -pt.p[2]); }
+    pv.rad = Math.max(rad, 0.05);
+    pv.mid = (lo + hi) / 2;
+    pv.low = lo;
+    pvGrid(pv.rad);
+    const len = (ac.points || []).reduce((a, pt) => Math.max(a, Math.abs(pt.p[0])), 0) * 2;
+    pv.dims = `span ${pvLen(ac.b)} · length ${pvLen(Math.max(len, 0.05))} · grid squares ${pvLen(pv.grid.cell)}`;
+  }
+  /* A stand-in state: props turning, control surfaces sweeping, gear down.
+     An aileron you can watch move is the quickest way to see that you have
+     put it on the wrong half of the wing. */
+  function pvState() {
+    const t = pv.t, sw = Math.sin(t * 1.1), sw2 = Math.sin(t * 0.7);
+    return {
+      p: [0, 0, -5], q: [1, 0, 0, 0], thr: 0.35, n: 0.35, mot: [0.35, 0.35, 0.35, 0.35],
+      om: 1, tilt: [0, 0], gear: 1,
+      sa: sw, se: 0.6 * sw2, sr: 0.5 * Math.sin(t * 0.9), sf: 0.5 + 0.5 * Math.sin(t * 0.35),
+      soc: 1, crashed: false, held: false,
+    };
+  }
+  function pvFrame(dt) {
+    if (!pv.canvas || !pv.canvas.isConnected || !pv.model) return;
+    const c = pv.canvas, gl2 = pv.R.gl, L2 = pv.R.L;
+    const w = Math.max(1, Math.round(c.clientWidth * Math.min(2, devicePixelRatio || 1)));
+    const h = Math.max(1, Math.round(c.clientHeight * Math.min(2, devicePixelRatio || 1)));
+    if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+    pv.t += dt;
+    if (pv.auto && !pv.drag) pv.yaw += dt * 0.35;
+    gl2.useProgram(pv.R.prog);
+    gl2.viewport(0, 0, w, h);
+    gl2.clear(gl2.COLOR_BUFFER_BIT | gl2.DEPTH_BUFFER_BIT);
+    const fov = 36 * D2R;
+    const dist = (pv.rad / Math.tan(fov / 2)) * 1.35 * pv.zoom;
+    const cy = pv.mid + Math.sin(pv.pitch) * dist;
+    const eye = [Math.sin(pv.yaw) * Math.cos(pv.pitch) * dist, cy, Math.cos(pv.yaw) * Math.cos(pv.pitch) * dist];
+    const view = M4.lookAt(eye, [0, pv.mid, 0], [0, 1, 0]);
+    gl2.uniformMatrix4fv(L2.uVP, false, M4.mul(M4.persp(fov, w / h, Math.max(0.02, pv.rad * 0.05), pv.rad * 60), view));
+    gl2.uniform3fv(L2.uCam, eye);
+    // the grid sits under the lowest point of the aircraft, which is where it stands
+    GLR.draw(pv.R, pv.grid.mesh, M4.trans(0, pv.low - 0.004, 0), { unlit: true, noFog: true });
+    const s0 = pvState();
+    for (const p0 of pv.model.parts) GLR.draw(pv.R, p0.mesh, p0.anim ? M4.mul(p0.mat, p0.anim(s0)) : p0.mat);
+    for (const pr of pv.model.props) {
+      pr.ang += pr.spin(s0) * pr.dir * dt * 26;
+      GLR.draw(pv.R, pr.blades, pr.tilt ? M4.chain(pr.mat, pr.tilt(s0), pr.post, M4.rotZ(pr.ang)) : M4.mul(pr.mat, M4.rotZ(pr.ang)));
+    }
+  }
+  // the panel's half of it: the canvas, the view buttons and the size line
+  function pvHtml() {
+    if (pv.err) return `<div class="help" style="color:var(--warn)">${esc(pv.err)}</div>`;
+    return `<div class="bldview" id="bldViewBox"></div>
+      <div class="setrow" style="margin-top:6px"><div class="seg" role="group" aria-label="View" style="flex:1 1 auto">
+        <button type="button" data-pv="orbit" aria-pressed="${pv.auto}">Turn</button>
+        <button type="button" data-pv="front">Front</button>
+        <button type="button" data-pv="side">Side</button>
+        <button type="button" data-pv="top">Top</button></div></div>
+      <div class="help" id="bldDims">${esc(pv.dims)}</div>`;
+  }
+  function pvMount(box) {
+    if (pv.err) return;
+    pvInit();
+    const holder = box.querySelector('#bldViewBox');
+    if (holder && pv.canvas) holder.appendChild(pv.canvas);
+    box.querySelectorAll('[data-pv]').forEach((b0) => b0.addEventListener('click', () => {
+      const v = b0.dataset.pv;
+      pv.auto = v === 'orbit';
+      if (v === 'front') { pv.yaw = Math.PI; pv.pitch = 0.06; }
+      else if (v === 'side') { pv.yaw = Math.PI / 2; pv.pitch = 0.06; }
+      else if (v === 'top') { pv.yaw = Math.PI; pv.pitch = 1.25; }
+      box.querySelectorAll('[data-pv]').forEach((x) => x.setAttribute('aria-pressed', String(x === b0 && v === 'orbit')));
+    }));
+  }
+
   /* ---------- Settings → Builder ---------- */
   const GROUPS = ['Airframe', 'Wing', 'Tail', 'Fuselage', 'Controls', 'Power', 'Battery'];
   function bldBenchHtml() {
@@ -8646,7 +8836,7 @@ if (typeof module !== 'undefined') module.exports = NET;
     const sp = bld.spec || bldNorm();
     if (!bld.bench && bld.pending <= 0) bldQueue(); // opened from the tab bar
     const kinds = [['plane', 'Plane'], ['wing', 'Flying wing'], ['quad', 'Quad']];
-    let h = `<div class="lab"><span>Type</span></div><div class="seg" role="group" aria-label="Type">${kinds.map(([v, l]) => `<button type="button" data-kind="${v}" aria-pressed="${v === bld.kind}">${l}</button>`).join('')}</div>
+    let h = pvHtml() + `<div class="lab" style="margin-top:10px"><span>Type</span></div><div class="seg" role="group" aria-label="Type">${kinds.map(([v, l]) => `<button type="button" data-kind="${v}" aria-pressed="${v === bld.kind}">${l}</button>`).join('')}</div>
       <div class="help">${bld.kind === 'wing' ? 'A plank or flying wing: elevons, no tail, usually a pusher and a hand launch.' : bld.kind === 'quad' ? 'Four motors in an X, Betaflight-style rates.' : 'Wing, stabiliser, fin, and whatever gear you give it.'}</div>
       <div class="setrow" style="margin-top:8px"><input class="txt" id="bName" type="text" value="${esc(bld.name)}" placeholder="Name" style="flex:2 1 160px"><input class="txt" id="bAuthor" type="text" value="${esc(S.author || '')}" placeholder="Your name (author)" style="flex:1 1 120px"></div>`;
     for (const grp of GROUPS) {
@@ -8679,6 +8869,7 @@ if (typeof module !== 'undefined') module.exports = NET;
       <div class="setrow" style="margin-top:12px"><button class="btn primary" id="bFly">Fly it</button><button class="btn small" id="bSave">Save as a file</button><button class="btn small" id="bPrompt">Copy the design prompt</button>${bld.from ? `<button class="btn small" id="bReset">Start over</button>` : ''}</div>
       <div class="help">“Fly it” saves the aircraft in this browser and switches to it; it stays in Settings → Aircraft, where you can export it as a file. The build sheet is saved with it, so you can come back and change it.</div>`;
     box.innerHTML = h;
+    pvMount(box);
     box.querySelectorAll('[data-kind]').forEach((b0) => b0.addEventListener('click', () => bldKind(b0.dataset.kind)));
     box.querySelectorAll('[data-num]').forEach((el) => {
       el.addEventListener('change', () => {
@@ -10332,6 +10523,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     if (wiz.open) wizTick(Math.min(0.5, raw)); // setup timers use real time
     if (ctl.open) ctlTick(Math.min(0.5, raw));
     bldTick(Math.min(0.5, raw));
+    pvFrame(Math.min(0.1, raw));
     if (osdFlash.t > 0) osdFlash.t -= raw;
 
     if (!paused) {
