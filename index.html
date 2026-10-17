@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<!-- built by tools/build.py from src/ (4ef3f513); edit the sources, not this file -->
+<!-- built by tools/build.py from src/ (34b4babd); edit the sources, not this file -->
 <title>Flightline RC Sim</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Browser RC flight trainer: Nano Goblin and trainer flight models, line of sight, FPV and split view, USB transmitter support.">
@@ -266,6 +266,42 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; heigh
   .last-row input, .last-row select { grid-column: 1 / -1; }
 }
 
+/* ---------- the training panel over the view ---------- */
+#tut {
+  position: absolute; top: calc(env(safe-area-inset-top, 0px) + 62px); right: max(10px, env(safe-area-inset-right, 0px));
+  width: 268px; max-width: calc(100vw - 20px); z-index: 4; display: grid; gap: 7px; padding: 9px 11px 10px;
+  background: var(--glass); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  border: 1px solid var(--line); border-radius: 7px;
+}
+.tut-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.tut-head b { font: 600 12px/1.25 var(--f-display); letter-spacing: 0.08em; color: var(--accent); }
+.tut-head span { font: 10px/1.2 var(--f-mono); color: var(--muted); text-align: right; white-space: nowrap; }
+#tut .help { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+.tut-now { font-size: 13px; line-height: 1.4; }
+.tut-now em { font-style: normal; color: var(--accent); font-family: var(--f-mono); font-size: 12px; }
+.tut-steps { display: grid; gap: 2px; max-height: 34vh; overflow-y: auto; }
+.tut-step { display: grid; grid-template-columns: 12px minmax(0, 1fr); gap: 7px; align-items: baseline; font-size: 11.5px; color: var(--muted); }
+.tut-step i { width: 7px; height: 7px; border-radius: 50%; background: var(--line-2); align-self: center; }
+.tut-step.done i { background: var(--good); }
+.tut-step.live { color: var(--text); }
+.tut-step.live i { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.tut-score { display: flex; align-items: baseline; gap: 10px; }
+.tut-score b { font: 700 30px/1 var(--f-display); color: var(--accent); }
+.tut-score span { font: 600 11px/1 var(--f-display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.tut-kv { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; font-size: 12px; }
+.tut-kv span:nth-child(even) { font-family: var(--f-mono); color: var(--sky); text-align: right; }
+.tut-acts { display: flex; flex-wrap: wrap; gap: 4px; }
+.tut-acts .btn { flex: 1 1 auto; min-height: 28px; padding: 0 8px; font-size: 11px; }
+.lap b.medal { font: 700 13px/1 var(--f-display); width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; color: var(--ink); }
+.lap b.medal.gold { background: #f5c242; } .lap b.medal.silver { background: #c6d0d6; } .lap b.medal.bronze { background: #cd8a4e; }
+@media (max-height: 560px) { .tut-steps { max-height: 22vh; } }
+@media (max-width: 560px) { #tut { width: 232px; } }
+
+/* ---------- a prompt the browser would not copy ---------- */
+#promptBox { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 11; width: min(640px, calc(100% - 32px)); display: grid; gap: 10px; padding: 16px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5); }
+#promptBox h3 { margin: 0; font: 600 13px/1 var(--f-display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); }
+#promptBox textarea { width: 100%; box-sizing: border-box; height: 42vh; resize: vertical; padding: 10px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--ink); color: var(--text); font: 12px/1.5 var(--f-mono); }
+
 #toast { position: absolute; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 24px); transform: translateX(-50%); z-index: 10; padding: 10px 16px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 8px; font-size: 13px; max-width: calc(100% - 32px); text-align: center; }
 #err { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--muted); }
 
@@ -312,6 +348,20 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; heigh
       <button type="button" class="btn small" id="rcSpec">Spectate</button>
       <button type="button" class="btn small" id="rcLeave">Leave</button>
     </div>
+  </section>
+
+
+  <section id="tut" aria-label="Training" hidden>
+    <div class="tut-head"><b id="tutName">Lesson</b><span id="tutMeta"></span></div>
+    <div id="tutBody"></div>
+    <div id="tutActs" class="tut-acts"></div>
+  </section>
+
+  <section id="promptBox" role="dialog" aria-labelledby="promptTitle" hidden>
+    <h3 id="promptTitle">The prompt</h3>
+    <p class="note">This browser would not reach the clipboard, so here it is. Select it all and copy it by hand.</p>
+    <textarea id="promptText" readonly spellcheck="false"></textarea>
+    <div class="actions"><button class="btn small primary" id="promptClose">Close</button></div>
   </section>
 
   <section id="welcome" class="card" role="dialog" aria-labelledby="wTitle">
@@ -2821,6 +2871,979 @@ const ACF = (function (FL) {
 if (typeof module !== 'undefined') module.exports = ACF;
 
 /* =====================================================================
+   Flightline training — the lesson engine and the built-in courses.
+
+   A course is a ladder of lessons; a lesson is a list of tasks you fly in
+   order; a task is a shape in the air you have to get to, hold, turn in,
+   fly through or land on. The engine is a pure function of a snapshot of
+   the aircraft — no DOM, no renderer, no physics — so it runs the same in
+   the browser and under node, and test/tutorial_test.js flies the whole
+   quad ladder with an autopilot to prove every lesson is passable.
+
+   Coordinates. Everything is in metres relative to **where the pilot
+   stands**, with the same axes the flight controller uses:
+
+       n   north of the pilot        e   east of the pilot
+       up  height above the ground under the pilot
+
+   so a lesson written for the home field works unchanged on a terrain map:
+   the app subtracts the map's pilot position before it calls tick(). An
+   angle in degrees is a compass heading, 0 = north, 90 = east.
+
+   Scoring is out of 1,000, and it is the same three numbers everywhere:
+   500 for finishing, 200 for doing it inside the lesson's par time, and
+   300 for precision — how near the middle of every shape you actually
+   flew. Crashes come off the top. The point is that a second run can
+   always beat the first, which is what makes a ladder worth climbing.
+
+   A tutorial file is JSON and nothing but JSON, read the same way an
+   aircraft file is: parsed, then copied field by field against the table
+   below, every number range-checked and clamped, every string trimmed and
+   capped, anything unrecognised dropped and listed. Nothing in a file is
+   ever executed. docs/tutorial-format.md is the format and
+   docs/design-a-tutorial-prompt.md is the prompt that writes one.
+   ===================================================================== */
+const TUT = (function () {
+  'use strict';
+  const FORMAT = 1;
+  const D2R = Math.PI / 180, R2D = 180 / Math.PI;
+  const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
+  const round = (x, n) => { const k = Math.pow(10, n || 0); return Math.round(x * k) / k; };
+  // the shortest way round from a to b, in radians
+  const wrap = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
+
+  /* ---------------- the task table ----------------
+     kind decides which fields mean anything; the rest default. The four
+     kinds are deliberately few — every drill in every built-in course is
+     built out of them, and a kind the engine does not know is a kind the
+     engine cannot score.
+
+       zone   be inside a cylinder, optionally for a while, optionally
+              pointing somewhere, optionally turning while you are there
+       gate   fly through a rectangle standing in the air
+       land   put it down inside a circle, gently, right way up
+       say    no flying: a line of coaching between two tasks, cleared
+              after `hold` seconds (or at once if it is zero)
+   */
+  const KINDS = ['zone', 'gate', 'land', 'say'];
+  /* facing: where the nose has to point while a zone task is held.
+       any     don't care
+       home    at the pilot (nose-in: the hard one)
+       away    straight out from the pilot (tail-in: the easy one)
+       course  along the way you are moving — a turn flown on the rudder
+       <deg>   a compass heading */
+  const FACINGS = ['any', 'home', 'away', 'course'];
+
+  const clean = (s, n) => String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, n);
+  const show = (v) => (typeof v === 'string' ? JSON.stringify(v) : String(v));
+
+  // k: name, t: 'n' number | 'i' integer | 's' string | 'b' bool | 'e' enum, with range or values
+  const TASK_RULES = [
+    ['kind', 'e', KINDS, 'zone'],
+    ['say', 's', 120, ''],
+    ['tip', 's', 400, ''],
+    ['n', 'n', [-4000, 4000], 0],
+    ['e', 'n', [-4000, 4000], 0],
+    ['up', 'n', [0, 2000], 2],
+    ['r', 'n', [0.5, 500], 3],
+    ['band', 'n', [0.3, 500], 2],
+    ['hold', 'n', [0, 300], 0],
+    ['spin', 'n', [0, 3600], 0],
+    ['facing', 'f', FACINGS, 'any'],
+    ['facingTol', 'n', [5, 180], 30],
+    ['speedMax', 'n', [0, 300], 0],   // 0 = no limit
+    ['width', 'n', [0.6, 60], 3],     // gate
+    ['height', 'n', [0.6, 60], 2.5],
+    ['yawDeg', 'n', [-360, 360], 0],  // gate heading: which way you fly through it
+    ['rate', 'n', [0.2, 20], 1.5],    // land: the touchdown rate that still counts as gentle
+    ['par', 'n', [1, 600], 20],
+  ];
+  const LESSON_RULES = [
+    ['id', 's', 32, ''],
+    ['name', 's', 60, 'Lesson'],
+    ['blurb', 's', 400, ''],
+    ['start', 'e', ['pad', 'runway', 'launch', 'air', 'any'], 'any'],
+    ['maxAlt', 'n', [0, 2000], 0],    // 0 = no ceiling
+    ['boxR', 'n', [0, 4000], 0],      // 0 = no fence
+    ['par', 'n', [5, 3600], 0],       // 0 = add up the tasks
+  ];
+
+  function readRules(raw, rules, out, where) {
+    const o = {};
+    for (const [k, t, lim, dflt] of rules) {
+      const have = Object.prototype.hasOwnProperty.call(raw, k) ? raw[k] : undefined;
+      if (have === undefined) { o[k] = dflt; continue; }
+      if (t === 's') { o[k] = clean(have, lim); continue; }
+      if (t === 'b') { o[k] = !!have; continue; }
+      if (t === 'e') {
+        if (!lim.includes(have)) { out.warnings.push(`${where}.${k}: ${show(have)} is not one of ${lim.join(', ')}; using ${show(dflt)}`); o[k] = dflt; }
+        else o[k] = have;
+        continue;
+      }
+      if (t === 'f') { // an enum or a compass heading
+        if (typeof have === 'number' && Number.isFinite(have)) { o[k] = ((have % 360) + 360) % 360; continue; }
+        if (!lim.includes(have)) { out.warnings.push(`${where}.${k}: ${show(have)} is not one of ${lim.join(', ')} or a heading in degrees; using ${show(dflt)}`); o[k] = dflt; }
+        else o[k] = have;
+        continue;
+      }
+      if (typeof have !== 'number' || !Number.isFinite(have)) {
+        out.errors.push(`${where}.${k}: ${show(have)} is not a number`);
+        o[k] = dflt; continue;
+      }
+      const y = clamp(have, lim[0], lim[1]);
+      if (y !== have) out.warnings.push(`${where}.${k}: ${have} clamped to ${y} (allowed ${lim[0]} … ${lim[1]})`);
+      o[k] = t === 'i' ? Math.round(y) : y;
+    }
+    const known = new Set(rules.map((r) => r[0]));
+    for (const k of Object.keys(raw)) if (!known.has(k) && k !== 'tasks') out.warnings.push(`${where}.${k}: not a field, ignored`);
+    return o;
+  }
+
+  const MAX_TASKS = 40, MAX_LESSONS = 30;
+  const AC_KINDS = ['quad', 'heli', 'wing', 'conventional', 'vtol'];
+
+  function normLesson(raw, out, where) {
+    if (!raw || typeof raw !== 'object') { out.errors.push(`${where}: not an object`); return null; }
+    const L = readRules(raw, LESSON_RULES, out, where);
+    const list = Array.isArray(raw.tasks) ? raw.tasks : [];
+    if (!list.length) { out.errors.push(`${where}.tasks: a lesson needs at least one task`); return null; }
+    if (list.length > MAX_TASKS) out.warnings.push(`${where}.tasks: ${list.length} tasks, only the first ${MAX_TASKS} kept`);
+    L.tasks = list.slice(0, MAX_TASKS).map((t, i) => readRules(t && typeof t === 'object' ? t : {}, TASK_RULES, out, `${where}.tasks[${i}]`));
+    if (!L.id) L.id = clean(L.name, 32).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `lesson${Math.max(1, list.length)}`;
+    if (!L.par) L.par = Math.round(L.tasks.reduce((a, t) => a + t.par, 0));
+    return L;
+  }
+
+  /* Read a tutorial file. Same contract as an aircraft file: it either comes
+     back whole and safe, or it comes back with a list of what was wrong. */
+  function read(text) {
+    const out = { errors: [], warnings: [] };
+    let raw;
+    try { raw = typeof text === 'string' ? JSON.parse(text) : text; } catch (e) { return { ok: false, errors: [`not JSON: ${e.message}`], warnings: [] }; }
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, errors: ['the file is not a JSON object'], warnings: [] };
+    const fmt = String(raw.format || '');
+    if (!/^flightline-tutorial\/\d+$/.test(fmt)) out.errors.push(`format: expected "flightline-tutorial/${FORMAT}", got ${show(raw.format)}`);
+    else if (Number(fmt.split('/')[1]) > FORMAT) out.errors.push(`format: this file is version ${fmt.split('/')[1]} and this sim reads ${FORMAT}`);
+    const course = {
+      id: clean(raw.id, 32) || 'course',
+      name: clean(raw.name, 60) || 'Course',
+      blurb: clean(raw.blurb, 400),
+      author: clean(raw.author, 60),
+      source: clean(raw.source, 200),
+      kinds: Array.isArray(raw.kinds) ? raw.kinds.filter((k) => AC_KINDS.includes(k)) : [],
+    };
+    if (Array.isArray(raw.kinds)) for (const k of raw.kinds) if (!AC_KINDS.includes(k)) out.warnings.push(`kinds: ${show(k)} is not one of ${AC_KINDS.join(', ')}, ignored`);
+    if (!course.kinds.length) course.kinds = AC_KINDS.slice();
+    const list = Array.isArray(raw.lessons) ? raw.lessons : [];
+    if (!list.length) out.errors.push('lessons: the course has none');
+    if (list.length > MAX_LESSONS) out.warnings.push(`lessons: ${list.length} lessons, only the first ${MAX_LESSONS} kept`);
+    course.lessons = list.slice(0, MAX_LESSONS).map((l, i) => normLesson(l, out, `lessons[${i}]`)).filter(Boolean);
+    const seen = new Set();
+    for (const l of course.lessons) { // ids are how a best score is remembered, so they have to be unique
+      let id = l.id, k = 2;
+      while (seen.has(id)) id = `${l.id}-${k++}`;
+      if (id !== l.id) out.warnings.push(`lessons: two lessons called "${l.id}"; the second is now "${id}"`);
+      l.id = id; seen.add(id);
+    }
+    if (out.errors.length) return { ok: false, errors: out.errors, warnings: out.warnings };
+    return { ok: true, course, errors: [], warnings: out.warnings };
+  }
+
+  const write = (course) => ({
+    format: `flightline-tutorial/${FORMAT}`,
+    id: course.id, name: course.name, blurb: course.blurb,
+    author: course.author || undefined, source: course.source || undefined,
+    kinds: course.kinds,
+    lessons: course.lessons.map((l) => ({
+      id: l.id, name: l.name, blurb: l.blurb, start: l.start, maxAlt: l.maxAlt, boxR: l.boxR, par: l.par,
+      tasks: l.tasks,
+    })),
+  });
+
+  /* ---------------- flying a lesson ----------------
+     `run` is everything about one attempt. It is a plain object so the app
+     can show it, the tests can read it and nothing has to be copied out. */
+  function start(lesson) {
+    return {
+      lesson,
+      step: 0,            // which task is live
+      t: 0,               // seconds since the lesson began
+      stepT: 0,           // seconds on this task
+      held: 0,            // seconds inside the current zone
+      spun: 0,            // degrees turned while inside it
+      yawPrev: null,
+      errSum: 0, errN: 0, // the running precision average
+      best: 1,            // closest approach on this task, 0 = dead centre
+      wasIn: false,       // have we been inside the live task's shape yet
+      marks: [],          // one { id, err, t } per task finished
+      crashes: 0, outT: 0, ceilT: 0,
+      outPen: 0,          // seconds spent outside the fence or over the ceiling
+      vsAir: 0,           // how fast it was sinking just before the wheels touched
+      done: false, failed: null, flying: false,
+      note: '',           // why the current task is not completing yet
+    };
+  }
+
+  const taskOf = (run) => run.lesson.tasks[run.step] || null;
+
+  // where the aircraft is relative to a task's centre
+  function offset(task, s) {
+    const dn = s.n - task.n, de = s.e - task.e;
+    return { flat: Math.hypot(dn, de), dup: s.up - task.up, dn, de };
+  }
+
+  /* How far off the middle of this task the aircraft is, 0 (centre) to 1
+     (just inside the edge) and over 1 outside it. This single number is
+     what precision is scored from, so it has to mean the same thing for
+     every kind: the worst of the ways you can be off. */
+  function errorAt(task, s) {
+    if (task.kind === 'gate') return 0;
+    const o = offset(task, s);
+    return Math.max(o.flat / task.r, Math.abs(o.dup) / task.band);
+  }
+
+  // is the nose where the task wants it? returns [ok, degrees off]
+  function facingOff(task, s) {
+    const f = task.facing;
+    if (f === 'any') return [true, 0];
+    let want;
+    if (f === 'home') want = Math.atan2(-s.e, -s.n);
+    else if (f === 'away') want = Math.atan2(s.e, s.n);
+    else if (f === 'course') {
+      if (Math.hypot(s.vn, s.ve) < 1.5) return [true, 0]; // standing still: any way is along the course
+      want = Math.atan2(s.ve, s.vn);
+    } else want = f * D2R;
+    const off = Math.abs(wrap(want - s.yaw)) * R2D;
+    return [off <= task.facingTol, off];
+  }
+
+  /* One step of the engine. `s` is the snapshot described at the top of the
+     file; `dt` is real seconds. Returns the events the app should react to. */
+  function tick(run, s, dt) {
+    const ev = [];
+    if (run.done || run.failed) return ev;
+    const L = run.lesson;
+    if (!run.flying) { // the clock starts when the aircraft does, not when the panel opens
+      if (!s.armed || (s.wow && s.thr < 0.05 && L.tasks[0].kind !== 'say')) return ev;
+      run.flying = true;
+    }
+    run.t += dt; run.stepT += dt;
+
+    // --- the whole-lesson rules ---
+    if (s.crashed) {
+      if (!run.crashedNow) {
+        run.crashedNow = true; run.crashes++;
+        // back to the start of this task: you are on the pad again anyway
+        run.held = 0; run.spun = 0; run.best = 1; run.wasIn = false; run.yawPrev = null; run.stepT = 0;
+        ev.push(['crash', run.crashes]);
+      }
+      return ev;
+    }
+    run.crashedNow = false;
+    /* The touchdown rate is worked out here rather than passed in, because
+       "how hard did it land" is the sink rate from just *before* contact: on
+       the ground it is already zero. Peak-hold with a slow bleed, so a quad
+       that touches, bounces and settles is still scored on the arrival. */
+    run.vsAir = s.wow ? Math.max(0, run.vsAir - 4 * dt) : Math.max(-s.vup, run.vsAir - 4 * dt);
+    // over the ceiling or outside the fence: it costs by the second, and it
+    // says so once rather than every frame
+    const over = !!(L.maxAlt && s.up > L.maxAlt), out = !!(L.boxR && Math.hypot(s.n, s.e) > L.boxR);
+    if (over || out) run.outPen += dt;
+    if (over) { run.ceilT += dt; if (run.ceilT > 0.6 && !run.ceilSaid) { run.ceilSaid = true; ev.push(['over', L.maxAlt]); } }
+    else { run.ceilT = 0; run.ceilSaid = false; }
+    if (out) { run.outT += dt; if (run.outT > 0.6 && !run.outSaid) { run.outSaid = true; ev.push(['out', L.boxR]); } }
+    else { run.outT = 0; run.outSaid = false; }
+
+    const task = taskOf(run);
+    if (!task) { run.done = true; ev.push(['done']); return ev; }
+
+    // --- the live task ---
+    let pass = false;
+    run.note = '';
+    if (task.kind === 'say') {
+      if (run.stepT >= task.hold) pass = true;
+    } else if (task.kind === 'gate') {
+      // crossing the gate plane between last frame and this one, inside the frame
+      if (run.gatePrev) {
+        const c = Math.cos(task.yawDeg * D2R), si = Math.sin(task.yawDeg * D2R);
+        // into the gate's own axes: y along the way you fly through it, x across
+        const loc = (p) => { const dn = p.n - task.n, de = p.e - task.e; return [c * de - si * dn, p.up - task.up, si * de + c * dn]; };
+        const a = loc(run.gatePrev), b = loc(s);
+        if ((a[2] < 0) !== (b[2] < 0)) {
+          const k = a[2] / (a[2] - b[2]);
+          const x = a[0] + (b[0] - a[0]) * k, y = a[1] + (b[1] - a[1]) * k;
+          const off = Math.max(Math.abs(x) / (task.width / 2), Math.abs(y) / (task.height / 2));
+          if (off <= 1) { run.best = Math.min(run.best, off); pass = true; }
+          else ev.push(['miss', round(off, 2)]);
+        }
+      }
+    } else if (task.kind === 'land') {
+      const o = offset(task, s);
+      if (s.wow && s.thr < 0.15) {
+        const soft = run.vsAir / task.rate;
+        const level = Math.abs(s.roll * R2D) < 25 && Math.abs(s.pitch * R2D) < 25;
+        if (o.flat <= task.r && level) { run.best = Math.max(soft, o.flat / task.r); pass = true; }
+        else if (!level) run.note = 'not level';
+        else run.note = `${Math.round(o.flat)} m off the pad`;
+      } else run.note = o.flat > task.r ? `line up on the pad — ${Math.round(o.flat)} m off` : 'ease it down';
+    } else { // zone
+      const err = errorAt(task, s);
+      const [facingOk, facingDeg] = facingOff(task, s);
+      const fast = task.speedMax > 0 && s.gs > task.speedMax;
+      const inside = err <= 1 && facingOk && !fast;
+      if (inside) {
+        run.best = Math.min(run.best, err);
+        run.errSum += err; run.errN++;
+        run.held += dt;
+        run.wasIn = true;
+        if (task.spin > 0) {
+          if (run.yawPrev !== null) run.spun += Math.abs(wrap(s.yaw - run.yawPrev)) * R2D;
+          run.yawPrev = s.yaw;
+        }
+        /* A marker you only have to reach is finished at the point of closest
+           approach, not the moment you first clip its edge. Scoring it on
+           first contact would give every fly-through an error of 1.0 — the
+           edge is where you touch it — and no amount of flying it better
+           could ever earn a point. So it finishes either when you are well
+           inside it, or when you have been inside and have started to leave
+           again, and the precision is the nearest you actually got. */
+        if (run.held >= task.hold && run.spun >= task.spin) {
+          if (task.hold > 0 || task.spin > 0 || err < 0.3) pass = true;
+          else run.note = 'through';
+        } else if (task.spin > 0 && run.spun < task.spin) run.note = `${Math.round(task.spin - run.spun)}° to go`;
+        else run.note = `${(task.hold - run.held).toFixed(1)} s`;
+      } else if (run.wasIn && task.hold === 0 && task.spin === 0) {
+        pass = true; // left it again: scored on the nearest it got
+      } else {
+        // leaving the zone loses the hold: a 20-second hover means twenty
+        // unbroken seconds, which is the whole point of the drill
+        if (run.held > 0) ev.push(['lost', round(run.held, 1)]);
+        run.held = 0; run.spun = 0; run.yawPrev = null;
+        run.note = fast ? 'too fast — stop it first'
+          : !facingOk ? `nose ${Math.round(facingDeg)}° off`
+          : err > 1 ? `${Math.round(Math.max(offset(task, s).flat - task.r, Math.abs(offset(task, s).dup) - task.band))} m out` : '';
+      }
+    }
+    run.gatePrev = { n: s.n, e: s.e, up: s.up };
+
+    if (pass) {
+      // precision for this task: how near the middle you managed, averaged
+      // over a hold and taken at the closest point of a fly-through
+      const err = task.kind === 'zone' && task.hold > 0 && run.errN ? run.errSum / run.errN : run.best;
+      run.marks.push({ id: run.step, err: clamp(err, 0, 1), t: round(run.stepT, 2) });
+      run.step++; run.stepT = 0; run.held = 0; run.spun = 0; run.yawPrev = null;
+      run.errSum = 0; run.errN = 0; run.best = 1; run.wasIn = false; run.note = '';
+      if (run.step >= L.tasks.length) { run.done = true; ev.push(['done']); }
+      else ev.push(['step', run.step]);
+    }
+    return ev;
+  }
+
+  /* ---------------- the score ----------------
+     Out of 1,000, and deliberately the same shape for every lesson so two
+     scores can be compared: finish it at all, do it inside par, and fly it
+     near the middle of every shape. Crashes and fence-busting come off.
+
+     Par is generous on purpose — the time points are there to reward a
+     second run, not to lock a beginner out of a medal on the first. */
+  const FINISH = 500, TIME = 200, PRECISION = 300;
+  const CRASH_COST = 120, OUT_RATE = 3;
+  function score(run) {
+    const L = run.lesson;
+    const finished = run.done;
+    const part = L.tasks.length ? run.marks.length / L.tasks.length : 0;
+    const finish = finished ? FINISH : Math.round(FINISH * 0.5 * part); // half marks for what you did get through
+    // full time points at or under par, nothing left at twice par
+    const time = finished ? Math.round(TIME * clamp((2 * L.par - run.t) / L.par, 0, 1)) : 0;
+    const err = run.marks.length ? run.marks.reduce((a, m) => a + m.err, 0) / run.marks.length : 1;
+    const precision = Math.round(PRECISION * clamp(1 - err, 0, 1) * (finished ? 1 : part));
+    const penalty = Math.round(run.crashes * CRASH_COST + OUT_RATE * (run.outPen || 0));
+    const total = Math.max(0, finish + time + precision - penalty);
+    return { total, finish, time, precision, penalty, err: round(err, 3), medal: medalFor(total), finished };
+  }
+  const MEDALS = [['gold', 850], ['silver', 650], ['bronze', 420]];
+  function medalFor(total) { for (const [m, at] of MEDALS) if (total >= at) return m; return null; }
+
+  /* ---------------- what the renderer draws ----------------
+     A flat list of shapes, in the same pilot-relative metres the tasks use.
+     The app turns them into meshes; nothing here knows about WebGL. */
+  function markers(lesson) {
+    const out = [];
+    lesson.tasks.forEach((t, i) => {
+      if (t.kind === 'say') return;
+      if (t.kind === 'gate') out.push({ k: 'gate', i, n: t.n, e: t.e, up: t.up, w: t.width, h: t.height, yaw: t.yawDeg });
+      else if (t.kind === 'land') out.push({ k: 'pad', i, n: t.n, e: t.e, up: t.up, r: t.r });
+      else out.push({ k: 'zone', i, n: t.n, e: t.e, up: t.up, r: t.r, band: t.band, hold: t.hold > 0 });
+    });
+    if (lesson.boxR) out.push({ k: 'fence', i: -1, n: 0, e: 0, up: 0, r: lesson.boxR });
+    return out;
+  }
+
+  /* The line of instruction for the task that is live, and the one after it.
+     Written here rather than in the app so a tutorial file reads the same
+     way the built-in courses do. */
+  function sayNow(run) {
+    const t = taskOf(run);
+    if (!t) return { say: 'Finished', note: '', tip: '' };
+    return { say: t.say || defaultSay(t), note: run.note, tip: t.tip };
+  }
+  function defaultSay(t) {
+    if (t.kind === 'gate') return 'Through the gate';
+    if (t.kind === 'land') return 'Land on the pad';
+    if (t.spin) return `Turn ${Math.round(t.spin)}° where you are`;
+    if (t.hold) return `Hold it there for ${Math.round(t.hold)} s`;
+    return 'Fly to the marker';
+  }
+
+  /* ---------------- the built-in courses ----------------
+     Three ladders, each in the order the skill is actually taught.
+
+     The quad ladder is Joshua Bardwell's: throttle first and alone, then
+     yaw, then forward flight with a stop at the end of it, then turns on
+     the roll stick, then turns on the rudder, then the orientations, then a
+     spot landing, then gates. His two rules run through all of it — fly in
+     Acro from the first minute, and learn to *stop* the quad rather than
+     let it coast — so the early lessons are scored on holding a spot, and
+     the forward-flight lesson is a there-and-back with a hover at each end.
+
+     The helicopter ladder is the hovering ladder every club teaches: tail
+     in, then side on, then the wall every heli pilot hits, which is nose
+     in; then the box, the pirouette, the circuit and an autorotation.
+
+     The plane ladder is a circuit ladder: get it off the ground, fly a
+     rectangle, fly it the other way round, slow it down until it stops
+     flying, then approaches and landings.
+
+     Heights are above the ground under the pilot and distances are from
+     where the pilot stands, so every one of these works on a terrain map
+     as well as on the home field. */
+  const say = (text, tip, hold) => ({ kind: 'say', say: text, tip: tip || '', hold: hold || 0, par: hold || 3 });
+  const hover = (o) => Object.assign({ kind: 'zone', r: 3, band: 2, hold: 10, par: 20 }, o);
+  const mark = (o) => Object.assign({ kind: 'zone', r: 6, band: 4, hold: 0, par: 10 }, o);
+  const gate = (o) => Object.assign({ kind: 'gate', width: 4, height: 3, par: 8 }, o);
+  const pad = (o) => Object.assign({ kind: 'land', r: 2.5, band: 2, rate: 1.5, par: 25 }, o);
+
+  /* A ring of waypoints, which is what a circle or a figure of eight is made
+     of: `n` of them around (cn, ce), starting `from` degrees round and
+     sweeping `sweep` degrees (negative sweeps the other way). Bearings are
+     compass degrees, so 0 is due north of the centre. */
+  function ring(cn, ce, radius, up, from, sweep, n, extra) {
+    const out = [];
+    for (let i = 1; i <= n; i++) {
+      const a = (from + (sweep * i) / n) * D2R;
+      out.push(mark(Object.assign({ n: round(cn + radius * Math.cos(a), 1), e: round(ce + radius * Math.sin(a), 1), up, r: 8, band: 6, par: 6 }, extra)));
+    }
+    return out;
+  }
+
+  /* A ring of gates, which is a race course: `n` of them evenly round a circle
+     at (cn, ce), each standing square to the way you fly through it. The first
+     one is on the near side so you meet the course head on coming out from the
+     pad, and they are numbered the way they are flown. */
+  function gateRing(cn, ce, radius, up, n, extra) {
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const a = ((2 * Math.PI) * i) / n;
+      out.push(gate(Object.assign({
+        say: `Gate ${i + 1}`,
+        n: round(cn - radius * Math.cos(a), 1), e: round(ce + radius * Math.sin(a), 1), up,
+        // the way round the circle at this point, as a compass heading
+        yawDeg: round(((Math.atan2(Math.cos(a), Math.sin(a)) * R2D) % 360 + 360) % 360, 1),
+      }, extra)));
+    }
+    return out;
+  }
+
+  /* Where the drills are flown. The pilot stands at the origin facing north,
+     the flight-line fence is 4 m in front of him and the runway runs east and
+     west 12 m further on, so everything below is laid out to the **north** —
+     out over the field, in front of the line, which is the only side you are
+     ever allowed to fly on. The home field keeps a corridor clear of trees
+     from 35 m to 200 m out and 115 m either side, and nothing here leaves it.
+
+     Quads and helicopters start on the pad 8 m out, so that is where every
+     landing pad sits too: you put it down where you picked it up. */
+  const PAD_N = 8, PAD_E = 0;
+
+  const QUAD = {
+    id: 'bardwell', name: 'Learn to fly a quad',
+    blurb: 'Ten drills in the order Joshua Bardwell teaches them: throttle first and alone, then yaw, then stopping, then turns, then the orientations, then gates. Fly all of it in Acro.',
+    kinds: ['quad'],
+    lessons: [
+      { id: 'hover', name: '1 · Throttle, and nothing else', start: 'pad', boxR: 60, maxAlt: 25, par: 70,
+        blurb: 'The only stick that matters today is the left one. Get it off the ground, keep it at eye level, put it back down. Everything else in FPV is built on this.',
+        tasks: [
+          say('Arm with the throttle down, then ease it up', 'Throttle is altitude. On a quad there is no "up" stick that holds a height — you are balancing on the throttle the whole time, and you will be for the rest of your flying life.', 2),
+          hover({ say: 'Hold it at eye level', n: PAD_N, e: PAD_E, up: 1.7, r: 3, band: 1.2, hold: 20, par: 35,
+            tip: 'Small corrections, early. The mistake every beginner makes is waiting until it has moved, then grabbing a big handful of stick, then grabbing a bigger one back.' }),
+          pad({ say: 'Land it on the pad', n: PAD_N, e: PAD_E, up: 0, r: 2.5, rate: 1.5, par: 25,
+            tip: 'Come down slowly and take the throttle to zero the moment the feet touch. If you leave throttle in, it will tip over.' }),
+        ] },
+      { id: 'throttle', name: '2 · Up and down', start: 'pad', boxR: 80, maxAlt: 40, par: 90,
+        blurb: 'Throttle discipline: climb to a height, stop there, come back down, stop there. A quad that will not stop climbing is a quad you cannot land.',
+        tasks: [
+          hover({ say: 'Climb to 10 m and stop', n: PAD_N, e: PAD_E, up: 10, r: 4, band: 2, hold: 6, par: 20,
+            tip: 'A quad carries its climb. Start easing the throttle back before you get there, not when you arrive.' }),
+          hover({ say: 'Back down to 2 m and stop', n: PAD_N, e: PAD_E, up: 2, r: 4, band: 1, hold: 6, par: 20,
+            tip: 'Come down at a walking pace. Drop it fast and it sinks into its own prop wash, which is where the wobble comes from.' }),
+          hover({ say: 'Up to 15 m and hold it', n: PAD_N, e: PAD_E, up: 15, r: 4, band: 2, hold: 10, par: 25,
+            tip: 'Same again. By now the throttle hand should be making the corrections before you have thought about them.' }),
+          pad({ say: 'Land on the pad', n: PAD_N, e: PAD_E, up: 0, r: 2.5, par: 25 }),
+        ] },
+      { id: 'yaw', name: '3 · Yaw in the hover', start: 'pad', boxR: 60, maxAlt: 25, par: 110,
+        blurb: 'Yaw turns the quad without moving it. Keep it over the same spot through a full turn each way, and you have learnt that the rudder is for pointing, not for going.',
+        tasks: [
+          hover({ say: 'Hover at 3 m', n: PAD_N, e: PAD_E, up: 3, r: 3, band: 1.5, hold: 5, par: 15 }),
+          hover({ say: 'Turn all the way round, staying put', n: PAD_N, e: PAD_E, up: 3, r: 4, band: 2, hold: 0, spin: 360, par: 35,
+            tip: 'Slowly. The faster you spin, the more the quad leans and walks off the spot — and as the nose comes round, left on the right stick stops meaning left to you.' }),
+          hover({ say: 'And back the other way', n: PAD_N, e: PAD_E, up: 3, r: 4, band: 2, hold: 0, spin: 360, par: 35 }),
+          pad({ say: 'Land on the pad', n: PAD_N, e: PAD_E, up: 0, r: 2.5, par: 25 }),
+        ] },
+      { id: 'stop', name: '4 · Fly out, and stop', start: 'pad', boxR: 140, maxAlt: 40, par: 120,
+        blurb: 'Anyone can make a quad go. Stopping it where you meant to is the skill, and it is the one that keeps you out of trees.',
+        tasks: [
+          say('Fly out to the marker and stop in it', 'Pitch forward to go, then pitch *back* to stop. A quad has no brakes: if you just centre the stick it coasts, and it coasts a long way.', 2),
+          hover({ say: '40 m out — stop and hover', n: PAD_N + 40, e: PAD_E, up: 8, r: 5, band: 3, hold: 5, speedMax: 4, par: 30,
+            tip: 'Start braking at about two thirds of the way. Stopping it inside the circle is the whole exercise.' }),
+          hover({ say: 'Come back and stop here', n: PAD_N, e: PAD_E, up: 8, r: 5, band: 3, hold: 5, speedMax: 4, par: 30 }),
+          hover({ say: 'Out again — a bit quicker this time', n: PAD_N + 40, e: PAD_E, up: 8, r: 5, band: 3, hold: 3, speedMax: 4, par: 25 }),
+          pad({ say: 'Fly home and land on the pad', n: PAD_N, e: PAD_E, up: 0, r: 2.5, par: 30 }),
+        ] },
+      { id: 'box', name: '5 · The box', start: 'pad', boxR: 160, maxAlt: 45, par: 140,
+        blurb: 'A square at a constant height with the nose pointed the same way all the way round. Two sides are flown on pitch and two on roll, which is why it teaches more than a circle does.',
+        tasks: [
+          say('Nose stays north. Fly the square on pitch and roll alone', 'No rudder at all this time. On the sideways legs you are flying on the roll stick with the nose pointing across your path, which is exactly the orientation that catches people out.', 2),
+          mark({ say: 'Corner 1 — out and left', n: 30, e: -25, up: 12, r: 8, facing: 0, facingTol: 40, par: 22 }),
+          mark({ say: 'Corner 2 — straight out', n: 70, e: -25, up: 12, r: 8, facing: 0, facingTol: 40, par: 20 }),
+          mark({ say: 'Corner 3 — across to the right', n: 70, e: 25, up: 12, r: 8, facing: 0, facingTol: 40, par: 20 }),
+          mark({ say: 'Corner 4 — back towards you', n: 30, e: 25, up: 12, r: 8, facing: 0, facingTol: 40, par: 20 }),
+          hover({ say: 'Back to the middle and hold', n: 50, e: 0, up: 12, r: 5, band: 3, hold: 5, par: 25 }),
+          pad({ say: 'Land on the pad', n: PAD_N, e: PAD_E, up: 0, r: 2.5, par: 30 }),
+        ] },
+      { id: 'circle', name: '6 · Turns on the rudder', start: 'pad', boxR: 160, maxAlt: 45, par: 150,
+        blurb: 'A circle out in front of you with the nose always pointing the way you are going. Roll to hold the turn, rudder to bring the nose round with it — this is the turn every piece of cinematic footage is flown on.',
+        tasks: [
+          say('Fly the circle with the nose along the path', 'Lead with the rudder and hold the lean with roll. If the nose lags the turn you are skidding, and the footage will show it.', 2),
+          ...ring(55, 0, 40, 14, 180, 360, 8, { facing: 'course', facingTol: 55, say: 'Round you go' }),
+          pad({ say: 'Land on the pad', n: PAD_N, e: PAD_E, up: 0, r: 2.5, par: 30 }),
+        ] },
+      { id: 'eight', name: '7 · Figure of eight', start: 'pad', boxR: 180, maxAlt: 50, par: 160,
+        blurb: 'Two circles the opposite way round, joined in the middle. The crossing is the bit worth practising: you have to change which way you are leaning while the nose swings through.',
+        tasks: [
+          say('Near loop one way, far loop the other', 'Keep the height. Almost everyone climbs in one loop and sinks in the other, and the sim will tell you which.', 2),
+          ...ring(45, 0, 32, 14, 180, -360, 6, { say: 'Near loop' }),
+          ...ring(109, 0, 32, 14, 180, 360, 6, { say: 'Far loop' }),
+          pad({ say: 'Land on the pad', n: PAD_N, e: PAD_E, up: 0, r: 2.5, par: 30 }),
+        ] },
+      { id: 'nosein', name: '8 · Nose-in hover', start: 'pad', boxR: 60, maxAlt: 25, par: 120,
+        blurb: 'The wall. Pointed at you, every control on the right stick is backwards, and the only way through it is to stop translating and start thinking in the quad\'s frame.',
+        tasks: [
+          hover({ say: 'Hover at 4 m, tail towards you', n: 18, e: 0, up: 4, r: 3, band: 1.5, hold: 5, facing: 'away', facingTol: 40, par: 20 }),
+          hover({ say: 'Turn it round to face you', n: 18, e: 0, up: 4, r: 5, band: 2.5, hold: 0, spin: 180, par: 25,
+            tip: 'Turn it slowly and watch which way it drifts as the nose comes round.' }),
+          hover({ say: 'Hold a nose-in hover for 20 s', n: 18, e: 0, up: 4, r: 4, band: 2, hold: 20, facing: 'home', facingTol: 40, par: 40,
+            tip: 'Left stick is still throttle, and that has not reversed. Everything on the right stick has. Tiny inputs, and if it gets away from you, yaw it back to tail-in and start again.' }),
+          pad({ say: 'Land on the pad', n: PAD_N, e: PAD_E, up: 0, r: 2.5, par: 30 }),
+        ] },
+      { id: 'spot', name: '9 · The spot landing', start: 'air', boxR: 160, maxAlt: 60, par: 100,
+        blurb: 'From height and distance, down onto a pad two and a half metres across, gently. A quad that can be landed on a spot can be landed anywhere, which matters the day the pack goes flat a field away.',
+        tasks: [
+          say('Bring it down the approach and put it on the pad', 'Lose the height first and the distance second. Coming in fast and low leaves you no room to judge the flare.', 2),
+          mark({ say: 'Line up on the approach', n: 53, e: 0, up: 15, r: 10, band: 6, par: 20 }),
+          hover({ say: 'Over the pad at 5 m', n: PAD_N, e: PAD_E, up: 5, r: 4, band: 2, hold: 4, speedMax: 3, par: 25 }),
+          pad({ say: 'Put it down on the pad', n: PAD_N, e: PAD_E, up: 0, r: 1.6, rate: 1.0, par: 30,
+            tip: 'Under one metre a second, inside a metre and a half of the middle. That is a landing you can do with a camera on the front.' }),
+        ] },
+      { id: 'gates', name: '10 · The gate run', start: 'pad', boxR: 220, maxAlt: 60, par: 130,
+        blurb: 'Six gates on an oval out in front of you, flown in order. Everything from the first nine lessons at once, against a clock — and the first lesson here where going faster actually pays.',
+        tasks: [
+          say('Six gates, in order, as quick as you can hold them', 'Look at the gate after the one you are going through. If you are looking at the one you are in, you are already too late for the next.', 2),
+          ...gateRing(78, 0, 38, 2.5, 6, { width: 5, height: 3.5, par: 11 }),
+          pad({ say: 'Through gate 6, then land on the pad', n: PAD_N, e: PAD_E, up: 0, r: 2.5, par: 30 }),
+        ] },
+    ],
+  };
+
+  const HELI = {
+    id: 'hover-ladder', name: 'Learn to fly a helicopter',
+    blurb: 'The hovering ladder every club teaches, in order: tail in, side on, nose in, then the box, the pirouette, a circuit and an autorotation. Nobody gets past step four quickly.',
+    kinds: ['heli'],
+    lessons: [
+      { id: 'lift', name: '1 · Lift off into a hover', start: 'pad', boxR: 50, maxAlt: 20, par: 80,
+        blurb: 'Collective up until it is light on the skids, then a little more. The tail will try to swing as it comes off — catch it with the rudder, do not chase it.',
+        tasks: [
+          say('Spool up, then ease the collective in', 'Let the head come up to speed before you lift. A helicopter leaving the ground on a slow head has no authority to put it back down with.', 4),
+          hover({ say: 'Hold it a metre up, tail towards you', n: PAD_N, e: PAD_E, up: 1.2, r: 3, band: 0.8, hold: 15, facing: 'away', facingTol: 50, par: 35,
+            tip: 'It will drift. Every helicopter drifts — the tail rotor pushes it sideways and the main rotor leans to hold it there. Put in the cyclic to stop the drift and leave it there.' }),
+          pad({ say: 'Set it back down', n: PAD_N, e: PAD_E, up: 0, r: 2.5, rate: 1.2, par: 25 }),
+        ] },
+      { id: 'hold', name: '2 · Hold the hover', start: 'pad', boxR: 50, maxAlt: 20, par: 110,
+        blurb: 'A minute in a two-metre box at head height. Boring, and it is the single most valuable minute in model helicopters.',
+        tasks: [
+          say('Spool up and lift into a hover', '', 4),
+          hover({ say: 'Hover at 2 m for a full minute', n: PAD_N, e: PAD_E, up: 2, r: 2.5, band: 1, hold: 60, facing: 'away', facingTol: 55, par: 75,
+            tip: 'Pick a spot on the ground and keep it under the skids. If you watch the whole helicopter you will chase its attitude instead of its position.' }),
+          pad({ say: 'Land', n: PAD_N, e: PAD_E, up: 0, r: 2.5, rate: 1.2, par: 25 }),
+        ] },
+      { id: 'sidein', name: '3 · Side on', start: 'pad', boxR: 60, maxAlt: 20, par: 150,
+        blurb: 'Turn it ninety degrees and hover again. Now the cyclic that used to move it left and right moves it towards and away from you, and that is half the way to nose-in.',
+        tasks: [
+          say('Spool up and lift into a tail-in hover', '', 4),
+          hover({ say: 'Hover tail-in at 2 m', n: PAD_N, e: PAD_E, up: 2, r: 3, band: 1, hold: 5, facing: 'away', facingTol: 50, par: 20 }),
+          hover({ say: 'Turn 90° left and hold it', n: PAD_N, e: PAD_E, up: 2, r: 3.5, band: 1.2, hold: 20, facing: 270, facingTol: 45, par: 45 }),
+          hover({ say: 'Now 90° right of tail-in, and hold', n: PAD_N, e: PAD_E, up: 2, r: 3.5, band: 1.2, hold: 20, facing: 90, facingTol: 45, par: 45 }),
+          pad({ say: 'Land', n: PAD_N, e: PAD_E, up: 0, r: 2.5, rate: 1.2, par: 25 }),
+        ] },
+      { id: 'nosein', name: '4 · Nose in', start: 'pad', boxR: 60, maxAlt: 20, par: 150,
+        blurb: 'The wall. Pointed at you, left is right and forward is back, and there is no trick that gets you past it except hours.',
+        tasks: [
+          say('Spool up and lift into a hover', '', 4),
+          hover({ say: 'Hover side-on at 3 m', n: PAD_N, e: PAD_E, up: 3, r: 3, band: 1.2, hold: 5, facing: 90, facingTol: 50, par: 20 }),
+          hover({ say: 'Bring the nose round to face you', n: PAD_N, e: PAD_E, up: 3, r: 5, band: 2, hold: 0, spin: 90, par: 25 }),
+          hover({ say: 'Hold it nose-in for 30 s', n: PAD_N, e: PAD_E, up: 3, r: 4, band: 1.5, hold: 30, facing: 'home', facingTol: 50, par: 55,
+            tip: 'Stop thinking "left" and start thinking "towards the retreating side". Most people get there by hovering nose-in behind a tail-in hover they can escape to.' }),
+          pad({ say: 'Land', n: PAD_N, e: PAD_E, up: 0, r: 2.5, rate: 1.2, par: 25 }),
+        ] },
+      { id: 'box', name: '5 · The hover box', start: 'pad', boxR: 80, maxAlt: 25, par: 140,
+        blurb: 'A twenty-metre square at walking pace with the tail in the whole way round. Pure cyclic discipline.',
+        tasks: [
+          say('Spool up and lift into a hover', '', 4),
+          mark({ say: 'Out to the first corner', n: 20, e: -10, up: 3, r: 4, band: 2, facing: 'away', facingTol: 60, speedMax: 4, par: 25 }),
+          mark({ say: 'Across', n: 20, e: 10, up: 3, r: 4, band: 2, facing: 'away', facingTol: 60, speedMax: 4, par: 25 }),
+          mark({ say: 'Back towards you', n: 6, e: 10, up: 3, r: 4, band: 2, facing: 'away', facingTol: 60, speedMax: 4, par: 25 }),
+          mark({ say: 'And home', n: 6, e: -10, up: 3, r: 4, band: 2, facing: 'away', facingTol: 60, speedMax: 4, par: 25 }),
+          pad({ say: 'Land on the pad', n: PAD_N, e: PAD_E, up: 0, r: 2.5, rate: 1.2, par: 25 }),
+        ] },
+      { id: 'pirouette', name: '6 · Pirouette in the hover', start: 'pad', boxR: 60, maxAlt: 25, par: 130,
+        blurb: 'A slow full turn over one spot. Every orientation in one exercise, and the cyclic correction has to rotate with the helicopter.',
+        tasks: [
+          say('Spool up and lift into a hover', '', 4),
+          hover({ say: 'Hover at 3 m', n: PAD_N, e: PAD_E, up: 3, r: 3, band: 1.2, hold: 5, par: 20 }),
+          hover({ say: 'One slow turn, staying over the spot', n: PAD_N, e: PAD_E, up: 3, r: 4, band: 2, hold: 0, spin: 360, par: 45,
+            tip: 'Think of the correction as a point on a clock face that turns with the helicopter. Most people get a quarter of the way round and stop — which is fine, do a quarter at a time.' }),
+          hover({ say: 'And the other way', n: PAD_N, e: PAD_E, up: 3, r: 4, band: 2, hold: 0, spin: 360, par: 45 }),
+          pad({ say: 'Land', n: PAD_N, e: PAD_E, up: 0, r: 2.5, rate: 1.2, par: 25 }),
+        ] },
+      { id: 'circuit', name: '7 · A circuit', start: 'pad', boxR: 200, maxAlt: 50, par: 160,
+        blurb: 'Out of the hover into forward flight, a rectangle at height, and back to a hover over the pad. Forward flight is the easy part; the transition back into a hover is not.',
+        tasks: [
+          say('Spool up and climb away', '', 4),
+          mark({ say: 'Climb away to 20 m', n: 45, e: 0, up: 20, r: 10, band: 6, par: 25 }),
+          mark({ say: 'Downwind leg', n: 95, e: 35, up: 20, r: 12, band: 8, par: 25 }),
+          mark({ say: 'Base', n: 45, e: 35, up: 15, r: 12, band: 8, par: 25 }),
+          mark({ say: 'Turn final', n: 25, e: 0, up: 10, r: 10, band: 6, par: 25 }),
+          hover({ say: 'Into the hover over the pad', n: PAD_N, e: PAD_E, up: 3, r: 4, band: 2, hold: 5, speedMax: 3, par: 35,
+            tip: 'Translational lift goes away as you slow down and the helicopter sinks. Feed collective in as the speed washes off, not after.' }),
+          pad({ say: 'Land', n: PAD_N, e: PAD_E, up: 0, r: 2.5, rate: 1.2, par: 25 }),
+        ] },
+      { id: 'auto', name: '8 · Autorotation', start: 'air', boxR: 160, maxAlt: 80, par: 100,
+        blurb: 'Throttle hold on at height, and bring it down on the energy already in the blades. Press H, or put throttle hold on a switch.',
+        tasks: [
+          say('Climb to 50 m over the field, then kill the motor with throttle hold', 'Collective straight down the moment it goes quiet — that is what keeps the head turning. Holding collective in is what kills the head speed, and a dead head cannot be flared.', 3),
+          mark({ say: 'Get to 50 m over the field', n: 25, e: 0, up: 50, r: 20, band: 12, par: 30 }),
+          pad({ say: 'Autorotate down to the pad', n: PAD_N, e: PAD_E, up: 0, r: 6, rate: 2.5, par: 45,
+            tip: 'Keep the nose a little up to hold the rotor speed, then flare at about five metres and level it with the last of the collective. You get one try.' }),
+        ] },
+    ],
+  };
+
+  /* The plane ladder is flown round the real runway: it runs east and west
+     12 m north of the pilot, and a runway start puts you at the west end of it
+     pointing east. So every circuit here is a left-hand one off an easterly
+     takeoff — climb out east, turn left onto crosswind, downwind heading west
+     out to the north, base, and final back onto the strip heading east. */
+  const RWY_N = 12;
+  const PLANE = {
+    id: 'circuits', name: 'Learn to fly a plane',
+    blurb: 'The club circuit ladder: get it off the ground, fly a left-hand circuit round the strip, fly a figure of eight, find out where the wing stops flying, then approaches and landings.',
+    kinds: ['wing', 'conventional'],
+    lessons: [
+      { id: 'climb', name: '1 · Up and round', start: 'runway', boxR: 300, maxAlt: 120, par: 120,
+        blurb: 'Full power, let it fly itself off, climb straight ahead down the strip, then a gentle turn to the left. No more than about twenty degrees of bank the whole way.',
+        tasks: [
+          say('Full throttle, let the tail come up, and let it fly off', 'Do not haul it off the ground. A plane dragged into the air below flying speed will drop a wing, and down low there is no height to fix it in.', 3),
+          mark({ say: 'Climb straight ahead to 35 m', n: RWY_N, e: 70, up: 35, r: 28, band: 18, par: 30 }),
+          mark({ say: 'Gentle turn left, out to the north', n: 110, e: 100, up: 45, r: 30, band: 20, par: 28 }),
+          mark({ say: 'And back past yourself', n: 110, e: -60, up: 45, r: 30, band: 20, par: 30 }),
+        ] },
+      { id: 'circuit', name: '2 · The circuit', start: 'runway', boxR: 350, maxAlt: 120, par: 160,
+        blurb: 'A rectangle at a constant height: upwind, crosswind, downwind, base, final. Left-hand, which is how a club flies it.',
+        tasks: [
+          mark({ say: 'Upwind, climbing to 35 m', n: RWY_N, e: 70, up: 35, r: 28, band: 18, par: 30 }),
+          mark({ say: 'Crosswind', n: 110, e: 105, up: 50, r: 30, band: 20, par: 28 }),
+          mark({ say: 'Downwind', n: 110, e: -60, up: 50, r: 30, band: 20, par: 30 }),
+          mark({ say: 'Base', n: 60, e: -125, up: 35, r: 28, band: 18, par: 28 }),
+          mark({ say: 'Final', n: RWY_N, e: -85, up: 18, r: 25, band: 12, par: 28 }),
+        ] },
+      { id: 'eight', name: '3 · Figure of eight', start: 'air', boxR: 350, maxAlt: 150, par: 150,
+        blurb: 'Two turns the opposite way at the same height out in front of you. It is a height-holding exercise dressed up as a turning one.',
+        tasks: [
+          say('Hold 60 m right the way round both loops', 'Bank costs you lift, so a turn at a constant height needs a little up elevator and a little power. Most people descend in the turns and climb on the straights.', 2),
+          ...ring(120, -70, 65, 60, 180, 360, 5, { r: 30, band: 18, say: 'Left loop' }),
+          ...ring(120, 70, 65, 60, 180, -360, 5, { r: 30, band: 18, say: 'Right loop' }),
+        ] },
+      { id: 'slow', name: '4 · Slow flight and the stall', start: 'air', boxR: 350, maxAlt: 200, par: 120,
+        blurb: 'Take the power off at height and find out what it does when the wing gives up — somewhere you can afford to.',
+        tasks: [
+          mark({ say: 'Get to 100 m with room in front of you', n: 100, e: 20, up: 100, r: 35, band: 22, par: 35 }),
+          say('Power right off, hold the nose up, and let it stall', 'It will drop a wing, and which way it drops tells you something about your model. Recover with the nose down and the power on, not with aileron.', 8),
+          mark({ say: 'Recover, and level out at 50 m', n: 100, e: -40, up: 50, r: 35, band: 20, par: 35,
+            tip: 'Down elevator first, power second, and leave the ailerons alone until the wing is flying again.' }),
+        ] },
+      { id: 'approach', name: '5 · The approach', start: 'air', boxR: 350, maxAlt: 150, par: 140,
+        blurb: 'A powered approach down a steady slope onto the strip. Power sets how fast you come down; elevator sets how fast you are going.',
+        tasks: [
+          mark({ say: 'Downwind at 50 m', n: 95, e: -40, up: 50, r: 30, band: 20, par: 32 }),
+          mark({ say: 'Base at 35 m', n: 60, e: -135, up: 35, r: 28, band: 18, par: 28 }),
+          mark({ say: 'Final at 15 m', n: RWY_N, e: -110, up: 15, r: 25, band: 12, par: 28 }),
+          mark({ say: 'Over the numbers at 4 m', n: RWY_N, e: -55, up: 4, r: 18, band: 4, par: 28,
+            tip: 'If it is high and fast, go round. Every landing you salvage from a bad approach teaches you to fly a bad approach.' }),
+        ] },
+      { id: 'land', name: '6 · The landing', start: 'air', boxR: 350, maxAlt: 150, par: 170,
+        blurb: 'The whole thing: a circuit, an approach, the flare, and the wheels on the strip.',
+        tasks: [
+          mark({ say: 'Downwind at 50 m', n: 95, e: -40, up: 50, r: 30, band: 20, par: 32 }),
+          mark({ say: 'Base at 35 m', n: 60, e: -135, up: 35, r: 28, band: 18, par: 28 }),
+          mark({ say: 'Turn final at 15 m', n: RWY_N, e: -110, up: 15, r: 25, band: 12, par: 30 }),
+          pad({ say: 'Put the wheels on the strip', n: RWY_N, e: -5, up: 0, r: 28, rate: 2.5, par: 55,
+            tip: 'Hold it off. Let it come down to a foot above the strip and then keep easing the elevator back as it sinks, so it runs out of flying speed at the moment it touches.' }),
+        ] },
+    ],
+  };
+
+
+  // the courses that ship with the sim, normalised through the same reader a
+  // file goes through, so a built-in course cannot be something a file could
+  // not have been
+  const BUILTIN = [QUAD, HELI, PLANE].map((c) => {
+    const r = read(Object.assign({ format: `flightline-tutorial/${FORMAT}`, author: 'Flightline' }, c));
+    if (!r.ok) throw new Error(`built-in course ${c.id}: ${r.errors.join('; ')}`);
+    return r.course;
+  });
+
+  const forKind = (kind) => BUILTIN.filter((c) => c.kinds.includes(kind));
+
+  return { FORMAT, BUILTIN, forKind, read, write, start, tick, score, medalFor, markers, sayNow, taskOf, errorAt, facingOff, MEDALS, FINISH, TIME, PRECISION, CRASH_COST, OUT_RATE };
+})();
+if (typeof module !== 'undefined') module.exports = TUT;
+
+/* =====================================================================
+   The two chat prompts the sim can hand you, kept here rather than in the
+   page so there is one copy of each: Settings copies them to the clipboard,
+   docs/design-an-aircraft-prompt.md and docs/design-a-tutorial-prompt.md
+   print them, and test/prompt_test.js checks the three agree.
+
+   Both work the same way. You paste the prompt into an ordinary chat, tell
+   it what you have or what you want to learn, and it writes you a JSON file
+   the sim can read. Neither prompt asks the chat to write code and neither
+   file can contain any: every field is copied against a table of rules on
+   the way in.
+   ===================================================================== */
+const PROMPTS = (function () {
+  'use strict';
+  const aircraft = `You are helping me describe a radio-control aircraft for Flightline RC Sim, a
+browser flight simulator. I will give you a build list. You will give me back
+one JSON file in the sim's aircraft format, version 1.
+
+The format reference is here — read it before you answer:
+https://raw.githubusercontent.com/RealPapaNerf/flightline-sim/main/docs/aircraft-format.md
+
+Write the short "build sheet" (\`spec\`) form, not the full \`def\`. Shape:
+
+{
+  "format": "flightline-aircraft/1",
+  "author": "<my name if I gave you one, else leave it out>",
+  "version": "1",
+  "source": "<one line: where these numbers came from>",
+  "spec": {
+    "kind": "plane" | "wing" | "quad",
+    "id": "<short-lowercase-id>",
+    "name": "<what it should be called in the sim>",
+    "blurb": "<one or two sentences>",
+    ...the numbers below...
+  }
+}
+
+Fields, with their units. Leave out anything I did not tell you and cannot
+work out — every one of them has a default worked out from the others, and a
+sensible default beats a number you made up.
+
+  Every aircraft:  mass (g, all-up, with the battery)
+                   propD (in), propPitch (in), blades (2-4)
+                   motorKV (rpm/V)
+                   cellChem ("lipo" | "liion"), cellsS, cellsP,
+                   cellmAh (per parallel string), cellR (mOhm per cell)
+                   watts (electrical, at full throttle)
+                   pitchSpeed (m/s, the full-throttle top speed if you know it)
+
+  Planes and wings (kind "plane" or "wing"):
+                   span, rootChord, tipChord (mm)
+                   sweep, dihedral, washout (degrees)
+                   wingZ (mm the wing sits above the CG)
+                   airfoil ("flat" | "semi" | "symmetric" | "reflex")
+                   build ("foam" | "builtup" | "composite")
+                   staticMargin (%, 8-12 is normal, 5-7 for a plank)
+                   tailArm, stabSpan, stabChord, finHeight, finChord (mm)
+                   fuseW, fuseH, noseLen (mm)
+                   camX, camZ (mm) — where the FPV camera sits, from the wing
+                   leading edge and above the body centre. Leave them out and
+                   they follow the nose.
+                   gear ("none" | "tricycle" | "taildragger" | "retract")
+                   ailSpan, flapSpan (% of the half span)
+                   ailChord, flapChord, elevChord, rudChord (% of chord)
+                   throwA, throwE, throwR, throwF (degrees)
+                   thrustStatic (g, only if I measured it on a stand)
+
+  Quads (kind "quad"):
+                   wheelbase (mm, motor to motor diagonally)
+                   thrustPerMotor (g, at full throttle on my cell count,
+                     from the motor maker's thrust table)
+                   rateMax (deg/s)
+    all:           camTilt (degrees down from level)
+                   quadGear, gimbal, packTop (true/false)
+
+Rules:
+
+1. Ask me about anything important that is missing or that does not add up,
+   before you write the file. Thrust per motor for a quad and all-up weight
+   for anything are the two that matter most.
+2. Do not invent a number you could leave out. A left-out field gets a default
+   worked out from the rest of the aircraft, which is almost always better
+   than a guess.
+3. Numbers only. No formulas, no expressions, no comments inside the JSON.
+4. Reply with: a short list of what you assumed or changed, then exactly one
+   JSON code block and nothing after it.
+5. Before you answer, check your own numbers and tell me if any of these look
+   wrong:
+   - a plane's wing loading (mass in g / wing area in dm^2): 20-40 is a
+     trainer or a park flyer, 40-70 is a big camera plane, over 90 wants a
+     runway and a lot of speed
+   - a plane's static thrust against its weight: 0.4-0.7 for a cruiser,
+     0.8-1.2 for something aerobatic
+   - a quad's thrust to weight: 4-6 is a long-range or lifting build, 8-12 is
+     a freestyle quad
+   - power: a plane is usually 150-350 W per kg; a quad is 1,500-4,000 W per
+     kg, and the file wants the *electrical* watts at full throttle
+   - cell resistance: a good LiPo is 5-10 mOhm per cell; an 18650 is 20-30,
+     a 21700 nearer 12-15
+   - whether the pack can actually feed full throttle: cells x capacity x the
+     C rating, against watts / pack volts. If it cannot, say so — the sim
+     models the sag and it will be obvious in the air.
+6. If I gave you something the format cannot express — a VTOL, a twin, a
+   slotted flap, a helicopter — say so plainly, give me the nearest thing it
+   can do, and tell me what will be different.
+
+My build:
+
+<paste your build list here: frame, motor and KV, prop, cells and pack,
+all-up weight, anything else you know>`;
+
+  const tutorial = `You are helping me write a training course for Flightline RC Sim, a browser
+flight simulator. I will tell you what I want to learn. You will give me back
+one JSON file in the sim's tutorial format, version 1, which I load with
+Settings -> Training -> Load a tutorial file.
+
+The format reference is here - read it before you answer:
+https://raw.githubusercontent.com/RealPapaNerf/flightline-sim/main/docs/tutorial-format.md
+
+Shape:
+
+{
+  "format": "flightline-tutorial/1",
+  "id": "<short-lowercase-id>",
+  "name": "<what the course is called>",
+  "blurb": "<one or two sentences: what it teaches and in what order>",
+  "author": "<my name if I gave you one, else leave it out>",
+  "source": "<one line: where the drills came from>",
+  "kinds": ["quad"],            // any of quad, heli, wing, conventional, vtol
+  "lessons": [ ...in order, easiest first... ]
+}
+
+A lesson:
+
+{
+  "id": "<short-lowercase-id, unique in the course>",
+  "name": "1 - What this lesson is",
+  "blurb": "<two or three sentences: what the drill is and why it matters>",
+  "start": "pad" | "runway" | "launch" | "air" | "any",
+  "boxR":  <metres: how far from the pilot you may go, 0 = no fence>,
+  "maxAlt":<metres: how high you may go, 0 = no ceiling>,
+  "par":   <seconds: leave it out and it adds up the tasks>,
+  "tasks": [ ...flown in order... ]
+}
+
+A task is one of four kinds. Everything is in metres from where the pilot
+stands - **n** is north of him, **e** is east of him, **up** is above the
+ground under him - and every angle is a compass heading, 0 = north, 90 = east.
+
+  { "kind": "zone",            a place to get to, and maybe stay in
+    "say":  "<the instruction, a short line>",
+    "tip":  "<the coaching: what to do, what goes wrong, why>",
+    "n": 8, "e": 0, "up": 2,
+    "r": 3,                    how wide the zone is, metres
+    "band": 1,                 how much height slack, metres
+    "hold": 20,                seconds to stay inside (0 = just reach it)
+    "spin": 360,               degrees to turn while inside (0 = none)
+    "facing": "any" | "home" | "away" | "course" | <heading>,
+    "facingTol": 40,           how many degrees off that is still allowed
+    "speedMax": 4,             m/s you must be under (0 = no limit)
+    "par": 30 }
+
+  { "kind": "gate",            a rectangle standing in the air
+    "n": 40, "e": 0, "up": 2.5,
+    "width": 5, "height": 3.5,
+    "yawDeg": 90,              the way you fly through it
+    "par": 11 }
+
+  { "kind": "land",            put it down inside a circle, gently
+    "n": 8, "e": 0, "r": 2.5,
+    "rate": 1.5,               m/s of sink that still counts as a good landing
+    "par": 25 }
+
+  { "kind": "say",             no flying: a line of coaching between two tasks
+    "say": "<what to do next>", "tip": "<why>", "hold": 3 }
+
+Scoring, so you can judge a par: 1,000 points - 500 for finishing, 200 for
+coming in under par, 300 for precision (how near the middle of every marker
+you flew, averaged). A crash costs 120. Gold is 850, silver 650, bronze 420.
+
+Rules:
+
+1. Ask me what I want to learn and what I fly before you write anything, if I
+   have not said. A course for a 5-inch freestyle quad is not a course for a
+   700-size helicopter.
+2. Order the lessons so each one needs only what the ones before it taught. A
+   ladder with a rung missing is worse than no ladder.
+3. Every lesson must be **possible**. Work out roughly how long the flying
+   takes and set par to about twice that, so a first attempt earns a medal and
+   a second attempt earns a better one. A par nobody can make is not a
+   challenge, it is a wall.
+4. Fly it in your head before you write it. Can the aircraft get from the end
+   of one task to the start of the next? Is the zone wide enough to hold a
+   hover in? Is a 40-metre circle flyable at the speed that aircraft goes?
+5. Keep it in front of the pilot. The home field is clear of trees from 35 m
+   to 200 m out and 115 m either side, the flight line is 4 m in front of him,
+   and the runway runs east and west 12 m beyond that. Positive n is out over
+   the field. Do not put a task behind the pilot.
+6. Write the \`tip\` for every flying task. The instruction says what to do; the
+   tip is the part worth reading - what the mistake is, what it feels like,
+   and what to do instead. That is the whole value of a lesson over a
+   waypoint list.
+7. Numbers only. No formulas, no expressions, no comments inside the JSON.
+8. Reply with: a short list of what you assumed, then exactly one JSON code
+   block and nothing after it.
+
+What I want to learn:
+
+<tell it here: the aircraft, the skill, how experienced you are, and anything
+you already know you are bad at>
+`;
+
+  return { aircraft, tutorial };
+})();
+if (typeof module !== 'undefined') module.exports = PROMPTS;
+
+/* =====================================================================
    Flightline navigation layer — pure JavaScript (no DOM).
 
    What the aircraft *knows*, as opposed to what it *is*:
@@ -4888,6 +5911,8 @@ if (typeof module !== 'undefined') module.exports = NET;
     author: '', // your name, written into aircraft files you export
     trim: {}, // user trims per aircraft, stick units, set from controller trim buttons
     course: true, best: {}, // gate course lap timer, best lap per aircraft (s)
+    // training: the last lesson opened, and the best score on every lesson ever flown
+    tut: { course: '', lesson: '', best: {} },
     // racing: ghost source ('off' | 'best' = your best lap with this aircraft | 'pick' = the lap chosen in
     // Settings → Racing), which lap is picked, and the name put on laps you export and on your aircraft online
     ghost: 'best', ghostPick: null, pilot: '',
@@ -5515,6 +6540,7 @@ if (typeof module !== 'undefined') module.exports = NET;
       `${Math.round(terrain.maxUp - terrain.minUp)} m of relief, field ${Math.round(map.fieldElevM)} m` +
       (colorTex ? `, imagery ${colorTex.w}x${colorTex.h}${colorTex.pot ? '' : ' (not a power of two: no mipmaps, so it will shimmer at distance)'}` : ', no imagery');
     for (const w of map.warnings) mapStatus += `\nWarning: ${w}`;
+    if (tut.lesson) tutBuildMarks(tut.lesson);
     toast(`Flying ${map.name}`);
     return map;
   }
@@ -5530,6 +6556,7 @@ if (typeof module !== 'undefined') module.exports = NET;
     mapStatus = '';
     buildWorld(S.scenery);
     doReset();
+    if (tut.lesson) tutBuildMarks(tut.lesson);
   }
 
   /* ---------------------------------------------------------------- the map panel
@@ -6682,6 +7709,44 @@ if (typeof module !== 'undefined') module.exports = NET;
   }
   function closeCtl() { ctl.open = false; ctl.rec = false; ctl.learn = null; hide($('#ctl')); syncPause(); refreshCtlStatus(); }
   const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  /* Hand a chat prompt to the clipboard (src/prompts.js). The modern
+     clipboard API wants a secure context and a user gesture, and it has
+     neither inside the claude.ai artifact frame, so there is a fallback that
+     selects the text in an off-screen box and lets execCommand copy it. If
+     even that is refused, the text goes on screen to be copied by hand —
+     better than a button that silently does nothing. */
+  function copyPrompt(text, what) {
+    const done = () => toast(`The ${what} prompt is on the clipboard — paste it into a chat`);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, () => fallback());
+      return;
+    }
+    fallback();
+    function fallback() {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.cssText = 'position:fixed;top:-1000px;left:0;opacity:0';
+        document.body.appendChild(ta);
+        ta.select(); ta.setSelectionRange(0, text.length);
+        const okc = document.execCommand && document.execCommand('copy');
+        ta.remove();
+        if (okc) return done();
+      } catch (e) { /* fall through */ }
+      promptBox(text, what);
+    }
+  }
+  // last resort: put it on screen, selected, so it can be copied by hand
+  function promptBox(text, what) {
+    const el = $('#promptBox');
+    $('#promptTitle').textContent = `The ${what} prompt`;
+    const ta = $('#promptText');
+    ta.value = text;
+    show(el);
+    ta.focus(); ta.select();
+  }
   const actionOptions = (cur) => ACTIONS.map(([v, l]) => `<option value="${v}"${v === (cur || '') ? ' selected' : ''}>${esc(l)}</option>`).join('');
   const knownDevices = () => prof().devs.slice();
   function moveDevice(dev, to) {
@@ -7175,12 +8240,14 @@ if (typeof module !== 'undefined') module.exports = NET;
   function openSheet(tab) { if (ctl.open) closeCtl(); if (tab) S.sheetTab = tab; buildSheet(); $('#sheet').classList.add('open'); syncPause(); }
   function closeSheet() { $('#sheet').classList.remove('open'); syncPause(); }
   $('#shClose').addEventListener('click', closeSheet);
+  $('#promptClose').addEventListener('click', () => hide($('#promptBox')));
 
   const seg = (key, label, opts, help, get, set) => ({ type: 'seg', key, label, opts, help, get, set });
   const rng = (key, label, min, max, stepv, fmt, help, get, set) => ({ type: 'range', key, label, min, max, step: stepv, fmt, help, get, set });
   function schema() {
     const imp = S.units === 'imp';
     return [
+      { tab: 'training', title: 'Training', items: [{ type: 'training' }] },
       { tab: 'aircraft', title: 'Aircraft', items: [
         seg('aircraft', 'Model', Object.values(ACS).map((a) => [a.id, a.name]), AC.blurb, () => S.aircraft, (v) => setAircraft(v)),
         seg('start', 'Reset puts you', AC.starts.map((s) => [s, START_LABEL[s]]), AC.kind === 'wing' ? 'Hand launch: arm with throttle down, then push throttle above 70% and the model is thrown once the motor is wound up (or press L to throw at any throttle). Real technique applies: full power, and maybe a touch of up elevator.' : '', () => startOf(AC.id), (v) => { S.start[AC.id] = v; doReset(); refreshBar(); }),
@@ -7330,7 +8397,7 @@ if (typeof module !== 'undefined') module.exports = NET;
     Object.assign(S, p[3]); S.wxPreset = id; saveS(); updateAtmos(); doReset(); buildSheet();
     toast(`${p[1]}: ${p[2]}`);
   }
-  const TABS = [['aircraft', 'Aircraft'], ['builder', 'Builder'], ['controller', 'Controller'], ['map', 'Map'], ['racing', 'Racing'], ['weather', 'Weather'], ['link', 'Link & sensors'], ['display', 'Display'], ['graphics', 'Graphics & sound'], ['model', 'Flight model']];
+  const TABS = [['aircraft', 'Aircraft'], ['training', 'Training'], ['builder', 'Builder'], ['controller', 'Controller'], ['map', 'Map'], ['racing', 'Racing'], ['weather', 'Weather'], ['link', 'Link & sensors'], ['display', 'Display'], ['graphics', 'Graphics & sound'], ['model', 'Flight model']];
   function setTab(t) { if (S.sheetTab !== t) { S.sheetTab = t; saveS(); $('#sheet').scrollTop = 0; } buildSheet(); }
   function buildSheet() {
     const body = $('#shBody');
@@ -7449,6 +8516,8 @@ if (typeof module !== 'undefined') module.exports = NET;
           renderFiles(box);
         } else if (it.type === 'builder') {
           renderBuilder(box);
+        } else if (it.type === 'training') {
+          renderTraining(box);
         } else if (it.type === 'room') {
           box.innerHTML = `<label for="setRoom"><span>Room code</span></label><div class="setrow"><input class="txt" type="text" id="setRoom" maxlength="12" placeholder="e.g. ${NET.roomCode()}" value="${esc(S.net.room)}" style="flex:1 1 120px"><button type="button" class="btn small" id="roomNew">New code</button><button type="button" class="btn small" id="roomJoin">${race.r ? 'Rejoin' : 'Join'}</button></div><div class="help">Everyone who types the same code is in the same room. Tell your friends the code, not the key.</div>`;
           const e = box.querySelector('#setRoom');
@@ -7496,7 +8565,9 @@ if (typeof module !== 'undefined') module.exports = NET;
     let h = `<div class="radio-box"><div class="name"><b>${esc(AC.name)}</b><br><span class="help">${meta}${s.spec ? ' · has a build sheet' : ''}</span></div>
       <div class="setrow"><button class="btn small" id="acExp">Export this aircraft</button>
       <button class="btn small" id="acImp">Import aircraft file</button>
-      <button class="btn small" id="acBld">${s.spec ? 'Edit in the builder' : 'Open the builder'}</button></div>
+      <button class="btn small" id="acBld">${s.spec ? 'Edit in the builder' : 'Open the builder'}</button>
+      <button class="btn small" id="acPrompt">Copy the design prompt</button></div>
+      <div class="help">The design prompt turns a build list into an aircraft file: copy it, paste it into a chat with Claude, give it your frame, motor, prop, cells and all-up weight, and import the JSON it writes back.</div>
       ${s.def && s.def.notes ? `<div class="help"><b>Notes in the file:</b> ${esc(s.def.notes)}</div>` : ''}
       <div class="help">An aircraft file is JSON: a few hundred numbers, nothing that can run. Every number is checked and clamped on the way in, and anything that gets changed is listed here. The format is in <b>docs/aircraft-format.md</b>.</div>${msgHtml(impMsg)}</div>`;
     if (mine.length) h += `<div class="laps" style="margin-top:10px">${mine.map((id) => `<div class="lap${id === AC.id ? ' on' : ''}"><b>${KIND_TAG[ACS[id].kind] || 'PLANE'}</b><span>${esc(ACS[id].name)}<br><span class="help">${esc(id)}${SRC[id].meta.author ? ' · by ' + esc(SRC[id].meta.author) : ''}</span></span><div class="acts">
@@ -7521,6 +8592,7 @@ if (typeof module !== 'undefined') module.exports = NET;
     box.querySelector('#acExp').addEventListener('click', () => exportAircraft(AC.id));
     box.querySelector('#acImp').addEventListener('click', importAircraftPick);
     box.querySelector('#acBld').addEventListener('click', () => bldOpen(s.spec ? AC.id : null));
+    box.querySelector('#acPrompt').addEventListener('click', () => copyPrompt(PROMPTS.aircraft, 'aircraft design'));
     const dir = box.querySelector('#acDir'); if (dir) dir.addEventListener('click', browseFolder);
     const all = box.querySelector('#acDirAll'); if (all) all.addEventListener('click', loadFolderAll);
     const go = box.querySelector('#acUrlGo');
@@ -7604,7 +8676,7 @@ if (typeof module !== 'undefined') module.exports = NET;
     }
     if (bld.notes && bld.notes.warnings.length) h += `<div class="help" style="color:var(--warn);margin-top:8px">${bld.notes.warnings.map(esc).join(' · ')}</div>`;
     h += `<div class="bgrp">On the bench</div><div class="bench" id="bldBench">${bldBenchHtml()}</div>
-      <div class="setrow" style="margin-top:12px"><button class="btn primary" id="bFly">Fly it</button><button class="btn small" id="bSave">Save as a file</button>${bld.from ? `<button class="btn small" id="bReset">Start over</button>` : ''}</div>
+      <div class="setrow" style="margin-top:12px"><button class="btn primary" id="bFly">Fly it</button><button class="btn small" id="bSave">Save as a file</button><button class="btn small" id="bPrompt">Copy the design prompt</button>${bld.from ? `<button class="btn small" id="bReset">Start over</button>` : ''}</div>
       <div class="help">“Fly it” saves the aircraft in this browser and switches to it; it stays in Settings → Aircraft, where you can export it as a file. The build sheet is saved with it, so you can come back and change it.</div>`;
     box.innerHTML = h;
     box.querySelectorAll('[data-kind]').forEach((b0) => b0.addEventListener('click', () => bldKind(b0.dataset.kind)));
@@ -7633,6 +8705,7 @@ if (typeof module !== 'undefined') module.exports = NET;
         toast(`${def.id}.json saved to your downloads`);
       } catch (e) { toast('This browser would not save the file'); }
     });
+    box.querySelector('#bPrompt').addEventListener('click', () => copyPrompt(PROMPTS.aircraft, 'aircraft design'));
     const rs = box.querySelector('#bReset');
     if (rs) rs.addEventListener('click', () => { bld.from = null; bld.id = ''; bld.user = {}; bld.name = 'My aircraft'; bldNorm(); bld.bench = null; bldQueue(); buildSheet(); });
   }
@@ -7853,9 +8926,27 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     gl.disable(gl.POLYGON_OFFSET_FILL);
     GLR.draw(R, world.scenery, I, { mix: sn ? [...WHITE, sn * 0.35] : null });
     GLR.draw(R, sockMesh, sockM);
-    if (S.course && world.gates.length) { // marker floating over the next gate
+    if (S.course && !tutOn() && world.gates.length) { // marker floating over the next gate
       const gt = world.gates[course.next], bob = Math.sin(course.clock * 3) * 0.15;
       GLR.draw(R, markerMesh, M4.chain(M4.trans(gt.x, gt.top + 1.1 + bob, gt.z), M4.rotY(course.clock * 2), M4.scale(0.32, 0.45, 0.32)), { unlit: true });
+    }
+    /* The lesson's markers. Drawn unlit and translucent so they read as the
+       guides they are rather than as scenery you could hit — nothing here is
+       solid, and clipping a hoop costs precision, not a crash. The live one
+       is opaque and carries the bobbing marker, the ones behind you go green,
+       the ones ahead stay a dim steel. */
+    if (tut.marks.length && tut.run) {
+      gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
+      for (const mk of tut.marks) {
+        const live = mk.i === tut.run.step, done = mk.i >= 0 && mk.i < tut.run.step;
+        const tint = mk.k === 'fence' ? [0.8, 0.5, 0.35] : done ? TUT_COL.done : live ? TUT_COL.live : TUT_COL.next;
+        GLR.draw(R, mk.mesh, mk.mat, { unlit: true, tint, alpha: live ? 0.95 : done ? 0.3 : 0.45 });
+        if (live) {
+          const bob = Math.sin(course.clock * 3) * 0.15;
+          GLR.draw(R, markerMesh, M4.chain(M4.trans(mk.mat[12], mk.top + 1.4 + bob, mk.mat[14]), M4.rotY(course.clock * 2), M4.scale(0.32, 0.45, 0.32)), { unlit: true, noFog: true });
+        }
+      }
+      gl.depthMask(true); gl.disable(gl.BLEND);
     }
     const model = MODELS[AC.id];
     const partM = [];
@@ -8280,7 +9371,18 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
         osdText(w ? `WATCHING ${(w.name || 'PILOT').toUpperCase()}` : 'SPECTATING · PICK A PILOT', cx, v.y + v.h - m - fs * 4.6 - lift, 'center', Math.max(11, fs * 0.8), '#9fe8ff');
       }
       if (avatars.length) drawTags(v, fs);
-      const ct = courseText();
+      const tt = tutText();
+      if (tt) {
+        // above whatever that view already puts along the bottom: the FPV
+        // battery/throttle row, or the line-of-sight info and weather lines
+        const tfs = v.kind === 'fpv' ? fs : Math.max(11, fs * 0.82);
+        const clear = v.kind === 'fpv' ? fs * 2.8 : Math.max(11, fs * 0.8) * 4.6;
+        const y0 = v.y + v.h - m - clear - lift;
+        osdText(tt.say, cx, y0, 'center', tfs * 1.1, tut.result ? '#6ad49a' : '#ffd36a');
+        osdText(tt.head + (tt.note ? '   ' + tt.note.toUpperCase() : ''), cx, y0 - tfs * 1.5, 'center', tfs * 0.85, 'rgba(255,255,255,0.88)');
+        if (tut.flash.t > 0) osdText(tut.flash.text, cx, y0 - tfs * 3, 'center', tfs, '#ff9d6a');
+      }
+      const ct = tutOn() ? '' : courseText();
       if (ct) {
         const cfs = v.kind === 'fpv' ? fs : Math.max(11, fs * 0.8);
         const cy2 = v.kind === 'fpv' ? v.y + v.h - m - fs * 1.6 - lift : v.y + v.h - m - fs * 3.2 - lift;
@@ -8651,7 +9753,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     if (ghost.split.t > 0) ghost.split.t -= dt;
     const p = [st.p[1], -st.p[2], -st.p[0]], prev = course.prev;
     course.prev = p;
-    if (!S.course || !world.gates.length) return;
+    if (!S.course || tutOn() || !world.gates.length) return;
     if (st.crashed || st.held) { if (course.lapStart !== null) courseAbort(); return; }
     if (!prev) return;
     const gt = world.gates[course.next], c = Math.cos(gt.psi), s = Math.sin(gt.psi);
@@ -8675,6 +9777,290 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     if (!S.course || course.lapStart === null) return '';
     const best = S.best[AC.id];
     return `GATE ${course.next + 1}/${world.gates.length}  ${fmtLap(lapElapsed())}${best ? '  BEST ' + fmtLap(best) : ''}${ghost.play ? '  GHOST ' + fmtLap(ghost.play.lap.time) : ''}`;
+  }
+
+  /* ---------------------------------------------------------------- training
+     Courses and lessons live in src/tutorial.js, which knows nothing about the
+     renderer or the DOM: it takes a snapshot of where the aircraft is and
+     hands back events, a line of instruction and a score. This is the glue —
+     the snapshot, the markers, the panel and the HUD.
+
+     Lesson geometry is in metres from where the pilot stands and metres above
+     the ground under him, so the same lesson works on the home field and on a
+     terrain map. On a map with real relief a lesson written for flat ground
+     will hang its markers at the pilot's datum rather than follow the hill;
+     that is the honest reading of "50 m up" and it is what the altitude tape
+     shows, but it is worth knowing before you write a lesson for a mountain. */
+  const TKEY = 'flightline.tutorials.v1';
+  const tutFiles = (() => { const v = load(TKEY); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; })();
+  const COURSES = {};
+  const installCourse = (course, builtin) => { COURSES[course.id] = Object.assign({}, course, { builtin: !!builtin }); };
+  for (const c of TUT.BUILTIN) installCourse(c, true);
+  for (const id of Object.keys(tutFiles)) {
+    const r = TUT.read(tutFiles[id]);
+    if (r.ok && !COURSES[r.course.id]) installCourse(r.course);
+    else importNotes.push(`${id}: ${r.ok ? 'a course with that id is already loaded' : r.errors.join('; ')}`);
+  }
+  const tut = { run: null, course: null, lesson: null, marks: [], result: null, msg: null, flash: { text: '', t: 0 } };
+  const tutOn = () => !!tut.run;
+  const bestKey = (c, l) => `${c}/${l}`;
+  const bestOf = (c, l) => S.tut.best[bestKey(c, l)] || null;
+  const KIND_NEEDS = { quad: 'a quad', heli: 'a helicopter', wing: 'a flying wing', conventional: 'a plane', vtol: 'a tail-sitter' };
+  const coursesFor = (kind) => Object.values(COURSES).filter((c) => c.kinds.includes(kind));
+
+  // where the pilot stands and what the ground is under him: the datum every
+  // lesson is written against
+  function tutOrigin() {
+    const n = mapInfo ? mapInfo.pilot.n : 0, e = mapInfo ? mapInfo.pilot.e : 0;
+    return { n, e, up: terrain.heightAt(n, e) };
+  }
+  function tutSnap() {
+    const o = tutOrigin(), eu = FL.eulerFromMat(FL.quatToMat(st.q));
+    return {
+      n: st.p[0] - o.n, e: st.p[1] - o.e, up: -st.p[2] - o.up,
+      vn: st.v[0], ve: st.v[1], vup: -st.v[2],
+      gs: Math.hypot(st.v[0], st.v[1]), V: st.tele.V,
+      yaw: eu.yaw, pitch: eu.pitch, roll: eu.roll,
+      thr: inp.thr, armed, wow: st.wow, held: st.held, crashed: st.crashed,
+    };
+  }
+
+  /* ---- the markers, as meshes ----
+     One mesh per marker so the live one can be lit up and the ones already
+     behind you can fade, without rebuilding anything. */
+  const TUT_COL = { done: [0.35, 0.8, 0.55], live: [1.0, 0.78, 0.2], next: [0.62, 0.7, 0.76] };
+  function ringGeo(g, r, tube, n, col, plane) {
+    for (let i = 0; i < n; i++) {
+      const a0 = (i / n) * Math.PI * 2, a1 = ((i + 1) / n) * Math.PI * 2;
+      const P = (a, dz) => (plane === 'xz' ? [r * Math.cos(a), dz, r * Math.sin(a)]
+        : plane === 'xy' ? [r * Math.cos(a), r * Math.sin(a), dz]
+        : [dz, r * Math.sin(a), r * Math.cos(a)]);
+      g.quad(P(a0, -tube), P(a1, -tube), P(a1, tube), P(a0, tube), col);
+    }
+  }
+  function tutMarkerMesh(m) {
+    const g = new Geo(), col = [1, 1, 1];
+    if (m.k === 'gate') {
+      const W = m.w, H = m.h;
+      g.with(M4.rotY(m.yaw * D2R), () => {
+        for (const sx of [-1, 1]) g.box(sx * W / 2 - 0.09, -H / 2, -0.09, sx * W / 2 + 0.09, H / 2, 0.09, col);
+        g.box(-W / 2 - 0.09, H / 2 - 0.09, -0.09, W / 2 + 0.09, H / 2 + 0.09, 0.09, col);
+        g.box(-W / 2 - 0.09, -H / 2 - 0.09, -0.09, W / 2 + 0.09, -H / 2 + 0.09, 0.09, col);
+      });
+    } else if (m.k === 'pad') {
+      ringGeo(g, m.r, 0.06, 28, col, 'xz');
+      ringGeo(g, m.r * 0.45, 0.05, 20, col, 'xz');
+      for (const a of [0, Math.PI / 2]) g.with(M4.rotY(a), () => g.box(-m.r * 0.45, -0.05, -0.05, m.r * 0.45, 0.05, 0.05, col));
+    } else if (m.k === 'fence') {
+      // a thin ring on the ground: the edge of the lesson's world
+      for (let i = 0; i < 72; i += 2) {
+        const a0 = (i / 72) * Math.PI * 2, a1 = ((i + 1) / 72) * Math.PI * 2;
+        g.quad([m.r * Math.cos(a0), 0, m.r * Math.sin(a0)], [m.r * Math.cos(a1), 0, m.r * Math.sin(a1)],
+          [(m.r + 0.8) * Math.cos(a1), 0, (m.r + 0.8) * Math.sin(a1)], [(m.r + 0.8) * Math.cos(a0), 0, (m.r + 0.8) * Math.sin(a0)], col);
+      }
+    } else { // a zone: a cage you can read the size of from any angle
+      const tube = clamp(m.r * 0.016, 0.03, 0.15);
+      if (m.hold) { // a hold: two rings a band apart, with uprights between them
+        ringGeo(g, m.r, tube, 24, col, 'xz');
+        for (const dy of [-m.band, m.band]) g.with(M4.trans(0, dy, 0), () => ringGeo(g, m.r, tube, 24, col, 'xz'));
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2, x = m.r * Math.cos(a), z = m.r * Math.sin(a);
+          g.box(x - tube, -m.band, z - tube, x + tube, m.band, z + tube, col);
+        }
+      } else { // a marker you fly through: three rings at right angles
+        ringGeo(g, m.r, tube, 20, col, 'xz');
+        ringGeo(g, m.r, tube, 20, col, 'xy');
+        ringGeo(g, m.r, tube, 20, col, 'yz');
+      }
+    }
+    return GLR.mesh(R, g);
+  }
+  function tutFreeMarks() { for (const mk of tut.marks) GLR.freeMesh(R, mk.mesh); tut.marks = []; }
+  function tutBuildMarks(lesson) {
+    tutFreeMarks();
+    const o = tutOrigin();
+    for (const m of TUT.markers(lesson)) {
+      // render space: x east, y up, z south
+      const at = M4.trans(o.e + m.e, o.up + m.up, -(o.n + m.n));
+      tut.marks.push({ i: m.i, k: m.k, mesh: tutMarkerMesh(m), mat: at, top: o.up + m.up + (m.k === 'zone' ? (m.band || 0) : m.k === 'gate' ? m.h / 2 : 0) });
+    }
+  }
+
+  function tutStart(courseId, lessonId) {
+    const course = COURSES[courseId];
+    const lesson = course && course.lessons.find((l) => l.id === lessonId);
+    if (!lesson) return;
+    if (!course.kinds.includes(AC.kind)) { toast(`${course.name} needs ${KIND_NEEDS[course.kinds[0]] || 'another aircraft'}`); return; }
+    tut.course = course; tut.lesson = lesson; tut.result = null;
+    tut.run = TUT.start(lesson);
+    S.tut.course = courseId; S.tut.lesson = lessonId; saveS();
+    // put the aircraft where the lesson expects it, if it can start that way
+    if (lesson.start !== 'any' && AC.starts.includes(lesson.start)) S.start[AC.id] = lesson.start;
+    doReset();
+    tutBuildMarks(lesson);
+    closeSheet();
+    show($('#tut'));
+    refreshTut();
+    tutFlash(lesson.name.toUpperCase());
+  }
+  function tutStop() {
+    tut.run = null; tut.lesson = null; tut.result = null;
+    tutFreeMarks();
+    hide($('#tut'));
+    syncSheet();
+  }
+  const tutFlash = (text) => { tut.flash = { text, t: 2.4 }; };
+
+  function tutTick(dt) {
+    if (!tut.run) return;
+    if (tut.flash.t > 0) tut.flash.t -= dt;
+    if (tut.run.done || tut.run.failed) return;
+    const before = tut.run.step;
+    for (const [kind, arg] of TUT.tick(tut.run, tutSnap(), dt)) {
+      if (kind === 'step') tutFlash('NEXT');
+      else if (kind === 'crash') tutFlash(`CRASH ${arg} · −${TUT.CRASH_COST}`);
+      else if (kind === 'lost') tutFlash('LOST IT — START THE HOLD AGAIN');
+      else if (kind === 'out') tutFlash(`OUTSIDE THE ${Math.round(arg)} m BOX`);
+      else if (kind === 'over') tutFlash(`ABOVE ${Math.round(arg)} m`);
+      else if (kind === 'miss') tutFlash('MISSED THE GATE');
+      else if (kind === 'done') tutDone();
+    }
+    if (tut.run && tut.run.step !== before) refreshTut();
+  }
+  function tutDone() {
+    tut.flash.t = 0;
+    const sc = TUT.score(tut.run);
+    tut.result = sc;
+    const key = bestKey(tut.course.id, tut.lesson.id), prev = S.tut.best[key];
+    if (!prev || sc.total > prev.total) {
+      S.tut.best[key] = { total: sc.total, medal: sc.medal, t: Math.round(tut.run.t * 10) / 10 };
+      tut.result.record = !!prev;
+      tut.result.first = !prev;
+    }
+    saveS();
+    refreshTut();
+    syncSheet();
+  }
+  const tutNextLesson = () => {
+    if (!tut.course || !tut.lesson) return null;
+    const i = tut.course.lessons.indexOf(tut.lesson);
+    return i >= 0 && i + 1 < tut.course.lessons.length ? tut.course.lessons[i + 1] : null;
+  };
+
+  /* The panel over the view: what you are being asked to do, the steps you
+     have done, the clock, and the score when it is over. */
+  function refreshTut() {
+    const box = $('#tut');
+    if (!tut.run || !tut.lesson) { hide(box); return; }
+    show(box);
+    const L = tut.lesson, run = tut.run, sc = tut.result;
+    const best = bestOf(tut.course.id, L.id);
+    $('#tutName').textContent = L.name;
+    $('#tutMeta').textContent = sc ? '' : `${run.t.toFixed(0)}s / ${L.par}s par${best ? ` · best ${best.total}` : ''}`;
+    const body = $('#tutBody');
+    if (sc) {
+      const lines = [
+        ['Finished', `${sc.finish} / ${TUT.FINISH}`],
+        ['Inside par', `${sc.time} / ${TUT.TIME}`],
+        ['Precision', `${sc.precision} / ${TUT.PRECISION}`],
+      ];
+      if (sc.penalty) lines.push(['Crashes and fences', `−${sc.penalty}`]);
+      body.innerHTML = `<div class="tut-score"><b>${sc.total}</b><span>${sc.medal ? sc.medal.toUpperCase() : 'no medal yet'}</span></div>`
+        + `<div class="tut-kv">${lines.map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join('')}</div>`
+        + `<div class="help">${sc.first ? 'First time round. ' : sc.record ? 'A new best. ' : `Your best is still ${best ? best.total : sc.total}. `}`
+        + `You flew it in ${run.t.toFixed(0)} s and held ${Math.round((1 - sc.err) * 100)}% of the way from the edge of each marker to its middle. Precision and the clock are where the points are left.</div>`;
+      $('#tutActs').innerHTML = `<button type="button" class="btn small primary" id="tutRetry">Fly it again</button>`
+        + (tutNextLesson() ? `<button type="button" class="btn small" id="tutNext">Next lesson</button>` : '')
+        + `<button type="button" class="btn small" id="tutQuit">Done</button>`;
+    } else {
+      const now = TUT.sayNow(run);
+      const steps = L.tasks.map((t, i) => {
+        const cls = i < run.step ? 'done' : i === run.step ? 'live' : '';
+        const label = t.say || (t.kind === 'gate' ? 'Through the gate' : t.kind === 'land' ? 'Land' : 'Fly to the marker');
+        return `<div class="tut-step ${cls}"><i></i><span>${esc(label)}</span></div>`;
+      }).join('');
+      body.innerHTML = `<div class="tut-now">${esc(now.say)}${now.note ? ` <em>${esc(now.note)}</em>` : ''}</div>`
+        + (now.tip ? `<div class="help">${esc(now.tip)}</div>` : '')
+        + `<div class="tut-steps">${steps}</div>`;
+      $('#tutActs').innerHTML = `<button type="button" class="btn small" id="tutRetry">Restart</button><button type="button" class="btn small" id="tutQuit">Quit</button>`;
+    }
+    const retry = $('#tutRetry'); if (retry) retry.addEventListener('click', () => tutStart(tut.course.id, tut.lesson.id));
+    const nx = $('#tutNext'); if (nx) nx.addEventListener('click', () => { const l = tutNextLesson(); if (l) tutStart(tut.course.id, l.id); });
+    const q = $('#tutQuit'); if (q) q.addEventListener('click', tutStop);
+  }
+  // one line of the OSD, in every view, because the instruction is the point
+  function tutText() {
+    if (!tut.run) return null;
+    if (tut.result) return { head: `${tut.result.total} / 1000${tut.result.medal ? ' · ' + tut.result.medal.toUpperCase() : ''}`, say: tut.lesson.name, note: '' };
+    const now = TUT.sayNow(tut.run);
+    return {
+      head: `STEP ${Math.min(tut.run.step + 1, tut.lesson.tasks.length)}/${tut.lesson.tasks.length}  ${fmtLap(tut.run.t)}`,
+      say: now.say.toUpperCase(), note: now.note,
+    };
+  }
+
+  /* ---------- Settings → Training ---------- */
+  function tutImportFile(text, from) {
+    const r = TUT.read(text);
+    if (!r.ok) { tut.msg = { from, errors: r.errors, warnings: r.warnings }; return syncSheet(); }
+    if (COURSES[r.course.id] && COURSES[r.course.id].builtin) { tut.msg = { from, errors: [`"${r.course.id}" is the id of a course that ships with the sim — change the id in the file`], warnings: [] }; return syncSheet(); }
+    tutFiles[r.course.id] = text;
+    store(TKEY, tutFiles);
+    installCourse(r.course);
+    tut.msg = { from, ok: true, id: r.course.id, name: r.course.name, warnings: r.warnings, errors: [] };
+    syncSheet();
+  }
+  function tutRemove(id) {
+    if (!COURSES[id] || COURSES[id].builtin) return;
+    if (tut.course && tut.course.id === id) tutStop();
+    delete COURSES[id]; delete tutFiles[id];
+    store(TKEY, tutFiles);
+    syncSheet();
+  }
+  function renderTraining(box) {
+    const mine = Object.values(COURSES).filter((c) => !c.builtin);
+    const usable = coursesFor(AC.kind);
+    let h = `<div class="help">A course is a ladder of lessons; a lesson is a list of things to fly, in order, scored out of 1,000 — 500 for finishing, 200 for doing it inside par and 300 for how near the middle of every marker you flew. Crashes cost ${TUT.CRASH_COST}. Fly one again and beat it.</div>`;
+    if (!usable.length) h += `<div class="help" style="color:var(--warn);margin-top:8px">Nothing here is written for ${KIND_NEEDS[AC.kind] || 'this aircraft'} yet. Switch aircraft, or write a course — the prompt below does it for you.</div>`;
+    for (const c of Object.values(COURSES)) {
+      const can = c.kinds.includes(AC.kind);
+      h += `<div class="bgrp">${esc(c.name)}${c.builtin ? '' : ' · yours'}</div><div class="help">${esc(c.blurb)}</div>`;
+      if (!can) { h += `<div class="help" style="color:var(--muted)">Needs ${KIND_NEEDS[c.kinds[0]] || 'another aircraft'}. ${esc(ACS[S.aircraft].name)} is ${KIND_NEEDS[AC.kind] || 'something else'}.</div>`; }
+      h += `<div class="laps" style="margin-top:6px">${c.lessons.map((l) => {
+        const b = bestOf(c.id, l.id);
+        const medal = b && b.medal ? `<b class="medal ${b.medal}">${b.medal[0].toUpperCase()}</b>` : '<b>·</b>';
+        return `<div class="lap${tut.lesson === l ? ' on' : ''}">${medal}<span>${esc(l.name)}<br><span class="help">${b ? `best ${b.total} / 1000 in ${b.t} s` : `par ${l.par} s · ${l.tasks.length} steps`}</span></span>`
+          + `<div class="acts"><button class="btn small${b ? '' : ' primary'}" data-fly="${esc(c.id)}|${esc(l.id)}"${can ? '' : ' disabled'}>${b ? 'Beat it' : 'Fly'}</button></div></div>`;
+      }).join('')}</div>`;
+      if (!c.builtin) h += `<div class="setrow" style="margin-top:6px"><button class="btn small" data-del="${esc(c.id)}">Remove this course</button></div>`;
+    }
+    h += `<div class="bgrp">Write your own</div>
+      <div class="help">Copy the prompt, paste it into a chat with Claude, tell it what you want to learn, and drop the JSON it gives you back in here. The same reader that checks an aircraft file checks this one: every number clamped, every change listed, nothing executed.</div>
+      <div class="setrow" style="margin-top:8px"><button class="btn small" id="tutPrompt">Copy the prompt</button>
+      <label class="btn small" for="tutFile">Load a tutorial file…<input type="file" id="tutFile" accept=".json,application/json" hidden></label></div>
+      ${msgHtml(tut.msg)}`;
+    box.innerHTML = h;
+    box.querySelectorAll('[data-fly]').forEach((b0) => b0.addEventListener('click', () => {
+      const [cid, lid] = b0.dataset.fly.split('|');
+      tutStart(cid, lid);
+    }));
+    box.querySelectorAll('[data-del]').forEach((b0) => b0.addEventListener('click', () => {
+      const id = b0.dataset.del;
+      if (!b0.dataset.sure) { b0.dataset.sure = '1'; b0.textContent = 'Sure? It is only in this browser'; return; }
+      tutRemove(id);
+    }));
+    box.querySelector('#tutPrompt').addEventListener('click', () => copyPrompt(PROMPTS.tutorial, 'tutorial'));
+    const fi = box.querySelector('#tutFile');
+    fi.addEventListener('change', () => {
+      const f = fi.files && fi.files[0];
+      fi.value = '';
+      if (!f) return;
+      tut.msg = { from: f.name, loading: true }; syncSheet();
+      const rd = new FileReader();
+      rd.onload = () => tutImportFile(String(rd.result), f.name);
+      rd.onerror = () => { tut.msg = { from: f.name, errors: ['the browser could not read the file'], warnings: [] }; syncSheet(); };
+      rd.readAsText(f);
+    });
   }
 
   /* ---------------------------------------------------------------- ghost laps
@@ -8977,6 +10363,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       if (steps >= 60) acc = 0;
       checkObstacles();
       courseTick(dt);
+      tutTick(dt);
       if (rec && rec.active) rec.push(course.clock, { p: st.p, q: st.q, thr: inp.thr });
       if (!timerOn && armed && inp.thr > 0.1) timerOn = true;
       if (timerOn && !st.crashed) flightTime += dt;
@@ -9026,7 +10413,10 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   window.__flightline = { st, S, env, nav: () => nav, setAp: (m) => setAp(m), AC: () => AC, doReset, FL, IN: () => IN, prof, ctl, world: () => world, course, ghost, avatars, laps: LAPS, rec: () => rec, race, raceJoin, raceReady, NET, myId,
     terrain: () => terrain, mapInfo: () => mapInfo, openMap, closeMap, TERRAIN, MAPS,
     terrainStats: () => ({ tris: drawnTris, chunks: drawnChunks, lods: chunks ? chunks.map((c) => c.lod) : [] }),
-    agl, setView, setAircraft, acList: () => Object.keys(ACS), addFile: (t) => addAircraftFile(t, true) }; // debugging and tests
+    agl, setView, setAircraft, acList: () => Object.keys(ACS), addFile: (t) => addAircraftFile(t, true),
+    TUT, tut, tutStart, tutStop, courses: () => COURSES, tutSnap,
+    // the keyboard's stick positions, so a test can fly the real control path
+    sticks: kb, useKeys: () => { src = 'keys'; } }; // debugging and tests
 })();
 
 </script>

@@ -7,7 +7,11 @@ load with Settings → Aircraft → *Import aircraft file*.
 
 **How to use it**
 
-1. Copy everything in the box below into a new chat.
+1. In the sim, open Settings → Aircraft (or Settings → Builder) and press
+   **Copy the design prompt** — it is the same text as the box below, so you
+   never have to find this page. If the browser will not reach the clipboard,
+   the sim puts the text on screen to copy by hand. Otherwise, copy everything
+   in the box below into a new chat.
 2. Replace the build list at the bottom with yours. Anything you leave out, it
    should ask about rather than invent.
 3. Save what comes back as `something.json` and import it.

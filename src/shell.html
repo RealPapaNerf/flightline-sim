@@ -261,6 +261,42 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; heigh
   .last-row input, .last-row select { grid-column: 1 / -1; }
 }
 
+/* ---------- the training panel over the view ---------- */
+#tut {
+  position: absolute; top: calc(env(safe-area-inset-top, 0px) + 62px); right: max(10px, env(safe-area-inset-right, 0px));
+  width: 268px; max-width: calc(100vw - 20px); z-index: 4; display: grid; gap: 7px; padding: 9px 11px 10px;
+  background: var(--glass); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  border: 1px solid var(--line); border-radius: 7px;
+}
+.tut-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.tut-head b { font: 600 12px/1.25 var(--f-display); letter-spacing: 0.08em; color: var(--accent); }
+.tut-head span { font: 10px/1.2 var(--f-mono); color: var(--muted); text-align: right; white-space: nowrap; }
+#tut .help { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+.tut-now { font-size: 13px; line-height: 1.4; }
+.tut-now em { font-style: normal; color: var(--accent); font-family: var(--f-mono); font-size: 12px; }
+.tut-steps { display: grid; gap: 2px; max-height: 34vh; overflow-y: auto; }
+.tut-step { display: grid; grid-template-columns: 12px minmax(0, 1fr); gap: 7px; align-items: baseline; font-size: 11.5px; color: var(--muted); }
+.tut-step i { width: 7px; height: 7px; border-radius: 50%; background: var(--line-2); align-self: center; }
+.tut-step.done i { background: var(--good); }
+.tut-step.live { color: var(--text); }
+.tut-step.live i { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.tut-score { display: flex; align-items: baseline; gap: 10px; }
+.tut-score b { font: 700 30px/1 var(--f-display); color: var(--accent); }
+.tut-score span { font: 600 11px/1 var(--f-display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.tut-kv { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; font-size: 12px; }
+.tut-kv span:nth-child(even) { font-family: var(--f-mono); color: var(--sky); text-align: right; }
+.tut-acts { display: flex; flex-wrap: wrap; gap: 4px; }
+.tut-acts .btn { flex: 1 1 auto; min-height: 28px; padding: 0 8px; font-size: 11px; }
+.lap b.medal { font: 700 13px/1 var(--f-display); width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; color: var(--ink); }
+.lap b.medal.gold { background: #f5c242; } .lap b.medal.silver { background: #c6d0d6; } .lap b.medal.bronze { background: #cd8a4e; }
+@media (max-height: 560px) { .tut-steps { max-height: 22vh; } }
+@media (max-width: 560px) { #tut { width: 232px; } }
+
+/* ---------- a prompt the browser would not copy ---------- */
+#promptBox { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 11; width: min(640px, calc(100% - 32px)); display: grid; gap: 10px; padding: 16px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5); }
+#promptBox h3 { margin: 0; font: 600 13px/1 var(--f-display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); }
+#promptBox textarea { width: 100%; box-sizing: border-box; height: 42vh; resize: vertical; padding: 10px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--ink); color: var(--text); font: 12px/1.5 var(--f-mono); }
+
 #toast { position: absolute; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 24px); transform: translateX(-50%); z-index: 10; padding: 10px 16px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 8px; font-size: 13px; max-width: calc(100% - 32px); text-align: center; }
 #err { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--muted); }
 
@@ -302,6 +338,20 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; heigh
       <button type="button" class="btn small" id="rcSpec">Spectate</button>
       <button type="button" class="btn small" id="rcLeave">Leave</button>
     </div>
+  </section>
+
+
+  <section id="tut" aria-label="Training" hidden>
+    <div class="tut-head"><b id="tutName">Lesson</b><span id="tutMeta"></span></div>
+    <div id="tutBody"></div>
+    <div id="tutActs" class="tut-acts"></div>
+  </section>
+
+  <section id="promptBox" role="dialog" aria-labelledby="promptTitle" hidden>
+    <h3 id="promptTitle">The prompt</h3>
+    <p class="note">This browser would not reach the clipboard, so here it is. Select it all and copy it by hand.</p>
+    <textarea id="promptText" readonly spellcheck="false"></textarea>
+    <div class="actions"><button class="btn small primary" id="promptClose">Close</button></div>
   </section>
 
   <section id="welcome" class="card" role="dialog" aria-labelledby="wTitle">

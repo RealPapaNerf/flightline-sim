@@ -111,6 +111,47 @@ clamp reported in words, anything unrecognised dropped and listed.
   paste into a Claude chat: give it your build list (frame, motor KV, prop, cells,
   all-up weight) and it writes the file for you
 
+## Training (Settings → Training)
+
+A **course** is a ladder of **lessons**; a lesson is a list of things to fly, in
+order, and it scores you out of 1,000 at the end. Three ship with the sim:
+
+- **Learn to fly a quad** — ten drills in the order Joshua Bardwell teaches them.
+  Throttle on its own, then up and down, then yaw in the hover, then flying out
+  and *stopping*, then the box, then turns on the rudder, the figure of eight,
+  the nose-in hover, a spot landing, and six gates against a clock.
+- **Learn to fly a helicopter** — the hovering ladder every club teaches: tail
+  in, side on, nose in, the box, the pirouette, a circuit, and an autorotation.
+- **Learn to fly a plane** — the circuit ladder: get it off the ground, fly a
+  left-hand circuit round the strip, a figure of eight, slow flight and the
+  stall, then approaches and landings.
+
+Each lesson draws what you have to fly: hover cages you have to stay inside,
+hoops you have to fly through, gates, and a landing pad. The live one is amber,
+the ones behind you turn green. None of them are solid — clipping a hoop costs
+precision, not a crash.
+
+**The score is 1,000**: 500 for finishing, 200 for doing it inside the lesson's
+par time, and 300 for precision — how near the middle of every marker you
+actually flew. A crash costs 120, and so does a hundred and twenty metres of
+fence-busting. Gold is 850, silver 650, bronze 420. Only your best on each
+lesson is kept, so there is always a reason to fly it again.
+
+**Write your own in a chat.** Settings → Training → *Copy the prompt*, paste it
+into a chat with Claude, tell it what you want to learn, and load the JSON it
+writes back. It appears in the lesson list beside the built-in courses with the
+same medals and scores.
+
+- [`docs/tutorial-format.md`](docs/tutorial-format.md) — every field, the
+  coordinates, the four task kinds and exactly how the score is worked out
+- [`docs/design-a-tutorial-prompt.md`](docs/design-a-tutorial-prompt.md) — the
+  prompt, and what separates a course from a waypoint list
+
+`node test/tutorial_test.js` flies every lesson of all three courses with an
+autopilot, which is how a lesson that cannot be completed — a hold that cannot
+be held, a marker out of reach, a par nobody could make — gets caught before a
+beginner finds it.
+
 ## Flight modes
 
 - **Manual / Acro:** sticks move surfaces (planes) or command rotation rates (multirotors).
@@ -358,6 +399,8 @@ Planned features, with their order and dependencies, live in [`ideas/`](ideas/RE
 ```
 src/physics.js   flight models: strip-theory wings, quads, heli, weather, icing, batteries (no DOM)
 src/aircraft.js  aircraft file format: validator, build sheet → definition, bench numbers (no DOM)
+src/tutorial.js  training: the lesson engine, the scoring and the built-in courses (no DOM)
+src/prompts.js   the two chat prompts the sim hands you, for an aircraft and for a course
 src/nav.js       sensors, link budget, autopilot (no DOM)
 src/render.js    small WebGL 1 renderer
 src/terrain.js   map heightfield: the height-and-normal query, terrain rays, chunked LOD meshes (no DOM)
@@ -369,10 +412,13 @@ src/shell.html   page markup and styles
 src/sw.js        offline cache for the installed app
 tools/build.py   assembles index.html (and dist/artifact.html) from src/
 tools/relay.js   a dependency-free WebSocket relay for live racing: node tools/relay.js
-docs/            the aircraft file format and the map format, and a prompt that writes an aircraft
+docs/            the aircraft, tutorial and map formats, and the two prompts that write one
 aircraft/        aircraft files anyone can load, with an index.json
 test/*.js        bench tests: fm_test (planes), perf (trim table), quad_test <id>, heli_test,
                  vtol_test, modes_test, weather_test, nav_test, ghost_test, net_test, aircraft_test;
+                 tutorial_test flies every lesson of every built-in course with an autopilot;
+                 quadmodel_test checks which way up a quad is drawn; prompt_test checks the
+                 prompts in src/, the docs and the two readers still agree;
                  race_test drives two pages through a relay in headless Chromium (needs playwright);
                  terrain_test covers the height query, terrain rays, chunk LOD and contact on
                  slopes; fixture_map writes a synthetic map and screenshot renders it in
@@ -383,8 +429,9 @@ Edit `src/`, then run `python3 tools/build.py`. `index.html` is generated; commi
 the sources (GitHub Pages serves it directly). Run the tests with `node test/<name>.js`.
 `input_test` checks the controller recorder against synthetic switch and slider
 traces; `camera_test` checks that no aircraft's FPV camera is inside its own
-fuselage. Both lift the code they test straight out of `src/app.js` by its comment
-markers, so they cannot drift from what ships.
+fuselage; `quadmodel_test` checks the sign of every part's height on a quad against
+the sign its definition asked for. All three lift the code they test straight out of
+`src/app.js` by its comment markers, so they cannot drift from what ships.
 
 ## License
 

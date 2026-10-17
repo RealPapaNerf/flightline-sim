@@ -37,6 +37,8 @@
     author: '', // your name, written into aircraft files you export
     trim: {}, // user trims per aircraft, stick units, set from controller trim buttons
     course: true, best: {}, // gate course lap timer, best lap per aircraft (s)
+    // training: the last lesson opened, and the best score on every lesson ever flown
+    tut: { course: '', lesson: '', best: {} },
     // racing: ghost source ('off' | 'best' = your best lap with this aircraft | 'pick' = the lap chosen in
     // Settings → Racing), which lap is picked, and the name put on laps you export and on your aircraft online
     ghost: 'best', ghostPick: null, pilot: '',
@@ -664,6 +666,7 @@
       `${Math.round(terrain.maxUp - terrain.minUp)} m of relief, field ${Math.round(map.fieldElevM)} m` +
       (colorTex ? `, imagery ${colorTex.w}x${colorTex.h}${colorTex.pot ? '' : ' (not a power of two: no mipmaps, so it will shimmer at distance)'}` : ', no imagery');
     for (const w of map.warnings) mapStatus += `\nWarning: ${w}`;
+    if (tut.lesson) tutBuildMarks(tut.lesson);
     toast(`Flying ${map.name}`);
     return map;
   }
@@ -679,6 +682,7 @@
     mapStatus = '';
     buildWorld(S.scenery);
     doReset();
+    if (tut.lesson) tutBuildMarks(tut.lesson);
   }
 
   /* ---------------------------------------------------------------- the map panel
@@ -1831,6 +1835,44 @@
   }
   function closeCtl() { ctl.open = false; ctl.rec = false; ctl.learn = null; hide($('#ctl')); syncPause(); refreshCtlStatus(); }
   const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  /* Hand a chat prompt to the clipboard (src/prompts.js). The modern
+     clipboard API wants a secure context and a user gesture, and it has
+     neither inside the claude.ai artifact frame, so there is a fallback that
+     selects the text in an off-screen box and lets execCommand copy it. If
+     even that is refused, the text goes on screen to be copied by hand —
+     better than a button that silently does nothing. */
+  function copyPrompt(text, what) {
+    const done = () => toast(`The ${what} prompt is on the clipboard — paste it into a chat`);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, () => fallback());
+      return;
+    }
+    fallback();
+    function fallback() {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.cssText = 'position:fixed;top:-1000px;left:0;opacity:0';
+        document.body.appendChild(ta);
+        ta.select(); ta.setSelectionRange(0, text.length);
+        const okc = document.execCommand && document.execCommand('copy');
+        ta.remove();
+        if (okc) return done();
+      } catch (e) { /* fall through */ }
+      promptBox(text, what);
+    }
+  }
+  // last resort: put it on screen, selected, so it can be copied by hand
+  function promptBox(text, what) {
+    const el = $('#promptBox');
+    $('#promptTitle').textContent = `The ${what} prompt`;
+    const ta = $('#promptText');
+    ta.value = text;
+    show(el);
+    ta.focus(); ta.select();
+  }
   const actionOptions = (cur) => ACTIONS.map(([v, l]) => `<option value="${v}"${v === (cur || '') ? ' selected' : ''}>${esc(l)}</option>`).join('');
   const knownDevices = () => prof().devs.slice();
   function moveDevice(dev, to) {
@@ -2324,12 +2366,14 @@
   function openSheet(tab) { if (ctl.open) closeCtl(); if (tab) S.sheetTab = tab; buildSheet(); $('#sheet').classList.add('open'); syncPause(); }
   function closeSheet() { $('#sheet').classList.remove('open'); syncPause(); }
   $('#shClose').addEventListener('click', closeSheet);
+  $('#promptClose').addEventListener('click', () => hide($('#promptBox')));
 
   const seg = (key, label, opts, help, get, set) => ({ type: 'seg', key, label, opts, help, get, set });
   const rng = (key, label, min, max, stepv, fmt, help, get, set) => ({ type: 'range', key, label, min, max, step: stepv, fmt, help, get, set });
   function schema() {
     const imp = S.units === 'imp';
     return [
+      { tab: 'training', title: 'Training', items: [{ type: 'training' }] },
       { tab: 'aircraft', title: 'Aircraft', items: [
         seg('aircraft', 'Model', Object.values(ACS).map((a) => [a.id, a.name]), AC.blurb, () => S.aircraft, (v) => setAircraft(v)),
         seg('start', 'Reset puts you', AC.starts.map((s) => [s, START_LABEL[s]]), AC.kind === 'wing' ? 'Hand launch: arm with throttle down, then push throttle above 70% and the model is thrown once the motor is wound up (or press L to throw at any throttle). Real technique applies: full power, and maybe a touch of up elevator.' : '', () => startOf(AC.id), (v) => { S.start[AC.id] = v; doReset(); refreshBar(); }),
@@ -2479,7 +2523,7 @@
     Object.assign(S, p[3]); S.wxPreset = id; saveS(); updateAtmos(); doReset(); buildSheet();
     toast(`${p[1]}: ${p[2]}`);
   }
-  const TABS = [['aircraft', 'Aircraft'], ['builder', 'Builder'], ['controller', 'Controller'], ['map', 'Map'], ['racing', 'Racing'], ['weather', 'Weather'], ['link', 'Link & sensors'], ['display', 'Display'], ['graphics', 'Graphics & sound'], ['model', 'Flight model']];
+  const TABS = [['aircraft', 'Aircraft'], ['training', 'Training'], ['builder', 'Builder'], ['controller', 'Controller'], ['map', 'Map'], ['racing', 'Racing'], ['weather', 'Weather'], ['link', 'Link & sensors'], ['display', 'Display'], ['graphics', 'Graphics & sound'], ['model', 'Flight model']];
   function setTab(t) { if (S.sheetTab !== t) { S.sheetTab = t; saveS(); $('#sheet').scrollTop = 0; } buildSheet(); }
   function buildSheet() {
     const body = $('#shBody');
@@ -2598,6 +2642,8 @@
           renderFiles(box);
         } else if (it.type === 'builder') {
           renderBuilder(box);
+        } else if (it.type === 'training') {
+          renderTraining(box);
         } else if (it.type === 'room') {
           box.innerHTML = `<label for="setRoom"><span>Room code</span></label><div class="setrow"><input class="txt" type="text" id="setRoom" maxlength="12" placeholder="e.g. ${NET.roomCode()}" value="${esc(S.net.room)}" style="flex:1 1 120px"><button type="button" class="btn small" id="roomNew">New code</button><button type="button" class="btn small" id="roomJoin">${race.r ? 'Rejoin' : 'Join'}</button></div><div class="help">Everyone who types the same code is in the same room. Tell your friends the code, not the key.</div>`;
           const e = box.querySelector('#setRoom');
@@ -2645,7 +2691,9 @@
     let h = `<div class="radio-box"><div class="name"><b>${esc(AC.name)}</b><br><span class="help">${meta}${s.spec ? ' · has a build sheet' : ''}</span></div>
       <div class="setrow"><button class="btn small" id="acExp">Export this aircraft</button>
       <button class="btn small" id="acImp">Import aircraft file</button>
-      <button class="btn small" id="acBld">${s.spec ? 'Edit in the builder' : 'Open the builder'}</button></div>
+      <button class="btn small" id="acBld">${s.spec ? 'Edit in the builder' : 'Open the builder'}</button>
+      <button class="btn small" id="acPrompt">Copy the design prompt</button></div>
+      <div class="help">The design prompt turns a build list into an aircraft file: copy it, paste it into a chat with Claude, give it your frame, motor, prop, cells and all-up weight, and import the JSON it writes back.</div>
       ${s.def && s.def.notes ? `<div class="help"><b>Notes in the file:</b> ${esc(s.def.notes)}</div>` : ''}
       <div class="help">An aircraft file is JSON: a few hundred numbers, nothing that can run. Every number is checked and clamped on the way in, and anything that gets changed is listed here. The format is in <b>docs/aircraft-format.md</b>.</div>${msgHtml(impMsg)}</div>`;
     if (mine.length) h += `<div class="laps" style="margin-top:10px">${mine.map((id) => `<div class="lap${id === AC.id ? ' on' : ''}"><b>${KIND_TAG[ACS[id].kind] || 'PLANE'}</b><span>${esc(ACS[id].name)}<br><span class="help">${esc(id)}${SRC[id].meta.author ? ' · by ' + esc(SRC[id].meta.author) : ''}</span></span><div class="acts">
@@ -2670,6 +2718,7 @@
     box.querySelector('#acExp').addEventListener('click', () => exportAircraft(AC.id));
     box.querySelector('#acImp').addEventListener('click', importAircraftPick);
     box.querySelector('#acBld').addEventListener('click', () => bldOpen(s.spec ? AC.id : null));
+    box.querySelector('#acPrompt').addEventListener('click', () => copyPrompt(PROMPTS.aircraft, 'aircraft design'));
     const dir = box.querySelector('#acDir'); if (dir) dir.addEventListener('click', browseFolder);
     const all = box.querySelector('#acDirAll'); if (all) all.addEventListener('click', loadFolderAll);
     const go = box.querySelector('#acUrlGo');
@@ -2753,7 +2802,7 @@
     }
     if (bld.notes && bld.notes.warnings.length) h += `<div class="help" style="color:var(--warn);margin-top:8px">${bld.notes.warnings.map(esc).join(' · ')}</div>`;
     h += `<div class="bgrp">On the bench</div><div class="bench" id="bldBench">${bldBenchHtml()}</div>
-      <div class="setrow" style="margin-top:12px"><button class="btn primary" id="bFly">Fly it</button><button class="btn small" id="bSave">Save as a file</button>${bld.from ? `<button class="btn small" id="bReset">Start over</button>` : ''}</div>
+      <div class="setrow" style="margin-top:12px"><button class="btn primary" id="bFly">Fly it</button><button class="btn small" id="bSave">Save as a file</button><button class="btn small" id="bPrompt">Copy the design prompt</button>${bld.from ? `<button class="btn small" id="bReset">Start over</button>` : ''}</div>
       <div class="help">“Fly it” saves the aircraft in this browser and switches to it; it stays in Settings → Aircraft, where you can export it as a file. The build sheet is saved with it, so you can come back and change it.</div>`;
     box.innerHTML = h;
     box.querySelectorAll('[data-kind]').forEach((b0) => b0.addEventListener('click', () => bldKind(b0.dataset.kind)));
@@ -2782,6 +2831,7 @@
         toast(`${def.id}.json saved to your downloads`);
       } catch (e) { toast('This browser would not save the file'); }
     });
+    box.querySelector('#bPrompt').addEventListener('click', () => copyPrompt(PROMPTS.aircraft, 'aircraft design'));
     const rs = box.querySelector('#bReset');
     if (rs) rs.addEventListener('click', () => { bld.from = null; bld.id = ''; bld.user = {}; bld.name = 'My aircraft'; bldNorm(); bld.bench = null; bldQueue(); buildSheet(); });
   }
@@ -3002,9 +3052,27 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     gl.disable(gl.POLYGON_OFFSET_FILL);
     GLR.draw(R, world.scenery, I, { mix: sn ? [...WHITE, sn * 0.35] : null });
     GLR.draw(R, sockMesh, sockM);
-    if (S.course && world.gates.length) { // marker floating over the next gate
+    if (S.course && !tutOn() && world.gates.length) { // marker floating over the next gate
       const gt = world.gates[course.next], bob = Math.sin(course.clock * 3) * 0.15;
       GLR.draw(R, markerMesh, M4.chain(M4.trans(gt.x, gt.top + 1.1 + bob, gt.z), M4.rotY(course.clock * 2), M4.scale(0.32, 0.45, 0.32)), { unlit: true });
+    }
+    /* The lesson's markers. Drawn unlit and translucent so they read as the
+       guides they are rather than as scenery you could hit — nothing here is
+       solid, and clipping a hoop costs precision, not a crash. The live one
+       is opaque and carries the bobbing marker, the ones behind you go green,
+       the ones ahead stay a dim steel. */
+    if (tut.marks.length && tut.run) {
+      gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
+      for (const mk of tut.marks) {
+        const live = mk.i === tut.run.step, done = mk.i >= 0 && mk.i < tut.run.step;
+        const tint = mk.k === 'fence' ? [0.8, 0.5, 0.35] : done ? TUT_COL.done : live ? TUT_COL.live : TUT_COL.next;
+        GLR.draw(R, mk.mesh, mk.mat, { unlit: true, tint, alpha: live ? 0.95 : done ? 0.3 : 0.45 });
+        if (live) {
+          const bob = Math.sin(course.clock * 3) * 0.15;
+          GLR.draw(R, markerMesh, M4.chain(M4.trans(mk.mat[12], mk.top + 1.4 + bob, mk.mat[14]), M4.rotY(course.clock * 2), M4.scale(0.32, 0.45, 0.32)), { unlit: true, noFog: true });
+        }
+      }
+      gl.depthMask(true); gl.disable(gl.BLEND);
     }
     const model = MODELS[AC.id];
     const partM = [];
@@ -3429,7 +3497,18 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
         osdText(w ? `WATCHING ${(w.name || 'PILOT').toUpperCase()}` : 'SPECTATING · PICK A PILOT', cx, v.y + v.h - m - fs * 4.6 - lift, 'center', Math.max(11, fs * 0.8), '#9fe8ff');
       }
       if (avatars.length) drawTags(v, fs);
-      const ct = courseText();
+      const tt = tutText();
+      if (tt) {
+        // above whatever that view already puts along the bottom: the FPV
+        // battery/throttle row, or the line-of-sight info and weather lines
+        const tfs = v.kind === 'fpv' ? fs : Math.max(11, fs * 0.82);
+        const clear = v.kind === 'fpv' ? fs * 2.8 : Math.max(11, fs * 0.8) * 4.6;
+        const y0 = v.y + v.h - m - clear - lift;
+        osdText(tt.say, cx, y0, 'center', tfs * 1.1, tut.result ? '#6ad49a' : '#ffd36a');
+        osdText(tt.head + (tt.note ? '   ' + tt.note.toUpperCase() : ''), cx, y0 - tfs * 1.5, 'center', tfs * 0.85, 'rgba(255,255,255,0.88)');
+        if (tut.flash.t > 0) osdText(tut.flash.text, cx, y0 - tfs * 3, 'center', tfs, '#ff9d6a');
+      }
+      const ct = tutOn() ? '' : courseText();
       if (ct) {
         const cfs = v.kind === 'fpv' ? fs : Math.max(11, fs * 0.8);
         const cy2 = v.kind === 'fpv' ? v.y + v.h - m - fs * 1.6 - lift : v.y + v.h - m - fs * 3.2 - lift;
@@ -3800,7 +3879,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     if (ghost.split.t > 0) ghost.split.t -= dt;
     const p = [st.p[1], -st.p[2], -st.p[0]], prev = course.prev;
     course.prev = p;
-    if (!S.course || !world.gates.length) return;
+    if (!S.course || tutOn() || !world.gates.length) return;
     if (st.crashed || st.held) { if (course.lapStart !== null) courseAbort(); return; }
     if (!prev) return;
     const gt = world.gates[course.next], c = Math.cos(gt.psi), s = Math.sin(gt.psi);
@@ -3824,6 +3903,290 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     if (!S.course || course.lapStart === null) return '';
     const best = S.best[AC.id];
     return `GATE ${course.next + 1}/${world.gates.length}  ${fmtLap(lapElapsed())}${best ? '  BEST ' + fmtLap(best) : ''}${ghost.play ? '  GHOST ' + fmtLap(ghost.play.lap.time) : ''}`;
+  }
+
+  /* ---------------------------------------------------------------- training
+     Courses and lessons live in src/tutorial.js, which knows nothing about the
+     renderer or the DOM: it takes a snapshot of where the aircraft is and
+     hands back events, a line of instruction and a score. This is the glue —
+     the snapshot, the markers, the panel and the HUD.
+
+     Lesson geometry is in metres from where the pilot stands and metres above
+     the ground under him, so the same lesson works on the home field and on a
+     terrain map. On a map with real relief a lesson written for flat ground
+     will hang its markers at the pilot's datum rather than follow the hill;
+     that is the honest reading of "50 m up" and it is what the altitude tape
+     shows, but it is worth knowing before you write a lesson for a mountain. */
+  const TKEY = 'flightline.tutorials.v1';
+  const tutFiles = (() => { const v = load(TKEY); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; })();
+  const COURSES = {};
+  const installCourse = (course, builtin) => { COURSES[course.id] = Object.assign({}, course, { builtin: !!builtin }); };
+  for (const c of TUT.BUILTIN) installCourse(c, true);
+  for (const id of Object.keys(tutFiles)) {
+    const r = TUT.read(tutFiles[id]);
+    if (r.ok && !COURSES[r.course.id]) installCourse(r.course);
+    else importNotes.push(`${id}: ${r.ok ? 'a course with that id is already loaded' : r.errors.join('; ')}`);
+  }
+  const tut = { run: null, course: null, lesson: null, marks: [], result: null, msg: null, flash: { text: '', t: 0 } };
+  const tutOn = () => !!tut.run;
+  const bestKey = (c, l) => `${c}/${l}`;
+  const bestOf = (c, l) => S.tut.best[bestKey(c, l)] || null;
+  const KIND_NEEDS = { quad: 'a quad', heli: 'a helicopter', wing: 'a flying wing', conventional: 'a plane', vtol: 'a tail-sitter' };
+  const coursesFor = (kind) => Object.values(COURSES).filter((c) => c.kinds.includes(kind));
+
+  // where the pilot stands and what the ground is under him: the datum every
+  // lesson is written against
+  function tutOrigin() {
+    const n = mapInfo ? mapInfo.pilot.n : 0, e = mapInfo ? mapInfo.pilot.e : 0;
+    return { n, e, up: terrain.heightAt(n, e) };
+  }
+  function tutSnap() {
+    const o = tutOrigin(), eu = FL.eulerFromMat(FL.quatToMat(st.q));
+    return {
+      n: st.p[0] - o.n, e: st.p[1] - o.e, up: -st.p[2] - o.up,
+      vn: st.v[0], ve: st.v[1], vup: -st.v[2],
+      gs: Math.hypot(st.v[0], st.v[1]), V: st.tele.V,
+      yaw: eu.yaw, pitch: eu.pitch, roll: eu.roll,
+      thr: inp.thr, armed, wow: st.wow, held: st.held, crashed: st.crashed,
+    };
+  }
+
+  /* ---- the markers, as meshes ----
+     One mesh per marker so the live one can be lit up and the ones already
+     behind you can fade, without rebuilding anything. */
+  const TUT_COL = { done: [0.35, 0.8, 0.55], live: [1.0, 0.78, 0.2], next: [0.62, 0.7, 0.76] };
+  function ringGeo(g, r, tube, n, col, plane) {
+    for (let i = 0; i < n; i++) {
+      const a0 = (i / n) * Math.PI * 2, a1 = ((i + 1) / n) * Math.PI * 2;
+      const P = (a, dz) => (plane === 'xz' ? [r * Math.cos(a), dz, r * Math.sin(a)]
+        : plane === 'xy' ? [r * Math.cos(a), r * Math.sin(a), dz]
+        : [dz, r * Math.sin(a), r * Math.cos(a)]);
+      g.quad(P(a0, -tube), P(a1, -tube), P(a1, tube), P(a0, tube), col);
+    }
+  }
+  function tutMarkerMesh(m) {
+    const g = new Geo(), col = [1, 1, 1];
+    if (m.k === 'gate') {
+      const W = m.w, H = m.h;
+      g.with(M4.rotY(m.yaw * D2R), () => {
+        for (const sx of [-1, 1]) g.box(sx * W / 2 - 0.09, -H / 2, -0.09, sx * W / 2 + 0.09, H / 2, 0.09, col);
+        g.box(-W / 2 - 0.09, H / 2 - 0.09, -0.09, W / 2 + 0.09, H / 2 + 0.09, 0.09, col);
+        g.box(-W / 2 - 0.09, -H / 2 - 0.09, -0.09, W / 2 + 0.09, -H / 2 + 0.09, 0.09, col);
+      });
+    } else if (m.k === 'pad') {
+      ringGeo(g, m.r, 0.06, 28, col, 'xz');
+      ringGeo(g, m.r * 0.45, 0.05, 20, col, 'xz');
+      for (const a of [0, Math.PI / 2]) g.with(M4.rotY(a), () => g.box(-m.r * 0.45, -0.05, -0.05, m.r * 0.45, 0.05, 0.05, col));
+    } else if (m.k === 'fence') {
+      // a thin ring on the ground: the edge of the lesson's world
+      for (let i = 0; i < 72; i += 2) {
+        const a0 = (i / 72) * Math.PI * 2, a1 = ((i + 1) / 72) * Math.PI * 2;
+        g.quad([m.r * Math.cos(a0), 0, m.r * Math.sin(a0)], [m.r * Math.cos(a1), 0, m.r * Math.sin(a1)],
+          [(m.r + 0.8) * Math.cos(a1), 0, (m.r + 0.8) * Math.sin(a1)], [(m.r + 0.8) * Math.cos(a0), 0, (m.r + 0.8) * Math.sin(a0)], col);
+      }
+    } else { // a zone: a cage you can read the size of from any angle
+      const tube = clamp(m.r * 0.016, 0.03, 0.15);
+      if (m.hold) { // a hold: two rings a band apart, with uprights between them
+        ringGeo(g, m.r, tube, 24, col, 'xz');
+        for (const dy of [-m.band, m.band]) g.with(M4.trans(0, dy, 0), () => ringGeo(g, m.r, tube, 24, col, 'xz'));
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2, x = m.r * Math.cos(a), z = m.r * Math.sin(a);
+          g.box(x - tube, -m.band, z - tube, x + tube, m.band, z + tube, col);
+        }
+      } else { // a marker you fly through: three rings at right angles
+        ringGeo(g, m.r, tube, 20, col, 'xz');
+        ringGeo(g, m.r, tube, 20, col, 'xy');
+        ringGeo(g, m.r, tube, 20, col, 'yz');
+      }
+    }
+    return GLR.mesh(R, g);
+  }
+  function tutFreeMarks() { for (const mk of tut.marks) GLR.freeMesh(R, mk.mesh); tut.marks = []; }
+  function tutBuildMarks(lesson) {
+    tutFreeMarks();
+    const o = tutOrigin();
+    for (const m of TUT.markers(lesson)) {
+      // render space: x east, y up, z south
+      const at = M4.trans(o.e + m.e, o.up + m.up, -(o.n + m.n));
+      tut.marks.push({ i: m.i, k: m.k, mesh: tutMarkerMesh(m), mat: at, top: o.up + m.up + (m.k === 'zone' ? (m.band || 0) : m.k === 'gate' ? m.h / 2 : 0) });
+    }
+  }
+
+  function tutStart(courseId, lessonId) {
+    const course = COURSES[courseId];
+    const lesson = course && course.lessons.find((l) => l.id === lessonId);
+    if (!lesson) return;
+    if (!course.kinds.includes(AC.kind)) { toast(`${course.name} needs ${KIND_NEEDS[course.kinds[0]] || 'another aircraft'}`); return; }
+    tut.course = course; tut.lesson = lesson; tut.result = null;
+    tut.run = TUT.start(lesson);
+    S.tut.course = courseId; S.tut.lesson = lessonId; saveS();
+    // put the aircraft where the lesson expects it, if it can start that way
+    if (lesson.start !== 'any' && AC.starts.includes(lesson.start)) S.start[AC.id] = lesson.start;
+    doReset();
+    tutBuildMarks(lesson);
+    closeSheet();
+    show($('#tut'));
+    refreshTut();
+    tutFlash(lesson.name.toUpperCase());
+  }
+  function tutStop() {
+    tut.run = null; tut.lesson = null; tut.result = null;
+    tutFreeMarks();
+    hide($('#tut'));
+    syncSheet();
+  }
+  const tutFlash = (text) => { tut.flash = { text, t: 2.4 }; };
+
+  function tutTick(dt) {
+    if (!tut.run) return;
+    if (tut.flash.t > 0) tut.flash.t -= dt;
+    if (tut.run.done || tut.run.failed) return;
+    const before = tut.run.step;
+    for (const [kind, arg] of TUT.tick(tut.run, tutSnap(), dt)) {
+      if (kind === 'step') tutFlash('NEXT');
+      else if (kind === 'crash') tutFlash(`CRASH ${arg} · −${TUT.CRASH_COST}`);
+      else if (kind === 'lost') tutFlash('LOST IT — START THE HOLD AGAIN');
+      else if (kind === 'out') tutFlash(`OUTSIDE THE ${Math.round(arg)} m BOX`);
+      else if (kind === 'over') tutFlash(`ABOVE ${Math.round(arg)} m`);
+      else if (kind === 'miss') tutFlash('MISSED THE GATE');
+      else if (kind === 'done') tutDone();
+    }
+    if (tut.run && tut.run.step !== before) refreshTut();
+  }
+  function tutDone() {
+    tut.flash.t = 0;
+    const sc = TUT.score(tut.run);
+    tut.result = sc;
+    const key = bestKey(tut.course.id, tut.lesson.id), prev = S.tut.best[key];
+    if (!prev || sc.total > prev.total) {
+      S.tut.best[key] = { total: sc.total, medal: sc.medal, t: Math.round(tut.run.t * 10) / 10 };
+      tut.result.record = !!prev;
+      tut.result.first = !prev;
+    }
+    saveS();
+    refreshTut();
+    syncSheet();
+  }
+  const tutNextLesson = () => {
+    if (!tut.course || !tut.lesson) return null;
+    const i = tut.course.lessons.indexOf(tut.lesson);
+    return i >= 0 && i + 1 < tut.course.lessons.length ? tut.course.lessons[i + 1] : null;
+  };
+
+  /* The panel over the view: what you are being asked to do, the steps you
+     have done, the clock, and the score when it is over. */
+  function refreshTut() {
+    const box = $('#tut');
+    if (!tut.run || !tut.lesson) { hide(box); return; }
+    show(box);
+    const L = tut.lesson, run = tut.run, sc = tut.result;
+    const best = bestOf(tut.course.id, L.id);
+    $('#tutName').textContent = L.name;
+    $('#tutMeta').textContent = sc ? '' : `${run.t.toFixed(0)}s / ${L.par}s par${best ? ` · best ${best.total}` : ''}`;
+    const body = $('#tutBody');
+    if (sc) {
+      const lines = [
+        ['Finished', `${sc.finish} / ${TUT.FINISH}`],
+        ['Inside par', `${sc.time} / ${TUT.TIME}`],
+        ['Precision', `${sc.precision} / ${TUT.PRECISION}`],
+      ];
+      if (sc.penalty) lines.push(['Crashes and fences', `−${sc.penalty}`]);
+      body.innerHTML = `<div class="tut-score"><b>${sc.total}</b><span>${sc.medal ? sc.medal.toUpperCase() : 'no medal yet'}</span></div>`
+        + `<div class="tut-kv">${lines.map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join('')}</div>`
+        + `<div class="help">${sc.first ? 'First time round. ' : sc.record ? 'A new best. ' : `Your best is still ${best ? best.total : sc.total}. `}`
+        + `You flew it in ${run.t.toFixed(0)} s and held ${Math.round((1 - sc.err) * 100)}% of the way from the edge of each marker to its middle. Precision and the clock are where the points are left.</div>`;
+      $('#tutActs').innerHTML = `<button type="button" class="btn small primary" id="tutRetry">Fly it again</button>`
+        + (tutNextLesson() ? `<button type="button" class="btn small" id="tutNext">Next lesson</button>` : '')
+        + `<button type="button" class="btn small" id="tutQuit">Done</button>`;
+    } else {
+      const now = TUT.sayNow(run);
+      const steps = L.tasks.map((t, i) => {
+        const cls = i < run.step ? 'done' : i === run.step ? 'live' : '';
+        const label = t.say || (t.kind === 'gate' ? 'Through the gate' : t.kind === 'land' ? 'Land' : 'Fly to the marker');
+        return `<div class="tut-step ${cls}"><i></i><span>${esc(label)}</span></div>`;
+      }).join('');
+      body.innerHTML = `<div class="tut-now">${esc(now.say)}${now.note ? ` <em>${esc(now.note)}</em>` : ''}</div>`
+        + (now.tip ? `<div class="help">${esc(now.tip)}</div>` : '')
+        + `<div class="tut-steps">${steps}</div>`;
+      $('#tutActs').innerHTML = `<button type="button" class="btn small" id="tutRetry">Restart</button><button type="button" class="btn small" id="tutQuit">Quit</button>`;
+    }
+    const retry = $('#tutRetry'); if (retry) retry.addEventListener('click', () => tutStart(tut.course.id, tut.lesson.id));
+    const nx = $('#tutNext'); if (nx) nx.addEventListener('click', () => { const l = tutNextLesson(); if (l) tutStart(tut.course.id, l.id); });
+    const q = $('#tutQuit'); if (q) q.addEventListener('click', tutStop);
+  }
+  // one line of the OSD, in every view, because the instruction is the point
+  function tutText() {
+    if (!tut.run) return null;
+    if (tut.result) return { head: `${tut.result.total} / 1000${tut.result.medal ? ' · ' + tut.result.medal.toUpperCase() : ''}`, say: tut.lesson.name, note: '' };
+    const now = TUT.sayNow(tut.run);
+    return {
+      head: `STEP ${Math.min(tut.run.step + 1, tut.lesson.tasks.length)}/${tut.lesson.tasks.length}  ${fmtLap(tut.run.t)}`,
+      say: now.say.toUpperCase(), note: now.note,
+    };
+  }
+
+  /* ---------- Settings → Training ---------- */
+  function tutImportFile(text, from) {
+    const r = TUT.read(text);
+    if (!r.ok) { tut.msg = { from, errors: r.errors, warnings: r.warnings }; return syncSheet(); }
+    if (COURSES[r.course.id] && COURSES[r.course.id].builtin) { tut.msg = { from, errors: [`"${r.course.id}" is the id of a course that ships with the sim — change the id in the file`], warnings: [] }; return syncSheet(); }
+    tutFiles[r.course.id] = text;
+    store(TKEY, tutFiles);
+    installCourse(r.course);
+    tut.msg = { from, ok: true, id: r.course.id, name: r.course.name, warnings: r.warnings, errors: [] };
+    syncSheet();
+  }
+  function tutRemove(id) {
+    if (!COURSES[id] || COURSES[id].builtin) return;
+    if (tut.course && tut.course.id === id) tutStop();
+    delete COURSES[id]; delete tutFiles[id];
+    store(TKEY, tutFiles);
+    syncSheet();
+  }
+  function renderTraining(box) {
+    const mine = Object.values(COURSES).filter((c) => !c.builtin);
+    const usable = coursesFor(AC.kind);
+    let h = `<div class="help">A course is a ladder of lessons; a lesson is a list of things to fly, in order, scored out of 1,000 — 500 for finishing, 200 for doing it inside par and 300 for how near the middle of every marker you flew. Crashes cost ${TUT.CRASH_COST}. Fly one again and beat it.</div>`;
+    if (!usable.length) h += `<div class="help" style="color:var(--warn);margin-top:8px">Nothing here is written for ${KIND_NEEDS[AC.kind] || 'this aircraft'} yet. Switch aircraft, or write a course — the prompt below does it for you.</div>`;
+    for (const c of Object.values(COURSES)) {
+      const can = c.kinds.includes(AC.kind);
+      h += `<div class="bgrp">${esc(c.name)}${c.builtin ? '' : ' · yours'}</div><div class="help">${esc(c.blurb)}</div>`;
+      if (!can) { h += `<div class="help" style="color:var(--muted)">Needs ${KIND_NEEDS[c.kinds[0]] || 'another aircraft'}. ${esc(ACS[S.aircraft].name)} is ${KIND_NEEDS[AC.kind] || 'something else'}.</div>`; }
+      h += `<div class="laps" style="margin-top:6px">${c.lessons.map((l) => {
+        const b = bestOf(c.id, l.id);
+        const medal = b && b.medal ? `<b class="medal ${b.medal}">${b.medal[0].toUpperCase()}</b>` : '<b>·</b>';
+        return `<div class="lap${tut.lesson === l ? ' on' : ''}">${medal}<span>${esc(l.name)}<br><span class="help">${b ? `best ${b.total} / 1000 in ${b.t} s` : `par ${l.par} s · ${l.tasks.length} steps`}</span></span>`
+          + `<div class="acts"><button class="btn small${b ? '' : ' primary'}" data-fly="${esc(c.id)}|${esc(l.id)}"${can ? '' : ' disabled'}>${b ? 'Beat it' : 'Fly'}</button></div></div>`;
+      }).join('')}</div>`;
+      if (!c.builtin) h += `<div class="setrow" style="margin-top:6px"><button class="btn small" data-del="${esc(c.id)}">Remove this course</button></div>`;
+    }
+    h += `<div class="bgrp">Write your own</div>
+      <div class="help">Copy the prompt, paste it into a chat with Claude, tell it what you want to learn, and drop the JSON it gives you back in here. The same reader that checks an aircraft file checks this one: every number clamped, every change listed, nothing executed.</div>
+      <div class="setrow" style="margin-top:8px"><button class="btn small" id="tutPrompt">Copy the prompt</button>
+      <label class="btn small" for="tutFile">Load a tutorial file…<input type="file" id="tutFile" accept=".json,application/json" hidden></label></div>
+      ${msgHtml(tut.msg)}`;
+    box.innerHTML = h;
+    box.querySelectorAll('[data-fly]').forEach((b0) => b0.addEventListener('click', () => {
+      const [cid, lid] = b0.dataset.fly.split('|');
+      tutStart(cid, lid);
+    }));
+    box.querySelectorAll('[data-del]').forEach((b0) => b0.addEventListener('click', () => {
+      const id = b0.dataset.del;
+      if (!b0.dataset.sure) { b0.dataset.sure = '1'; b0.textContent = 'Sure? It is only in this browser'; return; }
+      tutRemove(id);
+    }));
+    box.querySelector('#tutPrompt').addEventListener('click', () => copyPrompt(PROMPTS.tutorial, 'tutorial'));
+    const fi = box.querySelector('#tutFile');
+    fi.addEventListener('change', () => {
+      const f = fi.files && fi.files[0];
+      fi.value = '';
+      if (!f) return;
+      tut.msg = { from: f.name, loading: true }; syncSheet();
+      const rd = new FileReader();
+      rd.onload = () => tutImportFile(String(rd.result), f.name);
+      rd.onerror = () => { tut.msg = { from: f.name, errors: ['the browser could not read the file'], warnings: [] }; syncSheet(); };
+      rd.readAsText(f);
+    });
   }
 
   /* ---------------------------------------------------------------- ghost laps
@@ -4126,6 +4489,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       if (steps >= 60) acc = 0;
       checkObstacles();
       courseTick(dt);
+      tutTick(dt);
       if (rec && rec.active) rec.push(course.clock, { p: st.p, q: st.q, thr: inp.thr });
       if (!timerOn && armed && inp.thr > 0.1) timerOn = true;
       if (timerOn && !st.crashed) flightTime += dt;
@@ -4175,5 +4539,8 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   window.__flightline = { st, S, env, nav: () => nav, setAp: (m) => setAp(m), AC: () => AC, doReset, FL, IN: () => IN, prof, ctl, world: () => world, course, ghost, avatars, laps: LAPS, rec: () => rec, race, raceJoin, raceReady, NET, myId,
     terrain: () => terrain, mapInfo: () => mapInfo, openMap, closeMap, TERRAIN, MAPS,
     terrainStats: () => ({ tris: drawnTris, chunks: drawnChunks, lods: chunks ? chunks.map((c) => c.lod) : [] }),
-    agl, setView, setAircraft, acList: () => Object.keys(ACS), addFile: (t) => addAircraftFile(t, true) }; // debugging and tests
+    agl, setView, setAircraft, acList: () => Object.keys(ACS), addFile: (t) => addAircraftFile(t, true),
+    TUT, tut, tutStart, tutStop, courses: () => COURSES, tutSnap,
+    // the keyboard's stick positions, so a test can fly the real control path
+    sticks: kb, useKeys: () => { src = 'keys'; } }; // debugging and tests
 })();
