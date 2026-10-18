@@ -271,12 +271,12 @@ mode, a HOTAS, or a gamepad.
 
 ## Keys
 
-| | Mode 2 (default) | Mode 1 |
-|---|---|---|
-| Throttle | `W` / `S` | `↑` / `↓` |
-| Pitch | `↑` / `↓` | `W` / `S` |
-| Roll | `←` / `→` | `←` / `→` |
-| Yaw | `A` / `D` | `A` / `D` |
+| | Mode 2 (default) | Mode 1 | Mode 3 |
+|---|---|---|---|
+| Throttle | `W` / `S` | `↑` / `↓` | `↑` / `↓` |
+| Pitch | `↑` / `↓` | `W` / `S` | `W` / `S` |
+| Roll | `←` / `→` | `←` / `→` | `A` / `D` |
+| Yaw | `A` / `D` | `A` / `D` | `←` / `→` |
 
 | Key | Action |
 |---|---|
@@ -293,7 +293,9 @@ mode, a HOTAS, or a gamepad.
 | `P` or `Space` | Pause |
 | `F` | Full screen |
 
-Touch screens get on-screen sticks.
+Touch screens get on-screen sticks, in the same stick mode as the keys (Settings →
+Controller). Mode 3 is Mode 2 the other way round: pitch and roll under the left thumb,
+throttle and yaw under the right.
 
 **Hand launch (Goblin):** pull throttle to zero to arm, then push past 70%. It's thrown
 once the motor is wound up.
@@ -454,10 +456,11 @@ test/*.js        bench tests: fm_test (planes), perf (trim table), quad_test <id
 Edit `src/`, then run `python3 tools/build.py`. `index.html` is generated; commit it with
 the sources (GitHub Pages serves it directly). Run the tests with `node test/<name>.js`.
 `input_test` checks the controller recorder against synthetic switch and slider
-traces; `camera_test` checks that no aircraft's FPV camera is inside its own
-fuselage; `quadmodel_test` checks the sign of every part's height on a quad against
-the sign its definition asked for. All three lift the code they test straight out of
-`src/app.js` by its comment markers, so they cannot drift from what ships.
+traces, and every stick mode against what each stick should do; `camera_test` checks
+that no aircraft's FPV camera is inside its own fuselage; `quadmodel_test` checks the
+sign of every part's height on a quad against the sign its definition asked for. All
+three lift the code they test straight out of `src/app.js` by its comment markers, so
+they cannot drift from what ships.
 
 ## License
 

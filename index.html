@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<!-- built by tools/build.py from src/ (df49a645); edit the sources, not this file -->
+<!-- built by tools/build.py from src/ (c7d3b009); edit the sources, not this file -->
 <title>Flightline RC Sim</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Browser RC flight trainer: Nano Goblin and trainer flight models, line of sight, FPV and split view, USB transmitter support.">
@@ -374,8 +374,8 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; heigh
     <p>Fly a Nano Goblin or a trainer by line of sight, FPV, or both at once. Stalls, wing drops and spins come out of the physics, not a script.</p>
     <div class="inputs">
       <div class="inp"><i id="wRadioDot"></i><b>Radio or HOTAS</b><span id="wRadio">Plug in by USB, then move a stick. A transmitter needs Joystick (HID) mode; a HOTAS or gamepad just works.</span></div>
-      <div class="inp"><i class="ok"></i><b>Keyboard</b><span><kbd>W</kbd><kbd>S</kbd> throttle · <kbd>A</kbd><kbd>D</kbd> rudder · arrows pitch &amp; roll · <kbd>R</kbd> reset · <kbd>V</kbd> view · <kbd>M</kbd> mode</span></div>
-      <div class="inp"><i class="ok"></i><b>Touch</b><span>On-screen sticks appear on touch screens (settings → Controls).</span></div>
+      <div class="inp"><i class="ok"></i><b>Keyboard</b><span id="wKeys"><kbd>W</kbd><kbd>S</kbd> throttle · <kbd>A</kbd><kbd>D</kbd> rudder · arrows pitch &amp; roll · <kbd>R</kbd> reset · <kbd>V</kbd> view · <kbd>M</kbd> mode</span></div>
+      <div class="inp"><i class="ok"></i><b>Touch</b><span>On-screen sticks appear on touch screens. Mode 1, 2 or 3: Settings → Controller.</span></div>
     </div>
     <p class="note">Split view stacks line of sight over FPV when the screen is upright. Rotate the Chromebook to portrait and pick View → Split.</p>
     <div class="actions">
@@ -3531,7 +3531,7 @@ const TUT = (function () {
         tasks: [
           hover({ say: 'Hover at 3 m', n: PAD_N, e: PAD_E, up: 3, r: 3, band: 1.5, hold: 5, par: 15 }),
           hover({ say: 'Turn all the way round, staying put', n: PAD_N, e: PAD_E, up: 3, r: 4, band: 2, hold: 0, spin: 360, par: 35,
-            tip: 'Slowly. The faster you spin, the more the quad leans and walks off the spot — and as the nose comes round, left on the right stick stops meaning left to you.' }),
+            tip: 'Slowly. The faster you spin, the more the quad leans and walks off the spot — and as the nose comes round, left roll stops meaning left to you.' }),
           hover({ say: 'And back the other way', n: PAD_N, e: PAD_E, up: 3, r: 4, band: 2, hold: 0, spin: 360, par: 35 }),
           pad({ say: 'Land on the pad', n: PAD_N, e: PAD_E, up: 0, r: 2.5, par: 25 }),
         ] },
@@ -3572,13 +3572,13 @@ const TUT = (function () {
           pad({ say: 'Land on the pad', n: PAD_N, e: PAD_E, up: 0, r: 2.5, par: 30 }),
         ] },
       { id: 'nosein', name: '8 · Nose-in hover', start: 'pad', boxR: 60, maxAlt: 25, par: 120,
-        blurb: 'The wall. Pointed at you, every control on the right stick is backwards, and the only way through it is to stop translating and start thinking in the quad\'s frame.',
+        blurb: 'The wall. Pointed at you, pitch and roll are both backwards, and the only way through it is to stop translating and start thinking in the quad\'s frame.',
         tasks: [
           hover({ say: 'Hover at 4 m, tail towards you', n: 18, e: 0, up: 4, r: 3, band: 1.5, hold: 5, facing: 'away', facingTol: 40, par: 20 }),
           hover({ say: 'Turn it round to face you', n: 18, e: 0, up: 4, r: 5, band: 2.5, hold: 0, spin: 180, par: 25,
             tip: 'Turn it slowly and watch which way it drifts as the nose comes round.' }),
           hover({ say: 'Hold a nose-in hover for 20 s', n: 18, e: 0, up: 4, r: 4, band: 2, hold: 20, facing: 'home', facingTol: 40, par: 40,
-            tip: 'Left stick is still throttle, and that has not reversed. Everything on the right stick has. Tiny inputs, and if it gets away from you, yaw it back to tail-in and start again.' }),
+            tip: 'Throttle is still throttle, and that has not reversed. Pitch and roll have. Tiny inputs, and if it gets away from you, yaw it back to tail-in and start again.' }),
           pad({ say: 'Land on the pad', n: PAD_N, e: PAD_E, up: 0, r: 2.5, par: 30 }),
         ] },
       { id: 'spot', name: '9 · The spot landing', start: 'air', boxR: 160, maxAlt: 60, par: 100,
@@ -7445,9 +7445,43 @@ if (typeof module !== 'undefined') module.exports = NET;
     if (ctl.open) renderCtl();
   }
 
+  /* ---- stick modes ---------------------------------------------------------------
+     What each stick does, for the keyboard and the touch sticks: its up-down axis,
+     then its left-right one. The keyboard is the same two sticks, WASD the left
+     and the arrows the right. Mode 3 is Mode 2 the other way round: pitch and roll
+     under the left thumb, throttle and yaw under the right. A radio needs none of
+     this, because the setup wizard maps its channels whatever mode it is in.
+     Pure, so test/input_test.js can lift it out of this file verbatim.   */
+  const STICK_MODES = {
+    '2': { L: ['thr', 'r'], R: ['e', 'a'] },
+    '1': { L: ['e', 'r'], R: ['thr', 'a'] },
+    '3': { L: ['e', 'a'], R: ['thr', 'r'] },
+  };
+  const sticksFor = (mode) => STICK_MODES[mode] || STICK_MODES['2'];
+  const throttleStick = (mode) => (sticksFor(mode).L[0] === 'thr' ? 'L' : 'R');
+  const STICK_KEYS = { L: { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD' }, R: { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' } };
+  // each axis's keys: the up and down, or the left and right, of the stick it is on
+  function axisKeys(mode) {
+    const k = {};
+    for (const side of ['L', 'R']) for (const ax of sticksFor(mode)[side]) k[ax] = STICK_KEYS[side];
+    return k;
+  }
+  // the four axes from the two touch sticks, each { x, y } in -1..1 with y down: the
+  // throttle reads 0 with its stick at the bottom, and a pitch stick pulled back is +e
+  function touchAxes(mode, L, R) {
+    const sm = sticksFor(mode), v = {};
+    for (const [side, t] of [['L', L], ['R', R]]) {
+      const [ud, lr] = sm[side];
+      v[ud] = ud === 'thr' ? Math.min(1, Math.max(0, (1 - t.y) / 2)) : t.y;
+      v[lr] = t.x;
+    }
+    return v;
+  }
+  /* ---- end stick modes ---- */
+
   const K = new Set();
   const kb = { thr: 0, a: 0, e: 0, r: 0 };
-  const tch = { L: { x: 0, y: 1, id: null }, R: { x: 0, y: 0, id: null } };
+  const tch = { L: { x: 0, y: 0, id: null }, R: { x: 0, y: 0, id: null } }; // homeSticks() puts the throttle at idle
   const inp = { thr: 0, a: 0, e: 0, r: 0 };
   let src = 'keys';
   const coarse = matchMedia('(pointer: coarse)').matches;
@@ -7634,22 +7668,17 @@ if (typeof module !== 'undefined') module.exports = NET;
     if (moved && !wiz.open && !ctl.open) src = 'radio';
     if (!wiz.open && !ctl.open) processChannels(dt); else chPrev.clear();
 
-    // keyboard (mode 2: WASD = throttle/yaw, arrows = pitch/roll; mode 1 swaps throttle and pitch)
-    const m2 = S.stickMode === '2';
-    const thrUp = m2 ? 'KeyW' : 'ArrowUp', thrDn = m2 ? 'KeyS' : 'ArrowDown';
-    const pFwd = m2 ? 'ArrowUp' : 'KeyW', pBack = m2 ? 'ArrowDown' : 'KeyS';
+    // keyboard: WASD is the left stick and the arrows the right, in whichever stick mode
+    const ks = axisKeys(S.stickMode);
     const slew = (x, t) => (t === 0 ? (Math.abs(x) < 6 * dt ? 0 : x - Math.sign(x) * 6 * dt) : clamp(x + Math.sign(t - x) * Math.min(Math.abs(t - x), 3 * dt), -1, 1));
-    if (K.has(thrUp)) kb.thr = Math.min(1, kb.thr + 0.9 * dt);
-    if (K.has(thrDn)) kb.thr = Math.max(0, kb.thr - 0.9 * dt);
-    kb.a = slew(kb.a, (K.has('ArrowRight') ? 1 : 0) - (K.has('ArrowLeft') ? 1 : 0));
-    kb.e = slew(kb.e, (K.has(pBack) ? 1 : 0) - (K.has(pFwd) ? 1 : 0));
-    kb.r = slew(kb.r, (K.has('KeyD') ? 1 : 0) - (K.has('KeyA') ? 1 : 0));
+    if (K.has(ks.thr.up)) kb.thr = Math.min(1, kb.thr + 0.9 * dt);
+    if (K.has(ks.thr.down)) kb.thr = Math.max(0, kb.thr - 0.9 * dt);
+    kb.a = slew(kb.a, (K.has(ks.a.right) ? 1 : 0) - (K.has(ks.a.left) ? 1 : 0));
+    kb.e = slew(kb.e, (K.has(ks.e.down) ? 1 : 0) - (K.has(ks.e.up) ? 1 : 0));
+    kb.r = slew(kb.r, (K.has(ks.r.right) ? 1 : 0) - (K.has(ks.r.left) ? 1 : 0));
 
     let v = src === 'radio' ? readSticks() : null;
-    if (!v && src === 'touch') {
-      const thrSide = m2 ? tch.L : tch.R, pitchSide = m2 ? tch.R : tch.L;
-      v = { thr: clamp((1 - thrSide.y) / 2, 0, 1), a: tch.R.x, e: pitchSide.y, r: tch.L.x };
-    }
+    if (!v && src === 'touch') v = touchAxes(S.stickMode, tch.L, tch.R);
     if (!v) v = kb;
     inp.thr = v.thr; inp.a = v.a; inp.e = v.e; inp.r = v.r;
   }
@@ -7696,22 +7725,38 @@ if (typeof module !== 'undefined') module.exports = NET;
     const end = (e) => {
       if (e.pointerId !== t.id) return;
       t.id = null; t.x = 0;
-      const thrSide = S.stickMode === '2' ? 'L' : 'R';
-      if (side !== thrSide) t.y = 0;
+      if (side !== throttleStick(S.stickMode)) t.y = 0; // the throttle stays where you leave it
       draw();
     };
     el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
     t.draw = draw; draw();
   }
   setupStick($('#stickL'), 'L'); setupStick($('#stickR'), 'R');
+  // throttle at idle on whichever stick carries it in this mode, everything else centred
+  function homeSticks() {
+    const thr = throttleStick(S.stickMode);
+    for (const side of ['L', 'R']) { const t = tch[side]; t.x = 0; t.y = side === thr ? 1 : 0; t.draw(); }
+  }
+  homeSticks();
+  const AXIS_NAME = Object.fromEntries(AXES);
   function refreshTouch() {
     const show = S.touch === 'on' || (S.touch === 'auto' && coarse && src !== 'radio');
     $('#stickL').hidden = $('#stickR').hidden = !show;
     sticksShown = show;
-    const m2 = S.stickMode === '2';
-    $('#stickL').dataset.label = m2 ? 'Throttle · Yaw' : 'Pitch · Yaw';
-    $('#stickR').dataset.label = m2 ? 'Pitch · Roll' : 'Throttle · Roll';
+    const sm = sticksFor(S.stickMode);
+    $('#stickL').dataset.label = sm.L.map((k) => AXIS_NAME[k]).join(' · ');
+    $('#stickR').dataset.label = sm.R.map((k) => AXIS_NAME[k]).join(' · ');
   }
+  // the stick mode in words, for its setting and for the keyboard line on the welcome card
+  function stickHelp() {
+    const [l, r] = ['L', 'R'].map((side) => sticksFor(S.stickMode)[side].map((k) => AXIS_NAME[k].toLowerCase()).join(' and '));
+    return `Left stick ${l}, right stick ${r}, and the keys the same: WASD is the left stick and the arrows the right. With a radio the setup wizard maps channels, so this only affects keys and touch.`;
+  }
+  function refreshWelcomeKeys() {
+    const word = { thr: 'throttle', e: 'pitch', a: 'roll', r: 'rudder' }, [l, r] = ['L', 'R'].map((side) => sticksFor(S.stickMode)[side].map((k) => word[k]));
+    $('#wKeys').innerHTML = `<kbd>W</kbd><kbd>S</kbd> ${l[0]} · <kbd>A</kbd><kbd>D</kbd> ${l[1]} · arrows ${r[0]} &amp; ${r[1]} · <kbd>R</kbd> reset · <kbd>V</kbd> view · <kbd>M</kbd> mode`;
+  }
+  refreshWelcomeKeys();
 
   /* ---------- detection helpers shared by the guided setup and the controls panel ---------- */
   function snapshot() {
@@ -8451,7 +8496,7 @@ if (typeof module !== 'undefined') module.exports = NET;
         ...(mapInfo && mapInfo.starts.length > 1 ? [seg('mapStart', 'Reset puts you', mapInfo.starts.map((s) => [s.id, s.name]), '', () => S.mapStart, (v) => { S.mapStart = v; saveS(); doReset(); refreshBar(); })] : []),
       ] },
       { tab: 'controller', title: 'Controller', items: [{ type: 'radio' },
-        seg('stickMode', 'Stick mode (keyboard & touch)', [['2', 'Mode 2'], ['1', 'Mode 1']], 'With a radio the setup wizard maps channels, so this only affects keys and touch.'),
+        seg('stickMode', 'Stick mode (keyboard & touch)', [['2', 'Mode 2'], ['1', 'Mode 1'], ['3', 'Mode 3']], stickHelp),
         seg('touch', 'Touch sticks', [['auto', 'Auto'], ['on', 'On'], ['off', 'Off']]),
       ] },
       { tab: 'link', title: 'Autopilot', items: [
@@ -8550,9 +8595,10 @@ if (typeof module !== 'undefined') module.exports = NET;
     }
     if (k === 'battery') env.battery = S.battery;
     if (k === 'crashes') env.crashes = S.crashes;
+    if (k === 'stickMode') { homeSticks(); refreshWelcomeKeys(); }
     if (k === 'touch' || k === 'stickMode') refreshTouch();
     if (k === 'aa') toast('Smooth edges applies after you reload the page');
-    if (k === 'units' || k === 'rcLink' || k === 'vtx' || k === 'rfNoise') buildSheet();
+    if (k === 'units' || k === 'rcLink' || k === 'vtx' || k === 'rfNoise' || k === 'stickMode') buildSheet();
   }
   function daHtml() {
     const a = updateAtmos(), w0 = FL.weatherAt(wxBase, 10), wc = S.ceilFt > 0 ? FL.weatherAt(wxBase, S.ceilFt * 0.3048 + 5) : null;
@@ -10046,7 +10092,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     const inp = heldInp; // the receiver's view of your sticks: frozen while packets are being lost
     if (ROTARY(AC)) {
       const cut = cutOn || cutHeld, heli = AC.kind === 'heli';
-      // heli: the left stick is collective, live even with the motor held; hold stops the motor only
+      // heli: the throttle stick is collective, live even with the motor held; hold stops the motor only
       return { thr: armed || heli ? inp.thr : 0, a: inp.a, e: inp.e, r: inp.r, armed: armed && !cut, hold: cut, curve: S.curve,
         fwd: fwdCmd, mode: { manual: 'acro', horizon: 'horizon', trainer: 'trainer', stab: 'angle' }[S.mode] || 'acro', lim: limNow() };
     }

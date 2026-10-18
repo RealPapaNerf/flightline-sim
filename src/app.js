@@ -1425,9 +1425,43 @@
     if (ctl.open) renderCtl();
   }
 
+  /* ---- stick modes ---------------------------------------------------------------
+     What each stick does, for the keyboard and the touch sticks: its up-down axis,
+     then its left-right one. The keyboard is the same two sticks, WASD the left
+     and the arrows the right. Mode 3 is Mode 2 the other way round: pitch and roll
+     under the left thumb, throttle and yaw under the right. A radio needs none of
+     this, because the setup wizard maps its channels whatever mode it is in.
+     Pure, so test/input_test.js can lift it out of this file verbatim.   */
+  const STICK_MODES = {
+    '2': { L: ['thr', 'r'], R: ['e', 'a'] },
+    '1': { L: ['e', 'r'], R: ['thr', 'a'] },
+    '3': { L: ['e', 'a'], R: ['thr', 'r'] },
+  };
+  const sticksFor = (mode) => STICK_MODES[mode] || STICK_MODES['2'];
+  const throttleStick = (mode) => (sticksFor(mode).L[0] === 'thr' ? 'L' : 'R');
+  const STICK_KEYS = { L: { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD' }, R: { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' } };
+  // each axis's keys: the up and down, or the left and right, of the stick it is on
+  function axisKeys(mode) {
+    const k = {};
+    for (const side of ['L', 'R']) for (const ax of sticksFor(mode)[side]) k[ax] = STICK_KEYS[side];
+    return k;
+  }
+  // the four axes from the two touch sticks, each { x, y } in -1..1 with y down: the
+  // throttle reads 0 with its stick at the bottom, and a pitch stick pulled back is +e
+  function touchAxes(mode, L, R) {
+    const sm = sticksFor(mode), v = {};
+    for (const [side, t] of [['L', L], ['R', R]]) {
+      const [ud, lr] = sm[side];
+      v[ud] = ud === 'thr' ? Math.min(1, Math.max(0, (1 - t.y) / 2)) : t.y;
+      v[lr] = t.x;
+    }
+    return v;
+  }
+  /* ---- end stick modes ---- */
+
   const K = new Set();
   const kb = { thr: 0, a: 0, e: 0, r: 0 };
-  const tch = { L: { x: 0, y: 1, id: null }, R: { x: 0, y: 0, id: null } };
+  const tch = { L: { x: 0, y: 0, id: null }, R: { x: 0, y: 0, id: null } }; // homeSticks() puts the throttle at idle
   const inp = { thr: 0, a: 0, e: 0, r: 0 };
   let src = 'keys';
   const coarse = matchMedia('(pointer: coarse)').matches;
@@ -1614,22 +1648,17 @@
     if (moved && !wiz.open && !ctl.open) src = 'radio';
     if (!wiz.open && !ctl.open) processChannels(dt); else chPrev.clear();
 
-    // keyboard (mode 2: WASD = throttle/yaw, arrows = pitch/roll; mode 1 swaps throttle and pitch)
-    const m2 = S.stickMode === '2';
-    const thrUp = m2 ? 'KeyW' : 'ArrowUp', thrDn = m2 ? 'KeyS' : 'ArrowDown';
-    const pFwd = m2 ? 'ArrowUp' : 'KeyW', pBack = m2 ? 'ArrowDown' : 'KeyS';
+    // keyboard: WASD is the left stick and the arrows the right, in whichever stick mode
+    const ks = axisKeys(S.stickMode);
     const slew = (x, t) => (t === 0 ? (Math.abs(x) < 6 * dt ? 0 : x - Math.sign(x) * 6 * dt) : clamp(x + Math.sign(t - x) * Math.min(Math.abs(t - x), 3 * dt), -1, 1));
-    if (K.has(thrUp)) kb.thr = Math.min(1, kb.thr + 0.9 * dt);
-    if (K.has(thrDn)) kb.thr = Math.max(0, kb.thr - 0.9 * dt);
-    kb.a = slew(kb.a, (K.has('ArrowRight') ? 1 : 0) - (K.has('ArrowLeft') ? 1 : 0));
-    kb.e = slew(kb.e, (K.has(pBack) ? 1 : 0) - (K.has(pFwd) ? 1 : 0));
-    kb.r = slew(kb.r, (K.has('KeyD') ? 1 : 0) - (K.has('KeyA') ? 1 : 0));
+    if (K.has(ks.thr.up)) kb.thr = Math.min(1, kb.thr + 0.9 * dt);
+    if (K.has(ks.thr.down)) kb.thr = Math.max(0, kb.thr - 0.9 * dt);
+    kb.a = slew(kb.a, (K.has(ks.a.right) ? 1 : 0) - (K.has(ks.a.left) ? 1 : 0));
+    kb.e = slew(kb.e, (K.has(ks.e.down) ? 1 : 0) - (K.has(ks.e.up) ? 1 : 0));
+    kb.r = slew(kb.r, (K.has(ks.r.right) ? 1 : 0) - (K.has(ks.r.left) ? 1 : 0));
 
     let v = src === 'radio' ? readSticks() : null;
-    if (!v && src === 'touch') {
-      const thrSide = m2 ? tch.L : tch.R, pitchSide = m2 ? tch.R : tch.L;
-      v = { thr: clamp((1 - thrSide.y) / 2, 0, 1), a: tch.R.x, e: pitchSide.y, r: tch.L.x };
-    }
+    if (!v && src === 'touch') v = touchAxes(S.stickMode, tch.L, tch.R);
     if (!v) v = kb;
     inp.thr = v.thr; inp.a = v.a; inp.e = v.e; inp.r = v.r;
   }
@@ -1676,22 +1705,38 @@
     const end = (e) => {
       if (e.pointerId !== t.id) return;
       t.id = null; t.x = 0;
-      const thrSide = S.stickMode === '2' ? 'L' : 'R';
-      if (side !== thrSide) t.y = 0;
+      if (side !== throttleStick(S.stickMode)) t.y = 0; // the throttle stays where you leave it
       draw();
     };
     el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
     t.draw = draw; draw();
   }
   setupStick($('#stickL'), 'L'); setupStick($('#stickR'), 'R');
+  // throttle at idle on whichever stick carries it in this mode, everything else centred
+  function homeSticks() {
+    const thr = throttleStick(S.stickMode);
+    for (const side of ['L', 'R']) { const t = tch[side]; t.x = 0; t.y = side === thr ? 1 : 0; t.draw(); }
+  }
+  homeSticks();
+  const AXIS_NAME = Object.fromEntries(AXES);
   function refreshTouch() {
     const show = S.touch === 'on' || (S.touch === 'auto' && coarse && src !== 'radio');
     $('#stickL').hidden = $('#stickR').hidden = !show;
     sticksShown = show;
-    const m2 = S.stickMode === '2';
-    $('#stickL').dataset.label = m2 ? 'Throttle · Yaw' : 'Pitch · Yaw';
-    $('#stickR').dataset.label = m2 ? 'Pitch · Roll' : 'Throttle · Roll';
+    const sm = sticksFor(S.stickMode);
+    $('#stickL').dataset.label = sm.L.map((k) => AXIS_NAME[k]).join(' · ');
+    $('#stickR').dataset.label = sm.R.map((k) => AXIS_NAME[k]).join(' · ');
   }
+  // the stick mode in words, for its setting and for the keyboard line on the welcome card
+  function stickHelp() {
+    const [l, r] = ['L', 'R'].map((side) => sticksFor(S.stickMode)[side].map((k) => AXIS_NAME[k].toLowerCase()).join(' and '));
+    return `Left stick ${l}, right stick ${r}, and the keys the same: WASD is the left stick and the arrows the right. With a radio the setup wizard maps channels, so this only affects keys and touch.`;
+  }
+  function refreshWelcomeKeys() {
+    const word = { thr: 'throttle', e: 'pitch', a: 'roll', r: 'rudder' }, [l, r] = ['L', 'R'].map((side) => sticksFor(S.stickMode)[side].map((k) => word[k]));
+    $('#wKeys').innerHTML = `<kbd>W</kbd><kbd>S</kbd> ${l[0]} · <kbd>A</kbd><kbd>D</kbd> ${l[1]} · arrows ${r[0]} &amp; ${r[1]} · <kbd>R</kbd> reset · <kbd>V</kbd> view · <kbd>M</kbd> mode`;
+  }
+  refreshWelcomeKeys();
 
   /* ---------- detection helpers shared by the guided setup and the controls panel ---------- */
   function snapshot() {
@@ -2431,7 +2476,7 @@
         ...(mapInfo && mapInfo.starts.length > 1 ? [seg('mapStart', 'Reset puts you', mapInfo.starts.map((s) => [s.id, s.name]), '', () => S.mapStart, (v) => { S.mapStart = v; saveS(); doReset(); refreshBar(); })] : []),
       ] },
       { tab: 'controller', title: 'Controller', items: [{ type: 'radio' },
-        seg('stickMode', 'Stick mode (keyboard & touch)', [['2', 'Mode 2'], ['1', 'Mode 1']], 'With a radio the setup wizard maps channels, so this only affects keys and touch.'),
+        seg('stickMode', 'Stick mode (keyboard & touch)', [['2', 'Mode 2'], ['1', 'Mode 1'], ['3', 'Mode 3']], stickHelp),
         seg('touch', 'Touch sticks', [['auto', 'Auto'], ['on', 'On'], ['off', 'Off']]),
       ] },
       { tab: 'link', title: 'Autopilot', items: [
@@ -2530,9 +2575,10 @@
     }
     if (k === 'battery') env.battery = S.battery;
     if (k === 'crashes') env.crashes = S.crashes;
+    if (k === 'stickMode') { homeSticks(); refreshWelcomeKeys(); }
     if (k === 'touch' || k === 'stickMode') refreshTouch();
     if (k === 'aa') toast('Smooth edges applies after you reload the page');
-    if (k === 'units' || k === 'rcLink' || k === 'vtx' || k === 'rfNoise') buildSheet();
+    if (k === 'units' || k === 'rcLink' || k === 'vtx' || k === 'rfNoise' || k === 'stickMode') buildSheet();
   }
   function daHtml() {
     const a = updateAtmos(), w0 = FL.weatherAt(wxBase, 10), wc = S.ceilFt > 0 ? FL.weatherAt(wxBase, S.ceilFt * 0.3048 + 5) : null;
@@ -4026,7 +4072,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     const inp = heldInp; // the receiver's view of your sticks: frozen while packets are being lost
     if (ROTARY(AC)) {
       const cut = cutOn || cutHeld, heli = AC.kind === 'heli';
-      // heli: the left stick is collective, live even with the motor held; hold stops the motor only
+      // heli: the throttle stick is collective, live even with the motor held; hold stops the motor only
       return { thr: armed || heli ? inp.thr : 0, a: inp.a, e: inp.e, r: inp.r, armed: armed && !cut, hold: cut, curve: S.curve,
         fwd: fwdCmd, mode: { manual: 'acro', horizon: 'horizon', trainer: 'trainer', stab: 'angle' }[S.mode] || 'acro', lim: limNow() };
     }
