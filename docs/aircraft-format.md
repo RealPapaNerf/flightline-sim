@@ -409,6 +409,7 @@ somewhere clear by default.
 | `prop.torque` | -1 … 1 | **required** | reaction torque per newton of thrust per metre of diameter |
 | `prop.wash` | true / false | `false` | true if the slipstream blows over the tail (a tractor) |
 | `prop.eta` | 0 … 1 | *optional* | how much of the slipstream has developed at the tail |
+| `prop.Ip` | 0 … 1 | *optional* | spinning inertia of prop + motor bell, kg·m², for the Accurate model's gyroscopics. Left out, it is estimated from the diameter |
 | `steerMax` | 0 … 1 | `0` | nosewheel or tailwheel steering at full rudder, radians |
 | `retract.drag` | 0 … 0.5 | **required** | extra drag area with the gear down, m² |
 | `retract.time` | 0.3 … 20 | **required** | how long the gear takes to move, s |

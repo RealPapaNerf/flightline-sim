@@ -35,7 +35,7 @@
     // weather: turbulence %, humidity %, altimeter inHg, precipitation, fog/mist visibility (m, 10000 = clear),
     // cloud ceiling (ft above the field, 0 = none), pack pre-warmed, ice indicator, last preset picked
     turb: 15, rh: 40, altim: 29.92, precip: 'none', fogVis: 10000, ceilFt: 0, packWarm: false, iceCue: true, wxPreset: 'clear',
-    battery: true, crashes: true, autoReset: true,
+    battery: true, crashes: true, autoReset: true, aero: 'std',
     quality: 1, scenery: 'med', aa: false, fps: false, eng: false, sound: true, units: 'imp',
     author: '', // your name, written into aircraft files you export
     trim: {}, // user trims per aircraft, stick units, set from controller trim buttons
@@ -1337,7 +1337,7 @@
 
   /* ---------------------------------------------------------------- sim state */
   const st = FL.makeState();
-  const env = { rho: 1.225, wind: [0, 0, 0], battery: S.battery, crashes: S.crashes };
+  const env = { rho: 1.225, wind: [0, 0, 0], battery: S.battery, crashes: S.crashes, hifi: S.aero === 'hifi' };
   const gust = [0, 0, 0];
   let armed = false, paused = false, userPaused = false, crashAt = 0, flightTime = 0, timerOn = false, launchHold = 0, acc = 0;
   let farWarned = false, crashAnnounced = false;
@@ -2708,6 +2708,8 @@
         seg('battery', 'Battery', [[true, 'Drains'], [false, 'Unlimited']], () => AC.batt.label),
         seg('crashes', 'Crashes', [[true, 'On'], [false, 'Off']]),
         seg('autoReset', 'After a crash', [[true, 'Auto reset (3 s)'], [false, 'Wait for me']]),
+        seg('aero', 'Aerodynamics', [['std', 'Lightweight'], ['hifi', 'Accurate']],
+          'Accurate adds what the lightweight model approximates: a lifting line solves the induced flow across the span (true tip stall, what a flap or an aileron does to the air over everything behind it, tail downwash station by station), Reynolds number moves lift and drag with speed and chord, stall separation lags so a snap pull stalls later and recovers slower, and planes get the propeller’s gyroscopics, P-factor and slipstream swirl — full power at low speed walks the nose left and wants right rudder. Trim moves a touch (a few percent). Costs some CPU; the performance tables in the model notes stay the lightweight model’s.'),
       ] },
       { tab: 'map', title: 'Map', items: [{ type: 'maps' },
         seg('terrainWind', 'Terrain-shaped wind', [[true, 'On'], [false, 'Off']],
@@ -2823,6 +2825,7 @@
     }
     if (k === 'battery') env.battery = S.battery;
     if (k === 'crashes') env.crashes = S.crashes;
+    if (k === 'aero') env.hifi = S.aero === 'hifi';
     if (k === 'stickMode') { homeSticks(); refreshWelcomeKeys(); }
     if (k === 'touch' || k === 'stickMode') refreshTouch();
     if (k === 'aa') toast('Smooth edges applies after you reload the page');
@@ -3448,6 +3451,7 @@ CL = (1−σ)·k·(CL0 + a·α) + σ·CN90·sin α·cos α
 Battery V = cells·OCV(charge) − I·R
 Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       <p><b>What is simplified.</b> No spanwise flow interaction between strips beyond the load-distribution factor, no dynamic stall or hysteresis, no gyroscopic prop effects, a single rigid body (except a foam-flex factor on the Goblin’s elevons at high speed), and trees are cylinders. Goblin geometry comes from Strix’s published span, area, weight and power system; CG position, airfoil numbers and inertia are estimates.</p>
+      <p><b>Accurate aerodynamics</b> (Sim rules) replaces the first three simplifications: a nonlinear lifting line solves the induced flow strip by strip${S.aero === 'hifi' ? ` (on now, ${AC.ll ? AC.ll.length : 0} surface${AC.ll && AC.ll.length === 1 ? '' : 's'} on the line)` : ''}, Reynolds number moves CLmax and profile drag with speed and chord, stall separation lags over a few chord-lengths of travel, and the propeller adds gyroscopic precession, P-factor, a hub normal force and swirl in its wash. The table above is always the lightweight model’s.</p>
     </div>`;
   }
 

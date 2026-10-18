@@ -182,6 +182,9 @@ const ACF = (function (FL) {
       // turns backwards. revEff is how much thrust it makes that way, since the
       // blade is the wrong way round - 0.6 unless the file says otherwise.
       reverse: opt(b(false)), revEff: opt(n(0.1, 1)),
+      // spinning inertia of prop + motor bell, kg·m², for the accurate model's
+      // gyroscopics; left out, it is estimated from the diameter
+      Ip: opt(n(0, 1)),
     }),
     steerMax: n(0, 1, 0),
     retract: opt(o({ drag: n(0, 0.5), time: n(0.3, 20) })),

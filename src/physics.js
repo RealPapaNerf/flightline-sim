@@ -508,6 +508,7 @@ const FL = (function () {
             surf: sf.name, role: sf.role, side, y, chord, area: chord * width,
             r, r34: [r[0] - 0.5 * chord * cA[0], r[1] - 0.5 * chord * cA[1], r[2] - 0.5 * chord * cA[2]],
             c: cA, n: nA, s: sA,
+            vert: !!sf.vertical, wy: sf.vertical ? 0 : width * Math.cos(Gam), // strip width along y, for the lifting line
             load: L,
             a: f.a, CL0: f.CL0,
             aS: (f.CLmax / L - f.CL0) / f.a, // local stall angle: strips carrying more load stall sooner
@@ -542,6 +543,191 @@ const FL = (function () {
       }
     }
     return { wingArea, wingSpan, wingSlope };
+  }
+
+  /* =====================================================================
+     Accurate aerodynamics (env.hifi). Everything here is precomputed at
+     build time and costs nothing until the option is switched on; with it
+     off, step() is bit-identical to the lightweight model.
+
+     What the option changes, and why each piece is behind it:
+       - a nonlinear lifting line replaces the Schrenk load factor: every
+         strip's circulation induces real up/downwash on every other strip
+         of its surface, and the wing's wake is evaluated at each tail
+         station instead of one whole-wing downwash angle,
+       - Reynolds number moves CLmax and profile drag, which at model
+         scale (Re 30k–400k) it does a lot,
+       - stall separation lags the quasi-steady value (dynamic stall):
+         a fast pull stalls later and harder, reattachment is slower,
+       - planes get the propeller's gyroscopic moment, P-factor, hub
+         normal force and slipstream swirl over whatever sits in the wash.
+     ===================================================================== */
+  function hifiPrep(ac) {
+    ac.ll = null; ac._hb = null;
+    if (!ac.strips || !ac.strips.length) return;
+    /* Reynolds references: the foil numbers are taken to describe the aircraft
+       at its own flight regime — CLmax at the Reynolds number of its stall,
+       CD0 at that of its cruise — so turning the option on does not move the
+       numbers the aircraft was tuned to, only adds how they change away from
+       that regime. */
+    const w0 = ac.strips.find((x) => x.role === 'wing') || ac.strips[0];
+    const CLref = Math.max(0.3, w0.load * (w0.aS * w0.a + w0.CL0));
+    const Vs = Math.sqrt((2 * ac.mass * G) / (RHO0 * Math.max(ac.S || 0, 1e-3) * CLref));
+    for (const st of ac.strips) {
+      st.ReS = (Vs * st.chord) / 1.48e-5;
+      st.ReC = (2 * Vs * st.chord) / 1.48e-5;
+      st.ll = false;
+    }
+    /* Group the strips the lifting line will solve: every mirrored or single
+       horizontal surface. The file's slope is 3-D (it already contains the
+       induced flow), so peel the induced part back out for a first guess at
+       the 2-D slope; it is calibrated against the discrete line below. */
+    const bySurf = new Map();
+    ac.strips.forEach((st, i) => {
+      if (st.vert || st.role === 'fin') return;
+      if (!bySurf.has(st.surf)) bySurf.set(st.surf, []);
+      bySurf.get(st.surf).push(i);
+    });
+    if (!bySurf.size) return;
+    const wingIdx = [];
+    for (const [, idx] of bySurf) for (const i of idx) if (ac.strips[i].role === 'wing') wingIdx.push(i);
+    /* Horseshoe influence: trailing legs at each strip's edges, downwash read
+       at every other strip's centre. The vortex core radius keeps a tail
+       strip that sits exactly behind a trailer finite. */
+    const groups = [];
+    for (const [, idx] of bySurf) {
+      const n = idx.length, W = new Float64Array(n * n);
+      for (let a = 0; a < n; a++) {
+        const si = ac.strips[idx[a]], yi = si.r[1], zi = si.r[2];
+        for (let j = 0; j < n; j++) {
+          const sj = ac.strips[idx[j]];
+          const dz = zi - sj.r[2], rc2 = 0.01 * sj.wy * sj.wy + dz * dz;
+          const hl = yi - (sj.r[1] - sj.wy / 2), hr = yi - (sj.r[1] + sj.wy / 2);
+          W[a * n + j] = (hl / (hl * hl + rc2) - hr / (hr * hr + rc2)) / (4 * Math.PI);
+        }
+      }
+      const g = { idx, W, E: null, src: null };
+      // the wing's wake at each tail station: trailers grown by the downstream
+      // distance plus the bound vortex, instead of one downwash for the whole tail
+      if (ac.strips[idx[0]].role === 'tail' && wingIdx.length) {
+        const wn = wingIdx.length, E = new Float64Array(n * wn);
+        for (let a = 0; a < n; a++) {
+          const si = ac.strips[idx[a]], yi = si.r[1], zi = si.r[2];
+          for (let j = 0; j < wn; j++) {
+            const sj = ac.strips[wingIdx[j]];
+            const dx = Math.max(0, sj.r[0] - si.r[0]);
+            const dz = zi - sj.r[2], rc2 = 0.04 * sj.wy * sj.wy + dz * dz;
+            const hl = yi - (sj.r[1] - sj.wy / 2), hr = yi - (sj.r[1] + sj.wy / 2);
+            const tr = (hh) => (hh / (hh * hh + rc2)) * (1 + dx / Math.sqrt(dx * dx + hh * hh + rc2));
+            const bound = dx > 1e-6 ? (hl / Math.sqrt(dx * dx + hl * hl + rc2) - hr / Math.sqrt(dx * dx + hr * hr + rc2)) / dx : 0;
+            E[a * wn + j] = (tr(hl) - tr(hr) + bound) / (4 * Math.PI);
+          }
+        }
+        g.E = E; g.src = wingIdx;
+      }
+      for (const i of idx) ac.strips[i].ll = true;
+      groups.push(g);
+    }
+    // wings sweep before tails: a tail row reads the wing's circulation
+    groups.sort((p, q) => (ac.strips[p.idx[0]].role === 'tail' ? 1 : 0) - (ac.strips[q.idx[0]].role === 'tail' ? 1 : 0));
+
+    /* Calibrate. The strips are few and the vortex cores finite, so the raw
+       discrete line comes out a little shy of the continuous theory the 3-D
+       slope in the file assumes. Solve each surface at a uniform angle and
+       scale its 2-D slope until the line gives back the surface's own 3-D
+       slope, then scale the wing→tail influence until the mean tail downwash
+       matches the one-angle value the aircraft was trimmed with. What the
+       option adds is the structure — who stalls first, what a flap or an
+       aileron does to the flow over everything behind it — anchored to the
+       numbers the aircraft was tuned to. */
+    const solveLin = (g, a0, alpha) => {
+      const n = g.idx.length, gm = new Float64Array(n);
+      for (let it = 0; it < 80; it++) {
+        for (let a = 0; a < n; a++) {
+          const st = ac.strips[g.idx[a]];
+          let w = 0;
+          for (let j = 0; j < n; j++) w += g.W[a * n + j] * gm[j];
+          const D = 1 + 0.5 * st.chord * a0 * g.W[a * n + a];
+          gm[a] += (0.5 * st.chord * a0 * (alpha - w) - gm[a]) / D;
+        }
+      }
+      return gm;
+    };
+    const wingGam = new Float64Array(ac.strips.length);
+    let CLw = 0;
+    for (const g of groups) {
+      const sts = g.idx.map((i) => ac.strips[i]);
+      let a0 = sts[0].a / Math.max(0.35, 1 - sts[0].a * sts[0].k);
+      const A = sts.reduce((t, x) => t + x.area, 0);
+      for (let pass = 0; pass < 4; pass++) {
+        const gm = solveLin(g, a0, 0.1);
+        const got = sts.reduce((t, x, j) => t + ((2 * gm[j]) / x.chord) * x.area, 0) / (A * 0.1);
+        a0 *= clamp(sts[0].a / Math.max(got, 0.05), 0.6, 2.5);
+      }
+      g.a0 = a0;
+      if (sts[0].role === 'wing') {
+        const gm = solveLin(g, a0, 0.1);
+        g.idx.forEach((i, j) => { wingGam[i] = gm[j]; });
+        CLw += sts.reduce((t, x, j) => t + ((2 * gm[j]) / x.chord) * x.area, 0);
+      }
+    }
+    const SwAll = ac.strips.reduce((t, x) => t + (x.role === 'wing' ? x.area : 0), 0);
+    for (const g of groups) {
+      if (!g.E) continue;
+      const n = g.idx.length, wn = g.src.length;
+      let em = 0;
+      for (let a = 0; a < n; a++) { let e = 0; for (let j = 0; j < wn; j++) e += g.E[a * wn + j] * wingGam[g.src[j]]; em += e * ac.strips[g.idx[a]].area; }
+      em /= g.idx.reduce((t, i) => t + ac.strips[i].area, 0);
+      const target = (2 * (CLw / Math.max(SwAll, 1e-6))) / (Math.PI * ac.ARw);
+      const kE = clamp(target / Math.max(em, 1e-6), 0.5, 2.5);
+      for (let j = 0; j < g.E.length; j++) g.E[j] *= kE;
+    }
+    // section constants on the calibrated 2-D slope; the load factor's job is now done by induction.
+    // CL0 is scaled the same way the slope was: the camber lift makes circulation too, and the line
+    // takes its induced share back out, so the section must start with more to land on the file's number
+    for (const g of groups) for (const i of g.idx) {
+      const st = ac.strips[i], a0 = g.a0, CL0 = (st.CL0 * a0) / st.a;
+      const CLmax = st.load * (st.aS * st.a + st.CL0), CLmin = st.load * (st.CL0 - st.aSn * st.a);
+      st.h = {
+        load: 1, a: a0, CL0,
+        aS: (CLmax - CL0) / a0, aSn: (CL0 - CLmin) / a0,
+        dAS: CLmax / a0, dASn: -CLmin / a0,
+        M: st.M, CD0: st.CD0, Cm0: st.Cm0, CN90: st.CN90, cmd: st.cmd, tau: st.tau,
+      };
+    }
+    ac.ll = groups;
+    const N = ac.strips.length, f = () => new Float64Array(N);
+    ac._hb = { uc: f(), un: f(), Vin: f(), ae: f(), dEff: f(), dCL: f(), dCD: f(), slope: f(), ge: f(), wi: f() };
+  }
+
+  /* Solve the circulation distribution: Γ = ½·V·c·CL(α − w/V) with w = WΓ,
+     damped per strip by its own self-influence (a diagonal Newton step), warm
+     started from the last time step so three sweeps keep up at 400 Hz. The
+     separation state passed in is the lagged one, so a dynamically stalled
+     strip sheds its lift into the line too. Ice is a step stale here (the
+     force pass grows it); at mm-per-minute that is nothing. */
+  function solveInduced(s, ac, hb) {
+    if (!s.gam || s.gam.length !== ac.strips.length) s.gam = new Float64Array(ac.strips.length);
+    const gam = s.gam, wi = hb.wi;
+    for (let it = 0; it < 3; it++) {
+      for (const g of ac.ll) {
+        const n = g.idx.length, src = g.src, wn = src ? src.length : 0;
+        for (let a = 0; a < n; a++) {
+          const gi = g.idx[a], st = ac.strips[gi], Vin = hb.Vin[gi];
+          if (Vin === 0) { gam[gi] = 0; wi[gi] = 0; continue; }
+          let w = 0;
+          const row = a * n;
+          for (let j = 0; j < n; j++) w += g.W[row + j] * gam[g.idx[j]];
+          if (src) { const rowE = a * wn; for (let j = 0; j < wn; j++) w += g.E[rowE + j] * gam[src[j]]; }
+          w *= hb.ge[gi];
+          wi[gi] = w;
+          const cf = foilCoeffs(st.h, hb.ae[gi] - Math.atan(w / Vin), hb.dEff[gi], hb.dCL[gi], 0, hb.slope[gi],
+            s.sep && s.sep[gi] >= 0 ? s.sep[gi] : undefined);
+          const D = 1 + 0.5 * st.chord * st.h.a * g.W[row + a] * hb.ge[gi];
+          gam[gi] += (0.5 * Vin * st.chord * cf.CL - gam[gi]) / D;
+        }
+      }
+    }
   }
 
   /* Build strips from a definition. Returns the aircraft object step() uses. */
@@ -586,6 +772,7 @@ const FL = (function () {
       const base = hoverCommand(ac);
       ac.hoverThr = (base - ac.motor.idle) / (1 - ac.motor.idle);
     }
+    hifiPrep(ac);
     return ac;
   }
 
@@ -652,6 +839,7 @@ const FL = (function () {
       ac.hoverThrCurve = { normal: stickFor(Ro.curves.normal), '3d': stickFor(Ro.curves['3d']) };
       ac.hoverThr = ac.hoverThrCurve.normal;
     }
+    hifiPrep(ac);
     return ac;
   }
 
@@ -663,6 +851,7 @@ const FL = (function () {
       mot: [0, 0, 0, 0], pidI: [0, 0, 0], spPrev: [0, 0, 0], ff: [0, 0, 0], buf: [0, 0], wPrev: [0, 0, 0], dF: [0, 0, 0], // flight controller
       om: 0, coll: 0, gov: 0, tailI: 0, vi: 0, tilt: [0, 0], tt: 0, // helicopter rotor
       bT: 20, ice: null, iceProp: 0, iceLens: 0, iceMass: 0, iceGl: 0, shed: 0, // pack temperature (°C) and icing
+      sep: null, gam: null, // accurate aero: per-strip separation lag and circulation (lazily sized)
       tele: { alpha: 0, beta: 0, V: 0, CL: 0, qbar: 0, T: 0, nz: 1, stallL: 0, stallR: 0 },
     };
   }
@@ -676,6 +865,7 @@ const FL = (function () {
     const gAt = ground && ground.heightAt ? ground : null;
     const up = (n, e) => (gAt ? gAt.heightAt(n, e) : 0);
     s.bT = packC; s.ice = null; s.iceProp = 0; s.iceLens = 0; s.iceMass = 0; s.iceGl = 0; s.shed = 0;
+    s.sep = null; s.gam = null;
     s.w = [0, 0, 0]; s.n = 0; s.sa = s.se = s.sr = s.sf = 0; s.gear = 1;
     s.crashed = false; s.crashMsg = ''; s.mAh = 0; s.soc = 1; s.t = 0; s.held = false; s.clw = 0;
     s.mot = [0, 0, 0, 0]; s.pidI = [0, 0, 0]; s.spPrev = [0, 0, 0]; s.ff = [0, 0, 0]; s.buf = [0, 0]; s.wPrev = [0, 0, 0]; s.dF = [0, 0, 0]; s.om = 0; s.coll = 0; s.gov = 0; s.tailI = 0; s.vi = 0; s.tilt = [0, 0]; s.tt = 0;
@@ -767,8 +957,9 @@ const FL = (function () {
   /* Section coefficients of one strip at effective angle of attack ae (rad).
      Linear lift below stall, flat-plate normal force above, blended by a
      sigmoid around the strip's own stall angles (Beard & McLain 2012). */
-  function foilCoeffs(st, ae, d, dCL = 0, dCD = 0, slope = 1) {
+  function foilCoeffs(st, ae, d, dCL = 0, dCD = 0, slope = 1, sigOv) {
     // dCL: fraction of CLmax lost (ice, rain), dCD: added profile drag, slope: lift-slope factor
+    // sigOv: use this separation state instead of the quasi-steady one (dynamic stall lag)
     /* A deflected flap adds camber, so the section carries more lift before it
        separates. Plain-flap measurements (NACA 23012 with a 20% flap at 30°:
        CLmax +0.5 and the stall 4° earlier) put the extra lift at about 55% of
@@ -778,11 +969,12 @@ const FL = (function () {
     const ds = clamp(0.55 * st.tau * d, -0.9 * st.aSn, 0.9 * st.aS);
     const e1 = Math.exp(-st.M * (ae - (st.aS - dCL * st.dAS + ds)));
     const e2 = Math.exp(st.M * (ae + (st.aSn - dCL * st.dASn - ds)));
-    const sig = (1 + e1 + e2) / ((1 + e1) * (1 + e2)); // 0 attached … 1 stalled
+    const sigS = (1 + e1 + e2) / ((1 + e1) * (1 + e2)); // 0 attached … 1 stalled, quasi-steady
+    const sig = sigOv === undefined ? sigS : sigOv;
     const sn = Math.sin(ae), cs = Math.cos(ae);
     const CLlin = st.load * (st.CL0 + st.a * slope * ae);
     return {
-      sig, CLlin,
+      sig, sigS, CLlin,
       CL: (1 - sig) * CLlin + sig * st.CN90 * sn * cs,
       CDp: st.CD0 + dCD + sig * st.CN90 * sn * sn,
       Cm: (1 - sig) * (st.Cm0 + st.cmd * d) - sig * 0.2 * st.CN90 * sn,
@@ -798,8 +990,12 @@ const FL = (function () {
   /* Every lifting surface, strip by strip: its own airflow, angle of attack,
      stall, ice and flap. Adds to F and Mo in the body frame and returns what
      the telemetry and the next step's tail downwash need. Shared by the
-     fixed-wing and tail-sitter models. */
-  function stripForces(s, ac, vb, wa, R, rho, env, dWash, dt, F, Mo) {
+     fixed-wing and tail-sitter models.
+
+     sw (accurate aero only): slipstream swirl behind the propeller, as a
+     solid rotation { w rad/s, y, z axis position } felt by strips in the
+     wash — the reason a powerful tractor needs right rudder. */
+  function stripForces(s, ac, vb, wa, R, rho, env, dWash, dt, F, Mo, sw) {
       // --- lifting strips ---
       const hCG = -s.p[2];
       let clwSum = 0, clwArea = 0, stL = 0, stR = 0, aL = 0, aR = 0, aSum = 0;
@@ -809,49 +1005,119 @@ const FL = (function () {
       const icing = wxa && wxa.lwc > 0 && wxa.T < 3, melt = wxa && wxa.T > 0.5 ? (wxa.T - 0.5) * 2e-6 * (wxa.rain > 0 ? 3 : 1) * dt : 0;
       if (icing && !s.ice) s.ice = new Float64Array(ac.strips.length);
       let iceM = 0;
+      const hb = env.hifi && ac._hb ? ac._hb : null;
+      if (hb) {
+        /* Accurate aero, first pass: each strip's local flow, flap and weather,
+           buffered so the circulation solve can see the whole span at once. */
+        for (let i = 0; i < ac.strips.length; i++) {
+          const st = ac.strips[i], r = st.r34;
+          let v0 = vb[0] + (wa[1] * r[2] - wa[2] * r[1]);
+          let v1 = vb[1] + (wa[2] * r[0] - wa[0] * r[2]);
+          let v2 = vb[2] + (wa[0] * r[1] - wa[1] * r[0]);
+          if (sw && st.wash) { v1 += sw.w * (r[2] - sw.z); v2 -= sw.w * (r[1] - sw.y); }
+          let uc = v0 * st.c[0] + v1 * st.c[1] + v2 * st.c[2];
+          const un = v0 * st.n[0] + v1 * st.n[1] + v2 * st.n[2];
+          if (st.wash) uc += dWash;
+          const V2 = uc * uc + un * un;
+          if (V2 < 0.04) { hb.Vin[i] = 0; continue; }
+          const Vin = Math.sqrt(V2);
+          let alpha = Math.atan2(-un, uc);
+          // a tail the lifting line can't reach (a vertical one) keeps the one-angle downwash
+          if (st.role === 'tail' && !st.ll) alpha -= eps;
+          const d = clamp(st.ka * s.sa + st.ke * s.se + st.kr * s.sr + st.kf * s.sf, -ac.defl.flapMax, ac.defl.flapMax);
+          const flex = ac.flexQ ? 1 / (1 + (0.5 * rho * V2) / ac.flexQ) : 1;
+          // no partial-span flap knockdown here: the circulation solve induces that downwash itself
+          const dEff = d * flex * (1 - 0.65 * clamp((Math.abs(d) - 0.21) / 0.58, 0, 1));
+          let ae = alpha + st.tau * dEff;
+          if (ae > Math.PI) ae -= 2 * Math.PI; else if (ae < -Math.PI) ae += 2 * Math.PI;
+          let dCL = 0.12 * rainP, dCD = 0.01 * rainP;
+          /* Reynolds number: CLmax referenced at the stall's Re, CD0 at the
+             cruise's, so the published numbers stay put and only the trend
+             away from them is added — slower is draggier and stalls sooner,
+             faster carries a little more before letting go. */
+          const Re = (Vin * st.chord * rho) / 1.81e-5;
+          dCL += 1 - clamp(Math.pow(Re / st.ReS, 0.12), 0.8, 1.08);
+          dCD += st.CD0 * (clamp(Math.pow(st.ReC / Re, 0.2), 0.85, 1.6) - 1);
+          const hz = hCG - (R[6] * st.r[0] + R[7] * st.r[1] + R[8] * st.r[2]);
+          const g16 = (16 * Math.max(0.02, hz)) / (ac.b || 1);
+          hb.ge[i] = st.role === 'fin' ? 1 : (g16 * g16) / (1 + g16 * g16);
+          hb.uc[i] = uc; hb.un[i] = un; hb.Vin[i] = Vin; hb.ae[i] = ae; hb.dEff[i] = dEff;
+          hb.dCL[i] = dCL; hb.dCD[i] = dCD; hb.slope[i] = 1;
+        }
+        if (ac.ll) solveInduced(s, ac, hb);
+        if (!s.sep || s.sep.length !== ac.strips.length) s.sep = new Float64Array(ac.strips.length).fill(-1);
+      }
       for (let i = 0; i < ac.strips.length; i++) {
         const st = ac.strips[i];
-        const r = st.r34; // angle of attack taken at 3/4 chord (Pistolesi); force applied at 1/4 chord
-        const v0 = vb[0] + (wa[1] * r[2] - wa[2] * r[1]);
-        const v1 = vb[1] + (wa[2] * r[0] - wa[0] * r[2]);
-        const v2 = vb[2] + (wa[0] * r[1] - wa[1] * r[0]);
-        let uc = v0 * st.c[0] + v1 * st.c[1] + v2 * st.c[2];
-        const un = v0 * st.n[0] + v1 * st.n[1] + v2 * st.n[2];
-        if (st.wash) uc += dWash;
-        const V2 = uc * uc + un * un;
-        if (V2 < 0.04) continue;
-        const Vin = Math.sqrt(V2);
-        let alpha = Math.atan2(-un, uc);
-        if (st.role === 'tail') alpha -= eps;
-        const d = clamp(st.ka * s.sa + st.ke * s.se + st.kr * s.sr + st.kf * s.sf, -ac.defl.flapMax, ac.defl.flapMax);
-        const flex = ac.flexQ ? 1 / (1 + (0.5 * rho * V2) / ac.flexQ) : 1;
-        /* Thin-airfoil flap theory holds to about 12°; past that the flow starts
-           to leave the flap and the extra lift tails off — a plain flap at 30°
-           measures about 65% of theory, and at 45° it has almost given up. */
-        let dEff = d * flex * (1 - 0.65 * clamp((Math.abs(d) - 0.21) / 0.58, 0, 1));
-        /* A flap over part of the span dumps a bump of lift inboard, and that bump
-           induces downwash on itself: lifting-line solutions put the extra induced
-           angle at roughly 45% of the flap's α shift for a short flap, fading to
-           nothing when the flap runs the whole span. It costs some of the flap's
-           lift and it is what stops the flapped span from stalling far ahead of
-           the rest of the wing. Flaps up (kf = 0 everywhere) this does nothing. */
-        if (st.kf) dEff *= 1 - 0.45 * (1 - (ac.flapArea || 0));
-        let ae = alpha + st.tau * dEff;
-        if (ae > Math.PI) ae -= 2 * Math.PI; else if (ae < -Math.PI) ae += 2 * Math.PI;
-        let dCL = 0.12 * rainP, dCD = 0.01 * rainP, slope = 1;
+        let uc, un, V2, Vin, ae, alpha, dEff, dCL, dCD, slope, wIn = 0;
+        if (hb) {
+          Vin = hb.Vin[i];
+          if (Vin === 0) continue;
+          uc = hb.uc[i]; un = hb.un[i]; V2 = Vin * Vin;
+          dEff = hb.dEff[i]; dCL = hb.dCL[i]; dCD = hb.dCD[i]; slope = hb.slope[i];
+          wIn = st.ll ? hb.wi[i] : 0;
+          alpha = hb.ae[i] - st.tau * dEff;
+          ae = hb.ae[i] - Math.atan(wIn / Vin);
+        } else {
+          const r = st.r34; // angle of attack taken at 3/4 chord (Pistolesi); force applied at 1/4 chord
+          const v0 = vb[0] + (wa[1] * r[2] - wa[2] * r[1]);
+          const v1 = vb[1] + (wa[2] * r[0] - wa[0] * r[2]);
+          const v2 = vb[2] + (wa[0] * r[1] - wa[1] * r[0]);
+          uc = v0 * st.c[0] + v1 * st.c[1] + v2 * st.c[2];
+          un = v0 * st.n[0] + v1 * st.n[1] + v2 * st.n[2];
+          if (st.wash) uc += dWash;
+          V2 = uc * uc + un * un;
+          if (V2 < 0.04) continue;
+          Vin = Math.sqrt(V2);
+          alpha = Math.atan2(-un, uc);
+          if (st.role === 'tail') alpha -= eps;
+          const d = clamp(st.ka * s.sa + st.ke * s.se + st.kr * s.sr + st.kf * s.sf, -ac.defl.flapMax, ac.defl.flapMax);
+          const flex = ac.flexQ ? 1 / (1 + (0.5 * rho * V2) / ac.flexQ) : 1;
+          /* Thin-airfoil flap theory holds to about 12°; past that the flow starts
+             to leave the flap and the extra lift tails off — a plain flap at 30°
+             measures about 65% of theory, and at 45° it has almost given up. */
+          dEff = d * flex * (1 - 0.65 * clamp((Math.abs(d) - 0.21) / 0.58, 0, 1));
+          /* A flap over part of the span dumps a bump of lift inboard, and that bump
+             induces downwash on itself: lifting-line solutions put the extra induced
+             angle at roughly 45% of the flap's α shift for a short flap, fading to
+             nothing when the flap runs the whole span. It costs some of the flap's
+             lift and it is what stops the flapped span from stalling far ahead of
+             the rest of the wing. Flaps up (kf = 0 everywhere) this does nothing. */
+          if (st.kf) dEff *= 1 - 0.45 * (1 - (ac.flapArea || 0));
+          ae = alpha + st.tau * dEff;
+          if (ae > Math.PI) ae -= 2 * Math.PI; else if (ae < -Math.PI) ae += 2 * Math.PI;
+          dCL = 0.12 * rainP; dCD = 0.01 * rainP; slope = 1;
+        }
         if (s.ice) {
           let k = s.ice[i];
           if (icing) k += iceRate(wxa, Vin, st.chord, wxa.T) * dt;
           if (melt && k > 0) k = Math.max(0, k - melt);
           s.ice[i] = k;
-          if (k > 0) { const pn = icePenalty(k / st.chord, s.iceGl); dCL += pn.dCL; dCD += pn.dCD; slope = pn.slope; iceM += 80 * k * st.area; }
+          if (k > 0) { const pn = icePenalty(k / st.chord, s.iceGl); dCL += pn.dCL; dCD += pn.dCD; slope *= pn.slope; iceM += 80 * k * st.area; }
         }
-        const cf = foilCoeffs(st, ae, dEff, dCL, dCD, slope);
-        // induced drag, reduced in ground effect (McCormick)
-        const hz = hCG - (R[6] * st.r[0] + R[7] * st.r[1] + R[8] * st.r[2]);
-        const g16 = (16 * Math.max(0.02, hz)) / (ac.b || 1);
-        const ge = st.role === 'fin' ? 1 : (g16 * g16) / (1 + g16 * g16);
-        const CD = cf.CDp + (1 - cf.sig) * st.k * ge * cf.CLlin * cf.CLlin;
+        let cf, CD;
+        if (hb) {
+          const stc = st.ll ? st.h : st;
+          const cfS = foilCoeffs(stc, ae, dEff, dCL, dCD, slope);
+          /* Dynamic stall: separation chases the quasi-steady state over a few
+             chord times — slower to let go, slower still to reattach. A fast
+             pull rides the attached line past the static stall angle and then
+             breaks harder; recovery wants the nose held down for a moment. */
+          if (s.sep[i] < 0) s.sep[i] = cfS.sigS;
+          const tauS = ((cfS.sigS > s.sep[i] ? 4 : 8) * st.chord) / Math.max(Vin, 1);
+          s.sep[i] += (cfS.sigS - s.sep[i]) * Math.min(1, dt / tauS);
+          cf = foilCoeffs(stc, ae, dEff, dCL, dCD, slope, s.sep[i]);
+          // induced drag is the lift tilted back by the induced angle the solve found
+          CD = st.ll ? cf.CDp + cf.CL * (wIn / Vin)
+            : cf.CDp + (1 - cf.sig) * st.k * hb.ge[i] * cf.CLlin * cf.CLlin;
+        } else {
+          cf = foilCoeffs(st, ae, dEff, dCL, dCD, slope);
+          // induced drag, reduced in ground effect (McCormick)
+          const hz = hCG - (R[6] * st.r[0] + R[7] * st.r[1] + R[8] * st.r[2]);
+          const g16 = (16 * Math.max(0.02, hz)) / (ac.b || 1);
+          const ge = st.role === 'fin' ? 1 : (g16 * g16) / (1 + g16 * g16);
+          CD = cf.CDp + (1 - cf.sig) * st.k * ge * cf.CLlin * cf.CLlin;
+        }
         const qs = ((wa[0] * st.s[0] + wa[1] * st.s[1] + wa[2] * st.s[2]) * st.chord) / Vin;
         const Cm = cf.Cm - 0.4 * qs; // section pitch-rate damping
         const qS = 0.5 * rho * V2 * st.area;
@@ -1074,10 +1340,40 @@ const FL = (function () {
     Mo[0] += P.torque * T * P.D; // prop reaction torque
     if (s.shed > 0) for (let k = 0; k < 3; k++) Mo[k] += (Math.random() * 2 - 1) * s.shed * 0.04 * m * ac.b; // ice shed off the prop: imbalance
 
+    /* --- accurate aero: what a spinning propeller does besides pull ---
+       Gyroscopic precession (pitch begets yaw and yaw begets pitch, through the
+       prop's angular momentum), P-factor (the advancing blade at an angle of
+       attack carries more of the thrust, so the thrust line walks sideways),
+       the hub normal force (the disc turns the oncoming flow toward its axis,
+       a small fin at the prop — destabilising on a tractor, stabilising on a
+       pusher), and slipstream swirl over whatever flies in the wash. */
+    let sw = null;
+    if (env.hifi) {
+      const spin = P.torque <= 0 ? 1 : -1; // reaction rolls one way, the prop turns the other
+      const Om = (2 * Math.PI * P.Vp * rpm) / (0.65 * P.D); // rad/s, pitch taken as 0.65·D
+      // geometrically similar props weigh like D³ and store momentum like D⁵; Ip overrides the estimate
+      const H = spin * (P.Ip === undefined ? 0.075 * Math.pow(P.D, 4.7) : P.Ip) * Om;
+      Mo[1] -= H * w[2]; Mo[2] += H * w[1];
+      if (T > 0) {
+        const A = (Math.PI * P.D * P.D) / 4;
+        const mdot = rho * A * Math.sqrt(Math.max(0, Vax) ** 2 + (2 * T) / (rho * A)); // momentum-theory mass flow
+        const Fy = -0.25 * mdot * vb[1], Fz = -0.25 * mdot * vb[2]; // hub normal force: partial flow turning
+        F[1] += Fy; F[2] += Fz;
+        Mo[0] += P.r[1] * Fz - P.r[2] * Fy; Mo[1] -= P.r[0] * Fz; Mo[2] += P.r[0] * Fy;
+        const Vt = 0.35 * P.D * Math.abs(Om); // blade speed at 75% radius
+        if (Vt > 2) {
+          Mo[1] -= (0.5 * T * spin * P.D * vb[1]) / Vt; // P-factor: sideslip pitches,
+          Mo[2] -= (0.5 * T * spin * P.D * vb[2]) / Vt; // angle of attack yaws
+        }
+        // swirl: the reaction torque leaves the wake as solid-body rotation
+        if (P.wash) sw = { w: clamp((spin * Math.abs(P.torque) * T * P.D) / (Math.max(mdot, 1e-3) * 0.1225 * P.D * P.D), -60, 60), y: P.r[1], z: P.r[2] };
+      }
+    }
+
     // --- lifting surfaces ---
     // turbulence: rotational gusts (Dryden p, q, r) act like the air itself rotating
     const gw = env.gw || [0, 0, 0], wa = [w[0] - gw[0], w[1] - gw[1], w[2] - gw[2]];
-    const sf = stripForces(s, ac, vb, wa, R, rho, env, dWash, dt, F, Mo);
+    const sf = stripForces(s, ac, vb, wa, R, rho, env, dWash, dt, F, Mo, sw);
 
     // --- fuselage / pod drag ---
     if (V > 0.1) {
