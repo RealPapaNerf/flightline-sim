@@ -3354,16 +3354,21 @@
     const W = AC.mass * FL.G;
     if (AC.kind === 'quad') {
       const M = AC.motor, tw = (4 * M.Tmax) / W, pid = AC.pid;
+      const vt = (cda) => Math.sqrt((2 * W) / (1.225 * cda)); // zero-throttle terminal along one body axis
       return `<div class="notes"><div class="kv">
         <span>Flying weight</span><span>${Math.round(AC.mass * 1000)} g</span>
         <span>Max thrust (full pack)</span><span>4 × ${(M.Tmax / FL.G).toFixed(2)} kgf</span>
         <span>Thrust to weight</span><span>${tw.toFixed(1)} : 1</span>
         <span>Hover throttle</span><span>${Math.round(AC.hoverThr * 100)}%</span>
         <span>Props · pack</span><span>${(M.D / 0.0254).toFixed(0)} in · ${AC.batt.label}</span>
+        <span>Drag areas front / side / top</span><span>${AC.body.CdA.map((x) => (x * 1e4).toFixed(0)).join(' / ')} cm²</span>
+        <span>Terminal dive (nose first)</span><span>${U.spd(vt(AC.body.CdA[0]))}</span>
+        <span>Flat fall (level, idle)</span><span>${U.spd(vt(AC.body.CdA[2]))}</span>
         <span>Rate PID roll/pitch</span><span>P ${pid.roll[0]} I ${pid.roll[1]} D ${pid.roll[4]} FF ${pid.roll[2]}</span></div>
         <p><b>Motors.</b> Each motor spools with a ${Math.round(M.tau * 1000)} ms lag. Thrust goes as rpm² and falls off as air flows up through the prop (climbing, or the rotor rising during a roll, which is where roll damping comes from). Pack sag under load lowers thrust as the battery drains.</p>
         <span class="eq">T_i = Tmax·(V/Vref)²·ω_i²·(1 − v_up/(Vpitch·ω_i))·ground effect
 rotor drag = −k·ΣT·v_inplane   body drag = −½ρ|v|·CdA·v</span>
+        <p><b>Drag, and why you don't slow down off throttle.</b> At zero throttle there is nothing but body drag, quadratic along each axis (the areas above), and it balances gravity at the terminal speeds above — so with the nose held down you are ballistic and you <i>gain</i> speed until the dive reaches terminal. The brake is attitude, not throttle: level off and the airflow hits the big top area instead of the small front, or pitch back past level and the thrust vector opposes the motion too. The in-plane rotor drag scales with thrust, so it also only helps while you are on the throttle.</p>
         <p><b>Flight controller.</b> Betaflight-style: Actual rates turn sticks into rotation-rate targets, a rate PID with feed-forward, D on gyro and I-term relax turns them into wanted moments, and an air-mode mixer shares thrust between the four motors, giving up collective before it gives up attitude.</p>
         <p><b>Prop wash.</b> Dropping fast and straight down puts the props in their own wake: thrust drops and the quad shakes until you get forward speed.</p>
         <p><b>Simplified.</b> No blade flapping, no motor temperature, no filtering delays beyond the motor lag and D-term filter; the frame is rigid.</p></div>`;

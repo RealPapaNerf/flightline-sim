@@ -55,6 +55,20 @@ line(`${ac.name}: ${ac.mass * 1000} g, ${ac.batt.label}, thrust/weight ${((4 * a
   ac.angle.max = keep;
   line('full throttle, nose held down at:  ' + rows.join(' | ')); }
 
+{ // zero throttle: the dive is ballistic, the brake is attitude. Terminal nose-first,
+  // flat-fall sink, and how hard a level-off actually slows you down.
+  const s = air(3000); s.q = FL.quatFromEuler(0, -Math.PI / 2 + 0.001, 0); s.v = [0, 0, 10];
+  run(s, { thr: 0, a: 0, e: 0, r: 0 }, 20);
+  line(`zero-throttle vertical dive, 20 s: terminal ${(s.tele.V * 3.6).toFixed(0)} km/h (${mph(s.tele.V).toFixed(0)} mph)`);
+  const vt = Math.sqrt((2 * ac.mass * 9.81) / (1.225 * ac.body.CdA[0]));
+  line(`   (closed form √(2mg/ρ·CdA_front) = ${(vt * 3.6).toFixed(0)} km/h; real 5-inch dives measure 180–200)`);
+  const s2 = air(800);
+  run(s2, { thr: 1, a: 0, e: 1, r: 0, mode: 'angle', lim: { bank: 55, pitch: 55, tBank: 60, tPitch: 60 } }, 12);
+  const v0 = s2.tele.V, marks = [];
+  run(s2, { thr: 0, a: 0, e: 0, r: 0, mode: 'angle', lim: { bank: 55, pitch: 55, tBank: 60, tPitch: 60 } }, 4,
+    (st, t) => { if (Math.abs(t % 1) < DT / 2) marks.push(`${(Math.hypot(st.v[0], st.v[1]) * 3.6).toFixed(0)}`); });
+  line(`chop to zero and level off from ${(v0 * 3.6).toFixed(0)} km/h: horizontal speed each second ${marks.join(' → ')} km/h (sink builds to ${s2.v[2].toFixed(0)} m/s — total V stays up because it is falling)`); }
+
 { const s = air(); s.q = FL.quatFromEuler(30 * FL.D2R, 0, 0); const tr = [];
   run(s, { thr: H / Math.cos(0.5), a: 0, e: 0, r: 0, mode: 'angle' }, 1.0, (s, t) => { if (Math.abs(t % 0.2) < DT / 2) tr.push(deg(eul(s).roll).toFixed(1)); });
   line(`angle mode, sticks centred from 30° bank, every 200 ms: ${tr.join(' ')}°`); }

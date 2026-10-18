@@ -333,7 +333,11 @@ const FL = (function () {
       motors: [[0.078, 0.078, 1], [0.078, -0.078, -1], [-0.078, 0.078, -1], [-0.078, -0.078, 1]],
       motor: { Tmax: 13.5, tau: 0.025, idle: 0.055, kQ: 0.016, Vp: 40, D: 0.127 }, // per motor: max thrust N, spool lag s, idle, yaw torque per N (m), pitch speed m/s, prop dia m
       rotorDrag: 0.012, // in-plane rotor drag, N per N of thrust per m/s of airspeed in the rotor plane
-      body: { r: [0, 0, 0], CdA: [0.0075, 0.009, 0.02] },
+      /* Drag areas sized from the dive: a real 5-inch at idle throttle reaches
+         180–200 km/h nose-first, which pins the frontal CdA near 0.004 m²
+         (0.0075 capped it at 134). The top area stays 0.02 — it is what the
+         airflow sees at forward tilt and in a flat fall, and both felt right. */
+      body: { r: [0, 0, 0], CdA: [0.004, 0.0055, 0.02] },
       // flight controller: rate PID per axis [P (1/s), I (1/s²), feed-forward, I limit (rad), D (s)]
       pid: { roll: [30, 160, 0.3, 0.35, 0.025], pitch: [30, 160, 0.3, 0.35, 0.025], yaw: [22, 70, 0.3, 0.5, 0] },
       angle: { max: 55, k: 7, rate: 500 }, // self-level gain (1/s) and max levelling rate (°/s); limits come from settings
