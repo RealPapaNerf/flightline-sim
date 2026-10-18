@@ -448,6 +448,8 @@ test/*.js        bench tests: fm_test (planes), perf (trim table), quad_test <id
                  quadmodel_test checks which way up a quad is drawn; prompt_test checks the
                  prompts in src/, the docs and the two readers still agree;
                  race_test drives two pages through a relay in headless Chromium (needs playwright);
+                 browser_test flies the built page in headless Chromium with a fake radio on the
+                 Gamepad API (needs only a chromium binary, and skips without one);
                  terrain_test covers the height query, terrain rays, chunk LOD and contact on
                  slopes; fixture_map writes a synthetic map and screenshot renders it in
                  headless Chromium (needs playwright)
@@ -457,10 +459,17 @@ Edit `src/`, then run `python3 tools/build.py`. `index.html` is generated; commi
 the sources (GitHub Pages serves it directly). Run the tests with `node test/<name>.js`.
 `input_test` checks the controller recorder against synthetic switch and slider
 traces, and every stick mode against what each stick should do; `camera_test` checks
-that no aircraft's FPV camera is inside its own fuselage; `quadmodel_test` checks the
-sign of every part's height on a quad against the sign its definition asked for. All
-three lift the code they test straight out of `src/app.js` by its comment markers, so
-they cannot drift from what ships.
+that no aircraft's FPV camera is inside its own fuselage, and that a tail-sitter's
+camera mount lands on the angle its file asked for at both ends of the transition;
+`quadmodel_test` checks the sign of every part's height on a quad against the sign its
+definition asked for. All three lift the code they test straight out of `src/app.js`
+by its comment markers, so they cannot drift from what ships.
+
+Those three run pure functions in Node, which cannot reach the DOM, the Gamepad API or
+the frame loop — so `browser_test` loads the built `index.html` in headless Chromium
+with a fake EdgeTX radio bolted onto `navigator.getGamepads` and works its sticks,
+switches, buttons and slider for real. Run `python3 tools/build.py` first: it refuses a
+stale `index.html` rather than testing code you are no longer shipping.
 
 ## License
 
