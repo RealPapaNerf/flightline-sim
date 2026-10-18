@@ -562,6 +562,8 @@ to the surfaces has the deflection to fly it with.
 | `trans.time` | 0.2 … 30 | **required** | seconds to swing the nose between vertical and level |
 | `trans.pitch` | -0.4 … 0.4 | **required** | the attitude it holds in cruise, radians nose-up |
 | `trans.vAir` | 1 … 300 | **required** | the speed a start in the air begins at, m/s |
+| `trans.camHover` | -30 … 30 | `-10` | where the FPV camera looks in the hover, degrees up from the horizon |
+| `trans.camFwd` | -10 … 0 | `-10` | where it looks in forward flight, degrees from the direction of flight |
 | `shape.fuseW` | 0.01 … 1.5 | **required** | fuselage width, m — only used to draw it |
 | `shape.fuseH` | 0.01 … 1.8 | **required** | fuselage height, m — only used to draw it |
 | `shape.wheelR` | 0.004 … 0.4 | *optional* | wheel radius, m — only used to draw it |
@@ -714,6 +716,34 @@ The transition is that frame rotating, with `fwd` running 0 → 1 over
 all work in both regimes, and because the frame is near level at both ends the
 Euler angles the controller works in never reach the 90° singularity a
 tail-sitter otherwise lives on.
+
+**The camera rides the transition too.** `camTilt`, the one number every other
+aircraft uses, is no use here: a camera bolted to the nose of something standing
+on its tail looks straight up, and the same camera in cruise looks straight
+ahead. So a tail-sitter's camera gets a mount, and `fwd` drives it.
+
+The two numbers in the file are the ones a pilot thinks in rather than mount
+angles. `trans.camHover` is where the camera looks while hovering, measured up
+from the horizon — the default −10° puts the ground, and you, in the bottom of
+the picture instead of the sky. `trans.camFwd` is where it looks in cruise,
+measured from the direction of flight; −10° again, just under the flight path.
+The aircraft holds a known attitude at each end of the transition, so each of
+those is one fixed mount angle:
+
+```
+want  = camHover + (camFwd − camHover)·fwd        against the horizon
+frame = (1 − fwd)·90° + fwd·trans.pitch           the attitude it is holding there
+mount = want − frame                              what to ask of a mount on the airframe
+```
+
+With the defaults that sweeps the mount about 86° up over `trans.time`, and the
+view pans up through the horizon as the nose comes down. Nothing tracks the
+horizon part-way through: a strapped-down mount cannot, and a gimbal that did
+would take the attitude out of the picture, which is the one thing you need to
+see during a transition. Both numbers are per-aircraft settings too, under
+Settings → Display, and the camera-tilt buttons move whichever end of the
+transition the aircraft is nearer. A radio slider bound to camera tilt takes the
+mount off the schedule and flies it by hand over the same arc.
 
 **What is different from a quad**
 

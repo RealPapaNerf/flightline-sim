@@ -255,6 +255,13 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; heigh
 .led { width: 10px; height: 10px; border-radius: 50%; background: var(--line-2); display: inline-block; }
 .led.on { background: var(--accent); box-shadow: 0 0 10px var(--accent); }
 .mon .row.dev span { font: 600 11px/1.3 var(--f-display); letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); padding-top: 4px; }
+.mon.live .row { grid-template-columns: 62px minmax(0, 1fr) 72px auto; }
+.mon.live .row.dev { grid-template-columns: 1fr; }
+.mon.live .row .btn.small { min-height: 26px; padding: 0 8px; font-size: 11px; }
+.mon .pips { display: flex; flex-wrap: wrap; gap: 3px; grid-column: 2 / -1; }
+.mon .pips i { width: 9px; height: 9px; border-radius: 50%; background: var(--line-2); }
+.mon .pips i.on { background: var(--accent); box-shadow: 0 0 7px var(--accent); }
+#ctlMonBox .mon { margin-top: 8px; }
 @media (max-width: 640px) {
   .axrow { grid-template-columns: 70px minmax(0, 1fr); }
   .axrow .bar, .axrow .ax-btns { grid-column: 1 / -1; }
@@ -394,6 +401,11 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; heigh
     </div>
     <div id="ctlProfile" class="profbar"></div>
     <div id="ctlDevices" class="devs"></div>
+    <details class="help" id="ctlMonBox">
+      <summary>What the sim is receiving</summary>
+      <p class="note">Every axis and every button on every connected controller, live, before any of your mapping is applied. If a switch moves nothing here, the radio is not sending it &mdash; see <b>Switches on a transmitter</b> at the bottom. An axis that holds steps is a switch: flip it and it joins the list below by itself. One that sweeps is a slider; sweep it end to end, then bind it.</p>
+      <div class="mon live" id="ctlMon"></div>
+    </details>
     <h3 class="sub">Flight axes</h3>
     <div id="ctlAxes" class="axes"></div>
     <div class="rec-head"><h3 class="sub">Buttons &amp; switches</h3><button class="btn small" id="ctlRec" aria-pressed="false">● Record buttons</button></div>
@@ -404,7 +416,9 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; heigh
       <summary>Switches on a transmitter</summary>
       <p class="note">On a RadioMaster, Jumper, Radiomaster-alike or any other EdgeTX radio, the sim only sees a switch if the radio is <b>sending</b> it. A fresh model mixes the four sticks and nothing else, so every switch is silent until you add it. Two ways, in <b>Model &rarr; USB Joystick</b>:</p>
       <p class="note"><b>Advanced mode</b> (EdgeTX 2.8 and later, on radios with 1&nbsp;MB or more of flash) is the one to use. Set Mode to <b>Advanced</b>, then for each switch set its channel to <b>SWEmu</b>. Each switch position then arrives as its own button, with no mixer lines at all. Set the four stick channels to <b>Normal</b> so they stay axes.</p>
-      <p class="note"><b>Classic mode</b> sends channels 1&ndash;8 as axes and channels 9&ndash;32 as buttons, so a switch needs a mixer line. Put each switch on a channel from <b>9 upward</b> (Model &rarr; Mixes, add CH9 = SA, CH10 = SB, and so on) and it arrives as a button. A switch left on channels 1&ndash;8 arrives as an axis instead: that works too &mdash; record it and it gets one channel per position &mdash; but a 3-position switch on a channel above 8 only reads on/off, because a button has no middle.</p>
+      <p class="note"><b>Classic mode</b> sends channels 1&ndash;8 as axes and channels 9&ndash;32 as buttons, so a switch needs a mixer line. Put each switch on a channel from <b>9 upward</b> (Model &rarr; Mixes, add CH9 = SA, CH10 = SB, and so on) and it arrives as a button. A switch left on channels 1&ndash;8 arrives as an axis instead, which works too &mdash; flip it through its positions and each one appears as a channel &mdash; but a 3-position switch on a channel above 8 only reads on/off, because a button has no middle.</p>
+      <p class="note">Either mode, the thing to check first is the monitor at the top of this panel. A switch that moves nothing there is not reaching the sim at all, and that is always something to fix on the radio: an unassigned channel in <b>Mixes</b>, or a channel set to <b>None</b> in the Advanced USB Joystick list. Four axes and nothing past them usually means the model mixes the sticks and nothing else.</p>
+      <p class="note"><b>Sliders and pots</b> are not switches and are not found by themselves: a sweep looks nothing like a position being held, which is the whole reason a stick does not fill the list with junk. Sweep one end to end in the monitor, press <b>Use as a slider</b> on its row, and give it flaps, a tail-sitter's transition or camera tilt. Whichever end it is resting at when you bind it becomes the zero end.</p>
       <p class="note">Either way, <b>unplug and replug the USB cable</b> after changing the mode: the radio only tells the Chromebook what it has when it connects. Keep the RF module off while it is plugged in.</p>
     </details>
   </section>

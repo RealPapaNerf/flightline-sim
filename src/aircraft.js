@@ -231,6 +231,13 @@ const ACF = (function (FL) {
       time: n(0.2, 30),        // seconds to swing the nose between vertical and level
       pitch: n(-0.4, 0.4),     // the attitude it holds in cruise, radians nose-up
       vAir: n(1, 300),         // the speed a start in the air begins at, m/s
+      /* Where the FPV camera looks at each end of the transition. A tail-sitter's
+         camera is bolted to the airframe and the airframe spends the hover
+         pointing at the sky, so the mount gets a servo and the transition drives
+         it. These are the two angles a pilot thinks in, not mount angles: the sim
+         works the mount back from the attitude the aircraft holds at each end. */
+      camHover: n(-30, 30, -10),  // degrees up from the horizon, standing on its tail
+      camFwd: n(-10, 0, -10),     // degrees from the direction of flight, cruising
     }),
     shape: opt(o({ fuseW: n(0.01, 1.5), fuseH: n(0.01, 1.8), wheelR: opt(n(0.004, 0.4)) })),
     /* Which axes the control surfaces fly, as the angular acceleration (rad/s²) at

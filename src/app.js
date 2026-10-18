@@ -23,6 +23,9 @@
     start: { goblin: 'launch', trainer: 'runway' },
     losZoom: 'mild', fpvFov: 110, osd: 'full', losInfo: true, stallCue: false,
     tilt: { goblin: 5, trainer: 0, quad: 30, heli: 5 }, // FPV camera tilt per aircraft (°)
+    // a tail-sitter's camera instead has two angles, one per end of the transition,
+    // per aircraft: { hover: ° up from the horizon, fwd: ° from the direction of flight }
+    camVtol: {},
     // limits (°) for Stabilised/Angle and Trainer modes, separately for planes and rotorcraft
     lim: { plane: { bank: 45, pitch: 30, tBank: 60, tPitch: 45 }, rotary: { bank: 55, pitch: 55, tBank: 60, tPitch: 60 } },
     fc: {}, // Betaflight-style rates per rotorcraft, filled from the aircraft defaults
@@ -141,6 +144,47 @@
   const limNow = () => S.lim[ROTARY(AC) ? 'rotary' : 'plane'];
   const tiltOf = () => (S.tilt[AC.id] !== undefined ? S.tilt[AC.id] : AC.camTilt || 0);
   const startOf = (id) => (ACS[id].starts.includes(S.start[id]) ? S.start[id] : ACS[id].starts[0]);
+
+  /* ---- tail-sitter camera tilt -----------------------------------------------
+     A tail-sitter's camera is bolted to the airframe, and in the hover the
+     airframe points at the sky: a camera looking along the nose shows you nothing
+     but cloud until the thing tips over. So the mount gets a servo and the
+     transition drives it.
+
+     The two numbers to set are the ones a pilot thinks in, not mount angles:
+     where the camera looks while hovering (degrees up from the horizon) and where
+     it looks in cruise (degrees from the direction of flight). The aircraft holds
+     a known attitude at each end of the transition - vertical in the hover,
+     trans.pitch in forward flight - so each of those is one fixed mount angle,
+     and the mount sweeps between them on s.fwd. With the defaults, 10 degrees
+     down at both ends, that sweep is 90 degrees less the cruise trim - about 86
+     on the blown wing, 88 on the two four-motor tail-sitters.
+
+     Nothing here tracks the horizon part-way through. A strapped-down camera
+     cannot, and a gimbal that did would take the attitude out of the picture -
+     the view would stay level while the aircraft rolled, which is exactly what
+     you need to see during a transition.
+
+     camSchedule is pure so test/camera_test.js can lift it out of this file.
+     CAM_HOVER and CAM_FWD are the ranges the settings sliders and the aircraft
+     file both allow; they are here so the one list cannot drift from the other. */
+  const CAM_HOVER = [-30, 30], CAM_FWD = [-10, 0];
+  function camSchedule(hover, fwd, cruiseDeg, f) {
+    const want = hover + (fwd - hover) * f;        // where it should be looking, against the horizon
+    const frame = (1 - f) * 90 + f * cruiseDeg;    // the attitude it is holding there, nose up from level
+    return want - frame;                           // so this is what to ask of a mount bolted to the airframe
+  }
+  /* ---- end tail-sitter camera tilt ---- */
+  // the two angles for one aircraft: what its file asks for, or what you have set here
+  function camPair(ac) {
+    const t = ac.trans || {}, u = S.camVtol[ac.id] || {};
+    const pick = (a, b, d) => (a !== undefined ? a : b !== undefined ? b : d);
+    return { hover: pick(u.hover, t.camHover, -10), fwd: pick(u.fwd, t.camFwd, -10) };
+  }
+  function setCamPair(end, v) {
+    const lim = end === 'hover' ? CAM_HOVER : CAM_FWD;
+    S.camVtol[AC.id] = Object.assign(camPair(AC), { [end]: clamp(Math.round(v), lim[0], lim[1]) });
+  }
 
   /* ---------------------------------------------------------------- renderer */
   const stage = $('#stage'), canvas = $('#gl'), osd = $('#osd'), ctx = osd.getContext('2d');
@@ -1380,6 +1424,17 @@
     ['gear-toggle', 'Landing gear: up / down'],
     ['transition', 'Tail-sitter: hover / forward flight'],
   ];
+  /* Actions for an axis bound as a slider rather than a switch: things the sim
+     holds as a number between 0 and 1 anyway, which is how they are flown on a
+     real radio - flaps on a side slider, a tail-sitter's transition on a lever,
+     camera tilt on a pot. They are a separate list because they only make sense
+     on an analog channel, and the rest only make sense on a switch. */
+  const AN_ACTIONS = [
+    ['', 'No action'],
+    ['an-flaps', 'Flaps: up ↔ full'],
+    ['an-transition', 'Tail-sitter: hover ↔ forward flight'],
+    ['an-cam', 'FPV camera tilt: down ↔ up'],
+  ];
   const REPEATS = new Set(['trim-e-up', 'trim-e-down', 'trim-a-left', 'trim-a-right', 'trim-r-left', 'trim-r-right', 'tilt-up', 'tilt-down']);
   const AXES = [['thr', 'Throttle'], ['a', 'Roll'], ['e', 'Pitch'], ['r', 'Yaw']];
   let uidN = 0;
@@ -1524,12 +1579,49 @@
     if (ch.kind === 'button') return btnOn(p.buttons[ch.i]);
     const v = p.axes[ch.i];
     if (v === undefined) return false;
+    if (ch.kind === 'axisAn') return chValue(ch) > 0.02;   // the LED only says it is off the stop
     if (ch.kind === 'axisDir') return ch.dir > 0 ? v > ch.th : v < ch.th;
     return Math.abs(v - ch.v) < 0.12; // hat position or other discrete axis value
+  }
+  /* ---- slider calibration -----------------------------------------------------
+     An axis bound as a slider, read 0…1 across the travel it was calibrated over.
+
+     A radio's slider does not necessarily reach the ends of its axis, and one
+     wired backwards reads high at the bottom, so the travel is taken as seen
+     rather than assumed: the sim watches the axis while the Controls panel is
+     open and anCal turns the sweep it saw, plus where the slider is sitting now,
+     into the lo and hi anValue works between. Whichever end it is resting at
+     becomes lo, so a slider left alone reads 0 and nothing moves on its own.
+
+     AN_MIN is how much of a sweep counts as a calibration: less than a third of
+     the axis is more likely a stick being nudged than a slider being swept.
+
+     These three are pure so test/input_test.js can lift them out of this file.  */
+  const AN_MIN = 0.3;
+  const anValue = (v, lo, hi) => { const x = (v - lo) / (hi - lo || 1); return x < 0 ? 0 : x > 1 ? 1 : x; };
+  const anSwept = (seen) => !!seen && seen.hi - seen.lo >= AN_MIN;
+  const anCal = (seen, now) => (Math.abs(now - seen.lo) <= Math.abs(now - seen.hi) ? { lo: seen.lo, hi: seen.hi } : { lo: seen.hi, hi: seen.lo });
+  /* ---- end slider calibration ---- */
+  function chValue(ch) {
+    const p = pads.get(ch.dev);
+    if (!p) return null;
+    const v = p.axes[ch.i];
+    if (v === undefined) return null;
+    return anValue(v, ch.lo, ch.hi);
+  }
+  /* What an axis is already doing, in the profile that owns the device: the name
+     of the flight axis it flies, 'slider' if it is bound as one, or '' if it is
+     free for a switch position to be found on. */
+  function axisRole(dev, i) {
+    const P = profileOf(dev);
+    if (!P) return '';
+    for (const [k, lab] of AXES) if (P.axes[k] && P.axes[k].dev === dev && P.axes[k].i === i) return lab;
+    return P.channels.some((c) => c.kind === 'axisAn' && c.dev === dev && c.i === i) ? 'slider' : '';
   }
   const POV = { '-7': '↑', '-5': '↗', '-3': '→', '-1': '↘', 1: '↓', 3: '↙', 5: '←', 7: '↖' };
   function chLabel(ch) {
     if (ch.kind === 'button') return `Button ${ch.i + 1}`;
+    if (ch.kind === 'axisAn') return `Axis ${ch.i} slider${ch.hi < ch.lo ? ' (reversed)' : ''}`;
     if (ch.kind === 'axisDir') return `Axis ${ch.i} ${ch.dir > 0 ? '+' : '−'}`;
     // Name the position, so three rows from one 3-position switch are told apart.
     // The ends and the middle are checked first: those are where a switch sits, and
@@ -1569,6 +1661,17 @@
     saveS();
     flash(`TRIM ${{ a: 'AIL', e: 'ELE', r: 'RUD' }[ax]} ${t[ax] > 0 ? '+' : ''}${Math.round(t[ax] * 100)}`);
   }
+  /* The camera-tilt buttons. A tail-sitter has two angles rather than one, so the
+     buttons move whichever end of the transition it is currently nearer: hovering,
+     they set the hover angle; once it is over, the forward-flight one. */
+  function camNudge(d) {
+    if (!VTOL(AC)) { S.tilt[AC.id] = clamp(tiltOf() + d, -20, 50); saveS(); flash(`CAM TILT ${S.tilt[AC.id]}°`); return; }
+    const end = (st.fwd || 0) > 0.5 ? 'fwd' : 'hover';
+    setCamPair(end, camPair(AC)[end] + d);
+    saveS(); syncSheet();
+    const v = camPair(AC)[end];
+    flash(`CAM ${end === 'hover' ? 'HOVER' : 'FWD'} ${v > 0 ? '+' : ''}${v}°`);
+  }
   function fire(a) {
     switch (a) {
       case 'reset': doReset(); break;
@@ -1596,8 +1699,8 @@
       case 'trim-r-left': trimStep('r', -1); break;
       case 'trim-r-right': trimStep('r', 1); break;
       case 'trim-reset': S.trim[AC.id] = { a: 0, e: 0, r: 0 }; saveS(); flash('TRIMS RESET'); break;
-      case 'tilt-up': S.tilt[AC.id] = clamp(tiltOf() + 2, -20, 50); saveS(); flash(`CAM TILT ${S.tilt[AC.id]}°`); break;
-      case 'tilt-down': S.tilt[AC.id] = clamp(tiltOf() - 2, -20, 50); saveS(); flash(`CAM TILT ${S.tilt[AC.id]}°`); break;
+      case 'tilt-up': camNudge(2); break;
+      case 'tilt-down': camNudge(-2); break;
       case 'aircraft-cycle': cycleAircraft(); break;
       case 'zoom-cycle': S.losZoom = { off: 'mild', mild: 'strong', strong: 'off' }[S.losZoom] || 'mild'; saveS(); flash(`LOS ZOOM ${S.losZoom.toUpperCase()}`); break;
       case 'osd-cycle': S.osd = { full: 'min', min: 'off', off: 'full' }[S.osd] || 'full'; saveS(); break;
@@ -1613,10 +1716,25 @@
     syncSheet();
   }
   const chPrev = new Map(), repeatT = new Map();
+  let anCam = null; // an axis flying the camera tilt, 0…1, or null if nothing is
   function processChannels(dt) {
     let cut = false;
+    const an = { flaps: null, fwd: null, cam: null };
     for (const ch of prof().channels) {
       if (!ch.action || !pads.has(ch.dev)) continue;
+      /* A slider is read, not edged: whatever it is sitting at is the command.
+         It wins over the button that steps the same thing, because a lever at
+         half flap and a sim at full flap is the sort of disagreement that ends
+         in a tree. */
+      if (ch.kind === 'axisAn') {
+        const v = chValue(ch);
+        if (v !== null) {
+          if (ch.action === 'an-flaps') an.flaps = v;
+          else if (ch.action === 'an-transition') an.fwd = v;
+          else if (ch.action === 'an-cam') an.cam = v;
+        }
+        continue;
+      }
       const on = chActive(ch), was = chPrev.get(ch.id);
       chPrev.set(ch.id, on);
       if (ch.action === 'cut-hold') { cut = cut || on; continue; }
@@ -1631,6 +1749,9 @@
       }
     }
     cutHeld = cut;
+    if (an.flaps !== null && hasFlaps()) flapSet = clamp(an.flaps, 0, 1);
+    if (an.fwd !== null && isVtol()) fwdCmd = clamp(an.fwd, 0, 1);
+    anCam = an.cam;
   }
 
   function pollInput(dt) {
@@ -1646,6 +1767,7 @@
       moved = moved || mv;
     }
     if (moved && !wiz.open && !ctl.open) src = 'radio';
+    if (!wiz.open) scanAxisSwitches(dt);
     if (!wiz.open && !ctl.open) processChannels(dt); else chPrev.clear();
 
     // keyboard: WASD is the left stick and the arrows the right, in whichever stick mode
@@ -1787,6 +1909,7 @@
   function findOrMakeChannel(m) {
     const P = profileOf(m.dev) || prof();
     let ch = P.channels.find((c) => c.dev === m.dev && c.kind === m.kind && c.i === m.i && (m.kind !== 'axisVal' || Math.abs(c.v - m.v) < 0.05) && (m.kind !== 'axisDir' || c.dir === m.dir));
+    if (ch && m.kind === 'axisAn') { ch.lo = m.lo; ch.hi = m.hi; saveIN(); return ch; } // re-binding recalibrates it
     if (!ch) { ch = Object.assign({ id: uid(), name: '', action: '' }, m); P.channels.push(ch); saveIN(); }
     return ch;
   }
@@ -1899,7 +2022,8 @@
   $('#wzCancel').addEventListener('click', closeWizard);
 
   /* ---------------------------------------------------------------- controls & buttons panel */
-  const ctl = { open: false, rec: false, learn: null, sel: null, rows: new Map(), axisRows: new Map(), prevBtn: new Map(), axState: new Map(), recent: [] };
+  const ctl = { open: false, rec: false, learn: null, sel: null, rows: new Map(), axisRows: new Map(), prevBtn: new Map(), recent: [],
+    mon: [], monBtn: [], axSeen: new Map() }; // the live monitor's rows, and the travel each axis has been seen over
   const LEARN_TEXT = { thr: ['Pull the throttle to idle and hold still…', 'Now push the throttle to full and hold.'], a: ['Let the stick centre…', 'Push the stick fully right and hold.'], e: ['Let the stick centre…', 'Pull the stick fully back and hold.'], r: ['Let the stick centre…', 'Yaw fully right and hold.'] };
   function openCtl() {
     hide($('#welcome')); if (sheetOpen()) closeSheet();
@@ -1946,7 +2070,7 @@
     show(el);
     ta.focus(); ta.select();
   }
-  const actionOptions = (cur) => ACTIONS.map(([v, l]) => `<option value="${v}"${v === (cur || '') ? ' selected' : ''}>${esc(l)}</option>`).join('');
+  const actionOptions = (cur, kind) => (kind === 'axisAn' ? AN_ACTIONS : ACTIONS).map(([v, l]) => `<option value="${v}"${v === (cur || '') ? ' selected' : ''}>${esc(l)}</option>`).join('');
   const knownDevices = () => prof().devs.slice();
   function moveDevice(dev, to) {
     const from = profileOf(dev);
@@ -1995,6 +2119,7 @@
       saveIN(); padSig = null; scanPads(); renderCtl(); toast(`Forgot ${devName(d)}`);
     }));
     $('#ctlDevices').querySelectorAll('[data-adopt]').forEach((b) => b.addEventListener('click', () => { moveDevice(others[+b.dataset.adopt], P); ensureChannels(); renderCtl(); }));
+    renderMon();
     // flight axes
     ctl.axisRows.clear();
     $('#ctlAxes').innerHTML = AXES.map(([k, lab]) => {
@@ -2016,7 +2141,7 @@
     rb.textContent = ctl.rec ? '■ Stop recording' : '● Record buttons';
     $('#ctlRecHint').textContent = ctl.rec
       ? 'Recording: work one control at a time. Press a button, or flip a switch through every position and pause a moment in each - a 3-position switch makes three channels, including the middle. Each one jumps to its channel so you can name it. Names save as you type.'
-      : 'Every button already has a channel. Press Record, then work each control to find and name it. A switch your radio sends as an axis gets one channel per position; flip it through all of them. If a switch does nothing at all, your radio is not sending it: see Switches on a transmitter below.';
+      : 'Every button has a channel already, and a switch your radio sends as an axis gets one per position the first time you flip it - so flip each switch through all of its positions and they appear below. Record only jumps to each one as you work it, which makes a crowded list easier to name. A slider is different: sweep it in the monitor above, then press Use as a slider. If a control does nothing in the monitor, the radio is not sending it: see Switches on a transmitter below.';
     // channel list
     ctl.rows.clear();
     let html = '';
@@ -2027,7 +2152,7 @@
       for (const ch of chs)
         html += `<div class="ch${ctl.sel === ch.id ? ' hl' : ''}" data-id="${ch.id}"><i class="led"></i><span class="lab">${esc(chLabel(ch))}</span>` +
           `<input type="text" id="nm-${ch.id}" value="${esc(ch.name || '')}" placeholder="Name it" aria-label="Name for ${esc(chLabel(ch))}" maxlength="40">` +
-          `<select id="ac-${ch.id}" aria-label="Action for ${esc(chLabel(ch))}">${actionOptions(ch.action)}</select>` +
+          `<select id="ac-${ch.id}" aria-label="Action for ${esc(chLabel(ch))}">${actionOptions(ch.action, ch.kind)}</select>` +
           `${ch.kind === 'button' ? '<span></span>' : `<button class="btn small del" data-del="${ch.id}" aria-label="Remove">×</button>`}</div>`;
     }
     $('#ctlList').innerHTML = html || '<p class="note">Buttons appear here once a controller is connected.</p>';
@@ -2041,6 +2166,53 @@
     });
     renderLast();
   }
+  /* The live monitor: every axis and button on every connected controller, with
+     no mapping in the way. It is the first thing to look at when a control does
+     nothing, because it answers the only question that matters first - whether
+     the radio is sending it at all. An axis that moves here and does nothing in
+     the sim is a mapping problem; an axis that does not move is a radio problem,
+     and no amount of mapping will fix it.
+
+     Rows are built once and their values written each frame, so the "use as a
+     slider" buttons keep their listeners and the panel does not flicker. */
+  function renderMon() {
+    const box = $('#ctlMon');
+    ctl.mon = []; ctl.monBtn = [];
+    if (!pads.size) {
+      box.innerHTML = `<div class="row"><span>—</span><span style="grid-column: 2 / -1">${padBlocked ? 'This view blocks game controllers. Open the page in its own Chrome tab.' : 'Nothing connected. Plug in by USB and move a stick.'}</span></div>`;
+      return;
+    }
+    let html = '';
+    for (const [dev, p] of pads) {
+      html += `<div class="row dev"><span>${esc(devName(dev))}</span></div>`;
+      for (let i = 0; i < p.axes.length; i++)
+        html += `<div class="row" data-ax="${esc(dev)}|${i}"><span>Axis ${i}</span><div class="bar"><span></span></div><span class="num">0.00</span>` +
+          `<button class="btn small" data-slider="${esc(dev)}|${i}">Use as a slider</button></div>`;
+      html += `<div class="row"><span>Buttons</span><div class="pips" data-btn="${esc(dev)}">${p.buttons.map((_, i) => `<i title="Button ${i + 1}"></i>`).join('') || '<small>none</small>'}</div></div>`;
+    }
+    box.innerHTML = html;
+    box.querySelectorAll('[data-ax]').forEach((row) => {
+      const [dev, i] = splitKey(row.dataset.ax);
+      ctl.mon.push({ dev, i, bar: row.querySelector('.bar span'), num: row.querySelector('.num'), btn: row.querySelector('[data-slider]') });
+    });
+    box.querySelectorAll('[data-btn]').forEach((el) => ctl.monBtn.push({ dev: el.dataset.btn, pips: [...el.querySelectorAll('i')] }));
+    box.querySelectorAll('[data-slider]').forEach((b) => b.addEventListener('click', () => bindSlider(...splitKey(b.dataset.slider))));
+  }
+  const splitKey = (k) => { const j = k.lastIndexOf('|'); return [k.slice(0, j), +k.slice(j + 1)]; };
+  // bind one axis as a slider, over however much of it has moved while the panel was open
+  function bindSlider(dev, i) {
+    const seen = ctl.axSeen.get(devKey(dev, i)), p = pads.get(dev);
+    if (!p) return;
+    if (!anSwept(seen)) { toast('Sweep that axis end to end first, then press this — the sim needs to see how far it travels.'); return; }
+    const cal = anCal(seen, p.axes[i]);
+    const ch = findOrMakeChannel({ dev, kind: 'axisAn', i, lo: cal.lo, hi: cal.hi });
+    // a switch position already recorded from this axis is not what it is for
+    const P = profileOf(dev) || prof();
+    P.channels = P.channels.filter((c) => !(c.dev === dev && c.i === i && c.kind === 'axisVal'));
+    saveIN(); axSw.delete(devKey(dev, i));
+    ctl.sel = ch.id; renderCtl();
+    toast(`Axis ${i} is a slider now — give it an action below.`);
+  }
   function renderLast() {
     const box = $('#ctlLast');
     const ch = ctl.sel && prof().channels.find((c) => c.id === ctl.sel);
@@ -2048,7 +2220,7 @@
     box.hidden = false;
     box.innerHTML = `<span class="eyebrow">Just pressed</span><div class="last-row"><i class="led on"></i><b>${esc(devName(ch.dev))} · ${esc(chLabel(ch))}</b>` +
       `<input type="text" id="lastName" value="${esc(ch.name || '')}" placeholder="Name it, e.g. Trigger" maxlength="40">` +
-      `<select id="lastAct" aria-label="Action">${actionOptions(ch.action)}</select></div>` +
+      `<select id="lastAct" aria-label="Action">${actionOptions(ch.action, ch.kind)}</select></div>` +
       (ctl.recent.length > 1 ? `<div class="note">Recorded so far: ${ctl.recent.map(esc).join(' · ')}</div>` : '');
     const nm = $('#lastName'), ac = $('#lastAct');
     nm.addEventListener('input', () => { ch.name = nm.value.trim(); saveIN(); const r = $(`#nm-${ch.id}`); if (r) r.value = nm.value; });
@@ -2099,7 +2271,51 @@
   }
   const axisStart = (v) => ({ val: v, from: v, held: 0, move: 0, at: null });
   /* ---- end switch-on-an-axis detector ---- */
+
+  /* Run that detector on every axis, all the time - not only while the Controls
+     panel is recording.
+
+     Every button on a controller gets a channel the moment it is plugged in, so
+     the list is already full of them before you touch anything. A switch an
+     EdgeTX radio hands over as an axis used to be the one thing that did not:
+     it only existed if you had first found the Record button, which from the
+     outside looks exactly like the radio not sending the switch at all. Now
+     flipping it once is enough, and Record is only there to jump to the channel
+     and name it.
+
+     Two axes are left alone: one already mapped to a stick, and one already
+     bound as a slider. The first would otherwise make a channel out of a
+     snapped stick; the second is being read as a number, not a position. And
+     none of it runs until the sticks have been mapped, because until then there
+     is no telling which axes are sticks. */
+  const axSw = new Map(), axSaid = new Set();
+  function scanAxisSwitches(dt) {
+    if (!hasAxes()) return;
+    for (const [dev, p] of pads) {
+      const P = profileOf(dev);
+      if (!P) continue;
+      for (let i = 0; i < p.axes.length; i++) {
+        if (axisRole(dev, i)) continue;
+        const key = devKey(dev, i), v = p.axes[i];
+        const a = axSw.get(key);
+        if (!a) { axSw.set(key, axisStart(v)); continue; }
+        const hit = axisStep(a, v, dt);
+        if (hit === null) continue;
+        const before = P.channels.length;
+        const ch = findOrMakeChannel({ dev, kind: 'axisVal', i, v: hit });
+        const fresh = P.channels.length !== before;
+        if (!ctl.open) {
+          // say so once per axis, not once per position: a 3-position switch would be three
+          if (fresh && !axSaid.has(key)) { axSaid.add(key); toast(`New switch on ${devName(dev)} axis ${i}. Name it and give it an action under Controls & buttons.`); }
+          continue;
+        }
+        if (fresh) renderCtl();  // the row has to exist before recordHit can jump to it
+        if (ctl.rec) recordHit({ dev: ch.dev, kind: ch.kind, i: ch.i, v: ch.v });
+      }
+    }
+  }
   function ctlTick(dt) {
+    monTick();
     // live values
     for (const [k, el] of ctl.axisRows) {
       const r = prof().axes[k];
@@ -2121,23 +2337,46 @@
       }
     }
     // recording buttons and hats
-    if (!ctl.rec) { ctl.prevBtn.clear(); ctl.axState.clear(); return; }
+    if (!ctl.rec) { ctl.prevBtn.clear(); return; }
     for (const [dev, p] of pads) {
       const prev = ctl.prevBtn.get(dev);
       const now = p.buttons.map(btnOn);
       if (prev) now.forEach((on, i) => { if (on && !prev[i]) recordHit({ dev, kind: 'button', i }); });
       ctl.prevBtn.set(dev, now);
-      p.axes.forEach((v, i) => {
-        if (isFlightAxis(dev, i)) return;
-        const key = devKey(dev, i);
-        let a = ctl.axState.get(key);
-        if (!a) { ctl.axState.set(key, axisStart(v)); return; }
-        const hit = axisStep(a, v, dt);
-        if (hit !== null) recordHit({ dev, kind: 'axisVal', i, v: hit });
-      });
+      // axes are scanned in pollInput, panel or no panel; see scanAxisSwitches
     }
   }
-  $('#ctlRec').addEventListener('click', () => { ctl.rec = !ctl.rec; ctl.learn = null; if (ctl.rec) { ctl.recent = []; ctl.prevBtn.clear(); ctl.axState.clear(); } renderCtl(); });
+  /* Write this frame's values into the monitor, and remember how far each axis
+     has travelled while the panel has been open - that is the calibration the
+     "use as a slider" button works from. */
+  function monTick() {
+    if (!ctl.mon.length && !ctl.monBtn.length) return;
+    for (const r of ctl.mon) {
+      const p = pads.get(r.dev);
+      if (!p) continue;
+      const v = p.axes[r.i];
+      if (v === undefined) continue;
+      const x = (v + 1) / 2;
+      r.bar.style.left = `${Math.min(50, x * 100)}%`;
+      r.bar.style.width = `${Math.abs(x - 0.5) * 100}%`;
+      const key = devKey(r.dev, r.i), s = ctl.axSeen.get(key);
+      if (!s) ctl.axSeen.set(key, { lo: v, hi: v });
+      else { s.lo = Math.min(s.lo, v); s.hi = Math.max(s.hi, v); }
+      const sn = ctl.axSeen.get(key);
+      r.num.textContent = v.toFixed(2);
+      // what the axis is already doing, so a row is not offered as a slider twice
+      const role = axisRole(r.dev, r.i);
+      const label = role || (anSwept(sn) ? 'Use as a slider' : 'Sweep it first');
+      if (r.btn.textContent !== label) r.btn.textContent = label;
+      r.btn.disabled = !!role || !anSwept(sn);
+    }
+    for (const b of ctl.monBtn) {
+      const p = pads.get(b.dev);
+      if (!p) continue;
+      b.pips.forEach((el, i) => el.classList.toggle('on', btnOn(p.buttons[i])));
+    }
+  }
+  $('#ctlRec').addEventListener('click', () => { ctl.rec = !ctl.rec; ctl.learn = null; if (ctl.rec) { ctl.recent = []; ctl.prevBtn.clear(); } renderCtl(); });
   $('#ctlClose').addEventListener('click', closeCtl);
   $('#ctlWizard').addEventListener('click', () => { closeCtl(); openWizard(); });
 
@@ -2497,7 +2736,16 @@
         seg('splitSwap', 'Split order', [[false, 'LOS first'], [true, 'FPV first']]),
         seg('losZoom', 'LOS zoom', [['off', 'Off'], ['mild', 'Mild'], ['strong', 'Strong']], 'Narrows your field of view as the model gets farther away, so it stays visible on a small screen.'),
         rng('fpvFov', 'FPV camera field of view', 80, 150, 5, (v) => `${v}°`),
-        rng('tilt', 'FPV camera tilt (this aircraft)', -20, 50, 1, (v) => `${v > 0 ? '+' : ''}${v}°`, 'Positive tilts the camera up. Quads usually fly 25–40° up.', () => tiltOf(), (v) => { S.tilt[AC.id] = v; }),
+        ...(VTOL(AC) ? [
+          rng('camHover', 'FPV camera · hover (this aircraft)', CAM_HOVER[0], CAM_HOVER[1], 1, (v) => `${v > 0 ? '+' : ''}${v}°`,
+            'Where the camera looks while it is standing on its tail, measured from the horizon. Negative looks down: 10° down keeps the ground, and you, in the picture instead of the sky.',
+            () => camPair(AC).hover, (v) => setCamPair('hover', v)),
+          rng('camFwd', 'FPV camera · forward flight (this aircraft)', CAM_FWD[0], CAM_FWD[1], 1, (v) => `${v}°`,
+            `Where it looks once it has tipped over, measured from the direction of flight. The mount is bolted to the airframe, so getting from one of these to the other means swinging it about ${Math.round(90 - AC.trans.pitch * R2D)}° up over the ${AC.trans.time} s of the transition — the view pans up through the horizon as the nose comes down.`,
+            () => camPair(AC).fwd, (v) => setCamPair('fwd', v)),
+        ] : [
+          rng('tilt', 'FPV camera tilt (this aircraft)', -20, 50, 1, (v) => `${v > 0 ? '+' : ''}${v}°`, 'Positive tilts the camera up. Quads usually fly 25–40° up.', () => tiltOf(), (v) => { S.tilt[AC.id] = v; }),
+        ]),
       ] },
       { tab: 'display', title: 'OSD & readouts', items: [
         seg('osd', 'FPV OSD', [['full', 'Full'], ['min', 'Minimal'], ['off', 'Off']]),
@@ -3242,10 +3490,27 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     const vf = vfovFor(losFov, aspect);
     return { view: M4.lookAt(EYE, d < 0.3 ? [0, 1.7, -1] : p, [0, 1, 0]), pos: EYE, fovy: Math.min(vf, 100 * D2R), near: 0.25, dist: d };
   }
-  let viewAc = null; // the aircraft the view rides: yours, or the pilot you are watching
+  let viewAc = null, viewSt = null; // the aircraft the view rides: yours, or the pilot you are watching
+  /* The tilt the FPV view and the OSD both work from. On a tail-sitter it is not a
+     setting but wherever the transition has swung the mount to; on everything else
+     it is the one number per aircraft you set under Display. */
+  function camTiltNow() {
+    const ac = ACS[viewAc] || AC;
+    const own = !viewSt || viewSt === st; // your own aircraft, not a pilot you are watching
+    if (!VTOL(ac)) {
+      if (own && anCam !== null) return -20 + anCam * 70; // a slider, over the same range as the setting
+      return own ? tiltOf() : ac.camTilt || 0;
+    }
+    const p = camPair(ac), s = viewSt || st;
+    /* A slider bound to camera tilt takes the mount off the transition and flies
+       it by hand, over the same arc: hard down is where the hover setting puts
+       it, hard up is where the forward-flight one does. */
+    const f = own && anCam !== null ? anCam : clamp(s.fwd || 0, 0, 1);
+    return camSchedule(p.hover, p.fwd, ac.trans.pitch * R2D, f);
+  }
   function fpvCam(v, planeM) {
     const m = MODELS[viewAc] || MODELS[AC.id];
-    const camW = M4.chain(planeM, M4.trans(m.cam[0], m.cam[1], m.cam[2]), M4.rotX(tiltOf() * D2R));
+    const camW = M4.chain(planeM, M4.trans(m.cam[0], m.cam[1], m.cam[2]), M4.rotX(camTiltNow() * D2R));
     const aspect = v.w / v.h;
     const hf = S.fpvFov * D2R;
     let vf = aspect >= 1 ? 2 * Math.atan(Math.tan(hf / 2) / aspect) : 2 * Math.atan(Math.tan(hf / 2) * 1) ;
@@ -3487,7 +3752,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   }
   function drawHud(v, fs, cx, cy, eu, alt, gs, m, topY) {
     if (!v.cam) return;
-    const f = v.h / 2 / Math.tan(v.cam.fovy / 2), tilt = tiltOf() * D2R, pc = eu.pitch + tilt;
+    const f = v.h / 2 / Math.tan(v.cam.fovy / 2), tilt = camTiltNow() * D2R, pc = eu.pitch + tilt;
     const imp = S.units === 'imp';
     // pitch ladder, clipped to a central window
     const W = Math.min(v.w, v.h) * 0.42, step = f * Math.tan(5 * D2R) > fs * 1.6 ? 5 : 10; // 5° rungs only when they're far enough apart
@@ -3678,7 +3943,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
         if (!hud) { ctx.beginPath(); ctx.moveTo(cx - fs * 1.2, cy); ctx.lineTo(cx - fs * 0.4, cy); ctx.moveTo(cx + fs * 0.4, cy); ctx.lineTo(cx + fs * 1.2, cy); ctx.moveTo(cx, cy - fs * 0.4); ctx.lineTo(cx, cy - fs * 0.15); ctx.stroke(); }
         if (full && !hud && v.cam) {
           const f = v.h / 2 / Math.tan(v.cam.fovy / 2);
-          const pc = eu.pitch + tiltOf() * D2R;
+          const pc = eu.pitch + camTiltNow() * D2R;
           if (Math.abs(pc) < 1.2) {
             const off = f * Math.tan(pc);
             ctx.save(); ctx.translate(cx, cy); ctx.rotate(-eu.roll); ctx.translate(0, off);
@@ -4458,8 +4723,12 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   // a stand-in state for drawing someone else's aircraft: enough for the meshes and the props
   function avatarState(acId, p, q, thr) {
     const ac = ACS[acId] || AC;
+    /* A tail-sitter's transition state is not on the wire, and the camera mount
+       rides it. The nose gives it away: world z of the nose axis is -1 standing on
+       its tail and 0 flying level, which is the same 0…1 the sim's own s.fwd is. */
+    const fwd = VTOL(ac) ? clamp(1 + FL.quatToMat(q)[6], 0, 1) : 0;
     return { p, q, thr, n: thr, mot: [thr, thr, thr, thr], om: ac.rotor ? ac.rotor.om0 * (thr > 0.02 ? 1 : 0) : 0,
-      coll: 0, tilt: [0, 0], sa: 0, se: 0, sr: 0, v: [0, 0, 0] };
+      coll: 0, tilt: [0, 0], sa: 0, se: 0, sr: 0, v: [0, 0, 0], fwd };
   }
   // everyone drawn besides you this frame: the ghost, and later the other pilots in the room
   const avatars = [];
@@ -4767,6 +5036,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     // spectating rides the pilot you are watching; otherwise the view is your own aircraft
     const watched = S.net.spec ? raceWatched() : null;
     viewAc = watched ? watched.ac : AC.id;
+    viewSt = watched ? watched.st : st;
     const planeM = watched ? planeMatrix(watched.st) : planeMatrix(st);
     const views = layout();
     drawnTris = 0; drawnChunks = 0;
@@ -4800,5 +5070,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     agl, setView, setAircraft, acList: () => Object.keys(ACS), addFile: (t) => addAircraftFile(t, true),
     TUT, tut, tutStart, tutStop, courses: () => COURSES, tutSnap,
     // the keyboard's stick positions, so a test can fly the real control path
-    sticks: kb, useKeys: () => { src = 'keys'; } }; // debugging and tests
+    sticks: kb, useKeys: () => { src = 'keys'; },
+    // the camera mount, and the panels a smoke test needs to open
+    camTilt: () => camTiltNow(), camPair: () => camPair(AC), openCtl, closeCtl }; // debugging and tests
 })();

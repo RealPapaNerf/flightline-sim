@@ -16,6 +16,10 @@ const sm = src.match(/\/\* ---- stick modes[\s\S]*?\/\* ---- end stick modes ---
 if (!sm) { console.error('could not find the stick modes block in src/app.js'); process.exit(1); }
 const { sticksFor, throttleStick, axisKeys, touchAxes } = new Function(sm[0] + '\nreturn { sticksFor, throttleStick, axisKeys, touchAxes };')();
 
+const ms = src.match(/\/\* ---- slider calibration[\s\S]*?\/\* ---- end slider calibration ---- \*\//);
+if (!ms) { console.error('could not find the slider calibration block in src/app.js'); process.exit(1); }
+const { anValue, anSwept, anCal, AN_MIN } = new Function(ms[0] + '\nreturn { anValue, anSwept, anCal, AN_MIN };')();
+
 let fails = 0;
 const ok = (cond, what, extra) => { console.log(`${cond ? ' ok ' : 'FAIL'}  ${what}${extra ? '  ' + extra : ''}`); if (!cond) fails++; };
 
@@ -129,6 +133,46 @@ for (const [mode, want] of Object.entries(KEYS)) {
   const k = axisKeys(mode);
   const got = { thr: `${KEY[k.thr.up]} / ${KEY[k.thr.down]}`, e: `${KEY[k.e.up]} / ${KEY[k.e.down]}`, a: `${KEY[k.a.left]} / ${KEY[k.a.right]}`, r: `${KEY[k.r.left]} / ${KEY[k.r.right]}` };
   ok(keyLine(got) === keyLine(want), `Mode ${mode}: ${keyLine(want)}`, keyLine(got) === keyLine(want) ? '' : `got ${keyLine(got)}`);
+}
+
+/* Sliders. A switch holds steps and the detector above picks the steps out; a
+   slider sweeps, so the detector deliberately ignores it and it gets bound by
+   hand instead. These are the three pieces of that: whether a sweep was big
+   enough to calibrate from, which way round the travel is, and what the axis
+   then reads. */
+console.log('\n== an axis bound as a slider ==');
+{
+  // what the sim saw while the panel was open, as {lo, hi}
+  const seen = (trace) => ({ lo: Math.min(...trace), hi: Math.max(...trace) });
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+
+  ok(AN_MIN === 0.3, 'a sweep counts from a third of the axis', `AN_MIN ${AN_MIN}`);
+  ok(anSwept(seen([...hold(-1, 10), ...ramp(-1, 1, 60)])), 'a full sweep calibrates');
+  ok(anSwept(seen([...hold(0, 10), ...ramp(0, 0.4, 20)])), 'so does a 40% one');
+  ok(!anSwept(seen([...hold(0, 20), ...ramp(0, 0.2, 8)])), 'a 20% nudge does not', 'the same trace the detector above ignores');
+  ok(!anSwept(seen(hold(0.37, 60))), 'an axis that never moved does not');
+  ok(!anSwept(undefined), 'an axis never seen at all does not');
+
+  // a full-travel slider, left at the bottom: 0 at rest, 1 at the top
+  {
+    const s = seen([...ramp(-1, 1, 60), ...hold(-1, 5)]), c = anCal(s, -1);
+    ok(near(anValue(-1, c.lo, c.hi), 0) && near(anValue(1, c.lo, c.hi), 1) && near(anValue(0, c.lo, c.hi), 0.5),
+      'a slider resting at the bottom reads 0 there, 1 at the top, 0.5 in the middle');
+  }
+  // the same slider left at the top: still 0 where it is resting, which is what
+  // stops a flap lever the sim has never seen from putting flaps out on its own
+  {
+    const s = seen([...ramp(-1, 1, 60)]), c = anCal(s, 1);
+    ok(near(anValue(1, c.lo, c.hi), 0) && near(anValue(-1, c.lo, c.hi), 1), 'resting at the top, that end is the 0 end', `lo ${c.lo}, hi ${c.hi}`);
+  }
+  // a radio slider that only covers part of its axis
+  {
+    const s = seen([...ramp(-0.6, 0.45, 40), ...hold(-0.6, 5)]), c = anCal(s, -0.6);
+    ok(near(anValue(-0.6, c.lo, c.hi), 0) && near(anValue(0.45, c.lo, c.hi), 1), 'short travel still reads 0…1 end to end', `over ${c.lo.toFixed(2)} … ${c.hi.toFixed(2)}`);
+    ok(anValue(-0.9, c.lo, c.hi) === 0 && anValue(0.9, c.lo, c.hi) === 1, 'and past either end it clamps rather than running away');
+  }
+  // an axis stuck at one value cannot be divided by, and must not come back NaN
+  ok(anValue(0.5, 0.5, 0.5) === 0, 'a zero-travel calibration reads 0, not NaN');
 }
 
 console.log(fails ? `\n${fails} check(s) failed` : '\nall checks passed');

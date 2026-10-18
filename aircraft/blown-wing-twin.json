@@ -296,7 +296,9 @@
     "trans": {
       "time": 2.2,
       "pitch": 0.0611,
-      "vAir": 20
+      "vAir": 20,
+      "camHover": -10,
+      "camFwd": -10
     },
     "shape": {
       "fuseW": 0.075,

@@ -18,6 +18,9 @@ const src = fs.readFileSync(path.join(ROOT, 'src', 'app.js'), 'utf8');
 const m = src.match(/\/\* ---- fuselage extent[\s\S]*?\/\* ---- end fuselage extent ---- \*\//);
 if (!m) { console.error('could not find the fuselage extent block in src/app.js'); process.exit(1); }
 const { fuseExtent, camClearance } = new Function(m[0] + '\nreturn { fuseExtent, camClearance };')();
+const mt = src.match(/\/\* ---- tail-sitter camera tilt[\s\S]*?\/\* ---- end tail-sitter camera tilt ---- \*\//);
+if (!mt) { console.error('could not find the tail-sitter camera tilt block in src/app.js'); process.exit(1); }
+const { camSchedule, CAM_HOVER, CAM_FWD } = new Function(mt[0] + '\nreturn { camSchedule, CAM_HOVER, CAM_FWD };')();
 
 let fails = 0;
 const ok = (cond, what, extra) => { console.log(`${cond ? ' ok ' : 'FAIL'}  ${what}${extra ? '  ' + extra : ''}`); if (!cond) fails++; };
@@ -73,6 +76,54 @@ for (const [what, kind, over] of SWEEP) {
   try { def = ACF.fromSpec(sp); } catch (e) { ok(false, what, 'could not generate: ' + e.message); continue; }
   if (!def) { ok(false, what, 'the build sheet rejected these numbers'); continue; }
   check(what, FL.build(def));
+}
+
+/* The tail-sitter camera mount. camSchedule gives the angle to ask of a mount
+   bolted to the airframe; adding the attitude the aircraft is holding gives where
+   the camera is actually looking, which is what the two settings are written in.
+   Every check below is that round trip. */
+console.log('\n== the tail-sitter camera mount ==');
+{
+  const R2D = 180 / Math.PI;
+  // where the camera looks, against the horizon, with the aircraft at the attitude
+  // the transition asks for at this point in it
+  const looks = (hover, fwd, cruiseDeg, f) => camSchedule(hover, fwd, cruiseDeg, f) + (1 - f) * 90 + f * cruiseDeg;
+  const near = (a, b, tol) => Math.abs(a - b) < (tol || 1e-9);
+
+  for (const f of fs.readdirSync(path.join(ROOT, 'aircraft')).sort()) {
+    if (!f.endsWith('.json') || f === 'index.json') continue;
+    const r = ACF.read(fs.readFileSync(path.join(ROOT, 'aircraft', f), 'utf8'));
+    if (!r.ok) continue;
+    const ac = FL.build(r.def);
+    if (ac.kind !== 'vtol') continue;
+    const T = ac.trans, cruise = T.pitch * R2D;
+    ok(near(looks(T.camHover, T.camFwd, cruise, 0), T.camHover),
+      `${f}: hovering, the camera sits at the hover angle`, `${T.camHover}° from the horizon, mount at ${camSchedule(T.camHover, T.camFwd, cruise, 0).toFixed(1)}°`);
+    ok(near(looks(T.camHover, T.camFwd, cruise, 1), T.camFwd),
+      `${f}: cruising, it sits at the forward angle`, `${T.camFwd}° from the direction of flight, mount at ${camSchedule(T.camHover, T.camFwd, cruise, 1).toFixed(1)}°`);
+    const sweep = camSchedule(T.camHover, T.camFwd, cruise, 1) - camSchedule(T.camHover, T.camFwd, cruise, 0);
+    ok(sweep > 70 && sweep < 100, `${f}: the mount sweeps up through the transition`, `${sweep.toFixed(0)}° up, over ${T.time} s`);
+    // and it gets there without ever doubling back, which a servo would show as a twitch
+    let worst = 0;
+    for (let i = 1; i <= 100; i++) {
+      const d = camSchedule(T.camHover, T.camFwd, cruise, i / 100) - camSchedule(T.camHover, T.camFwd, cruise, (i - 1) / 100);
+      worst = Math.min(worst, d);
+    }
+    ok(worst >= 0, `${f}: the sweep never reverses part-way`, worst < 0 ? `backs up ${(-worst).toFixed(2)}° somewhere` : 'monotonic');
+  }
+
+  // the ends of both sliders, against a 0° cruise trim so the arithmetic is readable
+  ok(near(camSchedule(-10, -10, 0, 0), -100), 'hover −10° wants the mount 100° down from the nose', `${camSchedule(-10, -10, 0, 0)}°`);
+  ok(near(camSchedule(-10, -10, 0, 1), -10), 'forward −10° wants it 10° down from the nose', `${camSchedule(-10, -10, 0, 1)}°`);
+  ok(near(camSchedule(30, 0, 0, 0), -60), 'hover +30° (the top of the slider) is 60° down from the nose', `${camSchedule(30, 0, 0, 0)}°`);
+  ok(near(camSchedule(-30, 0, 0, 0), -120), 'hover −30° (the bottom) is 120° down from it', `${camSchedule(-30, 0, 0, 0)}°`);
+  // halfway through, the mount is halfway: the only thing it can do strapped down
+  ok(near(camSchedule(-10, -10, 0, 0.5), -55), 'halfway through the transition the mount is halfway round', `${camSchedule(-10, -10, 0, 0.5)}°`);
+  // cruise trim is part of it: a nose-up trim has to come off the mount angle
+  ok(near(camSchedule(-10, -10, 4, 1), -14), 'a 4° nose-up cruise trim tilts the mount 4° further down', `${camSchedule(-10, -10, 4, 1)}°`);
+  // the ranges the sliders and the aircraft files share
+  ok(CAM_HOVER[0] === -30 && CAM_HOVER[1] === 30, 'the hover slider runs −30° … +30°', `[${CAM_HOVER.join(', ')}]`);
+  ok(CAM_FWD[0] === -10 && CAM_FWD[1] === 0, 'the forward slider runs −10° … 0°', `[${CAM_FWD.join(', ')}]`);
 }
 
 console.log(fails ? `\n${fails} check(s) failed` : '\nall checks passed');
