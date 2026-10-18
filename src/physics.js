@@ -464,10 +464,19 @@ const FL = (function () {
         wingSpan = Math.max(wingSpan, span);
       }
       const Gam = (sf.dihedral || 0) * D2R;
+      /* A fine build (the Accurate · fine option) doubles the strips and
+         clusters them toward the tip, where the lift gradient is steepest
+         and the lifting line needs the resolution. Only toward the tip: a
+         mirrored wing's root is not an edge of the lift distribution — the
+         loading runs smoothly across to the other half — and tiny strips at
+         the seam starve the root of circulation through their own
+         self-influence. A uniform build stays exactly what it always was. */
+      const nS = ac.fine ? 2 * sf.n : sf.n;
+      const fmAt = ac.fine ? (t) => Math.sin((Math.PI * t) / 2) : (t) => t;
       // Schrenk load factor: local lift ∝ (actual chord + elliptic chord)/2; sweep pushes load outboard
       const loads = [];
-      for (let i = 0; i < sf.n; i++) {
-        const fm = (i + 0.5) / sf.n;
+      for (let i = 0; i < nS; i++) {
+        const fm = fmAt((i + 0.5) / nS);
         const y = sf.y0 + fm * half;
         const c = lerp(sf.c0, sf.c1, fm);
         let L = 1;
@@ -476,17 +485,17 @@ const FL = (function () {
           L = (c + cEll) / (2 * c);
           L *= 1 + (sf.sweepLoad || 0) * (y / (span / 2) - 0.5);
         }
-        loads.push({ L, w: c * (half / sf.n) });
+        loads.push({ L, w: c * (fmAt((i + 1) / nS) - fmAt(i / nS)) * half });
       }
       const mean = loads.reduce((s, l) => s + l.L * l.w, 0) / loads.reduce((s, l) => s + l.w, 0);
       for (const side of sides) {
-        for (let i = 0; i < sf.n; i++) {
-          const fm = (i + 0.5) / sf.n;
+        for (let i = 0; i < nS; i++) {
+          const fm = fmAt((i + 0.5) / nS);
           const y = sf.y0 + fm * half;
           const chord = lerp(sf.c0, sf.c1, fm);
           const xLE = lerp(sf.xLE0, sf.xLE1, fm);
           const inc = lerp(sf.inc0 || 0, sf.inc1 || 0, fm) * D2R;
-          const width = half / sf.n;
+          const width = (fmAt((i + 1) / nS) - fmAt(i / nS)) * half;
           let r, n0;
           const c0 = [1, 0, 0];
           if (sf.vertical) {
@@ -730,9 +739,12 @@ const FL = (function () {
     }
   }
 
-  /* Build strips from a definition. Returns the aircraft object step() uses. */
-  function build(def) {
+  /* Build strips from a definition. Returns the aircraft object step() uses.
+     opts.fine doubles the strip count on a cosine spacing, for the accurate
+     model to resolve tips and flap edges; the default build is untouched. */
+  function build(def, opts) {
     const ac = JSON.parse(JSON.stringify(def));
+    ac.fine = !!(opts && opts.fine);
     ac.strips = [];
     if (ac.kind === 'quad' || ac.kind === 'heli') return buildRotary(ac);
     const { wingArea, wingSpan, wingSlope } = buildStrips(ac);
@@ -995,15 +1007,21 @@ const FL = (function () {
      sw (accurate aero only): slipstream swirl behind the propeller, as a
      solid rotation { w rad/s, y, z axis position } felt by strips in the
      wash — the reason a powerful tractor needs right rudder. */
+  /* Height of the CG above the ground, for ground effect: above the terrain
+     under the aircraft when a map provides one, above the flat field
+     otherwise. Without this, skimming a plateau on a map would read as
+     flying at the plateau's elevation and get no ground effect at all. */
+  const aglOf = (s, env) => -s.p[2] - (env.terrain && env.terrain.heightAt ? env.terrain.heightAt(s.p[0], s.p[1]) : 0);
+
   function stripForces(s, ac, vb, wa, R, rho, env, dWash, dt, F, Mo, sw) {
       // --- lifting strips ---
-      const hCG = -s.p[2];
+      const hCG = aglOf(s, env);
       let clwSum = 0, clwArea = 0, stL = 0, stR = 0, aL = 0, aR = 0, aSum = 0;
       const eps = (2 * s.clw) / (Math.PI * ac.ARw); // tail downwash from last step's wing CL
       // weather: rain roughens the wing; ice builds on each strip's leading edge and melts above freezing
       const wxa = env.wx, rainP = wxa ? wxa.rain : 0;
       const icing = wxa && wxa.lwc > 0 && wxa.T < 3, melt = wxa && wxa.T > 0.5 ? (wxa.T - 0.5) * 2e-6 * (wxa.rain > 0 ? 3 : 1) * dt : 0;
-      if (icing && !s.ice) s.ice = new Float64Array(ac.strips.length);
+      if (icing && (!s.ice || s.ice.length !== ac.strips.length)) s.ice = new Float64Array(ac.strips.length);
       let iceM = 0;
       const hb = env.hifi && ac._hb ? ac._hb : null;
       if (hb) {
@@ -1026,8 +1044,14 @@ const FL = (function () {
           if (st.role === 'tail' && !st.ll) alpha -= eps;
           const d = clamp(st.ka * s.sa + st.ke * s.se + st.kr * s.sr + st.kf * s.sf, -ac.defl.flapMax, ac.defl.flapMax);
           const flex = ac.flexQ ? 1 / (1 + (0.5 * rho * V2) / ac.flexQ) : 1;
-          // no partial-span flap knockdown here: the circulation solve induces that downwash itself
-          const dEff = d * flex * (1 - 0.65 * clamp((Math.abs(d) - 0.21) / 0.58, 0, 1));
+          let dEff = d * flex * (1 - 0.65 * clamp((Math.abs(d) - 0.21) / 0.58, 0, 1));
+          /* The partial-span flap knockdown stays even here: the extra downwash a
+             flap's lift bump induces on itself concentrates at the flap edges,
+             below what the line can resolve at any strip count this sim would
+             run (measured: the increment doesn't converge until the scheme's
+             own collocation limits bite first), so it is sub-grid, like the
+             >12° flap-theory decay. */
+          if (st.kf) dEff *= 1 - 0.45 * (1 - (ac.flapArea || 0));
           let ae = alpha + st.tau * dEff;
           if (ae > Math.PI) ae -= 2 * Math.PI; else if (ae < -Math.PI) ae += 2 * Math.PI;
           let dCL = 0.12 * rainP, dCD = 0.01 * rainP;
@@ -1503,7 +1527,7 @@ const FL = (function () {
     const wash = clamp((vb[2] - 2.5) / 3, 0, 1) * clamp(1 - vip / 5, 0, 1);
     s.buf[0] += (Math.random() * 2 - 1 - s.buf[0]) * Math.min(1, dt / 0.05);
     s.buf[1] += (Math.random() * 2 - 1 - s.buf[1]) * Math.min(1, dt / 0.05);
-    const h = Math.max(0.03, -s.p[2]), rr = M.D / 2;
+    const h = Math.max(0.03, aglOf(s, env)), rr = M.D / 2;
     const ge = 1 / (1 - Math.min(0.25, Math.pow(rr / (4 * h), 2))); // ground effect (Cheeseman–Bennett)
     let Ttot = 0;
     for (let i = 0; i < 4; i++) {
@@ -1650,7 +1674,7 @@ const FL = (function () {
     // --- thrust ---
     const F = [0, 0, 0], Mo = [0, 0, 0];
     // ground effect only counts when the thrust is pointing at the ground
-    const h = Math.max(0.03, -s.p[2]), rr = M.D / 2;
+    const h = Math.max(0.03, aglOf(s, env)), rr = M.D / 2;
     const up = clamp(-R[6], 0, 1); // how vertical the thrust axis is
     const ge = 1 + up * (1 / (1 - Math.min(0.25, Math.pow(rr / (4 * h), 2))) - 1);
     // sinking back into its own wake, hovering: the nose-up equivalent of a quad's prop wash
@@ -1753,7 +1777,7 @@ const FL = (function () {
     // vortex ring state: sinking at about the induced speed with little forward speed
     const sink = -vc / vhov;
     const vrs = clamp(1 - Math.abs(sink - 1.2) / 0.8, 0, 1) * clamp(1 - Vh / (1.5 * vhov), 0, 1);
-    const hR = Math.max(0.05, -s.p[2] + Ro.h);
+    const hR = Math.max(0.05, aglOf(s, env) + Ro.h);
     const ge = 1 / (1 - Math.min(0.3, Math.pow(Ro.R / (4 * hR), 2)));
     T *= ge * (1 - 0.35 * vrs);
 

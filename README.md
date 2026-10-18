@@ -14,10 +14,12 @@ The flight models are built for practice that transfers:
   flies, not just how it looks.
 - An **Accurate aerodynamics** option (Settings → Aircraft → Sim rules) swaps in a
   nonlinear lifting line for the induced flow, Reynolds-number effects, dynamic stall
-  with hysteresis, and the propeller's gyroscopics, P-factor and slipstream swirl. The
-  default stays the lightweight model; the option costs a few times more CPU per step
-  and is anchored at build time so trim barely moves. `node test/hifi_test.js` checks
-  both models against each other and the new effects for direction.
+  with hysteresis, and the propeller's gyroscopics, P-factor and slipstream swirl.
+  **Accurate · fine** rebuilds the aircraft with twice the strips, clustered toward
+  the tips where the line needs the resolution. The default stays the lightweight
+  model; the options cost about 2% and 3.5% of one CPU core and are anchored at build
+  time so trim barely moves. `node test/hifi_test.js` checks all three against each
+  other and the new effects for direction.
 
 ## Run it
 

@@ -179,17 +179,69 @@ for (const id of ['goblin', 'trainer']) {
   check(Number.isFinite(sI.v[0] + sI.w[0]) && sI.iceMass > 0, 'icing grows and the model stays finite in accurate mode');
 }
 
-/* ---- cost: steps per second, both models ---- */
+/* ---- the fine build: twice the strips, clustered toward the tips ---- */
 {
-  const ac = FL.build(FL.DEFS.trainer);
-  console.log('\n== Cost of the option (trainer, 1-s batches) ==');
+  console.log('\n== Fine build: trim parity and tip loading ==');
+  for (const id of ['goblin', 'trainer']) {
+    const acS = FL.build(FL.DEFS[id]), acF = FL.build(FL.DEFS[id], { fine: true });
+    const V = {};
+    for (const [key, ac, hifi] of [['std', acS, false], ['fine', acF, true]]) {
+      const s = airStart(ac, id === 'goblin' ? 18 : 14, 120, 0.55);
+      run(s, ac, envOf(hifi), { thr: 0.55 }, 40);
+      V[key] = s.tele.V;
+      check(Number.isFinite(s.v[0] + s.w[0]), `${id} fine build: ${key} state finite after 40 s`);
+    }
+    console.log(`   ${id}: ${acS.strips.length} → ${acF.strips.length} strips, trim ${V.std.toFixed(1)} → ${V.fine.toFixed(1)} m/s`);
+    check(Math.abs(V.fine - V.std) / V.std < 0.1, `fine trim within 10% of lightweight`);
+    // tip-clustered strips must load like a wing: circulation rolls off outboard, no root dip
+    const env = envOf(true);
+    const s = airStart(acF, 14, 120, 0.3);
+    run(s, acF, env, { thr: 0.3 }, 3);
+    const gRight = [];
+    acF.strips.forEach((st, i) => { if (st.role === 'wing' && st.side > 0 && st.surf === acF.strips[0].surf) gRight.push(s.gam[i]); });
+    const iMax = gRight.indexOf(Math.max(...gRight));
+    check(iMax <= 1 && gRight[gRight.length - 1] < 0.6 * gRight[iMax], `circulation peaks inboard and rolls off at the tip (peak strip ${iMax})`);
+  }
+}
+
+/* ---- ground effect follows the terrain under the aircraft, not the map datum:
+   skimming a 50 m plateau must fly like skimming the field, in both models ---- */
+{
+  const ac = FL.build(FL.DEFS.goblin);
+  console.log('\n== Ground effect above a 50 m plateau (goblin, one-step drag and lift) ==');
+  const plateau = (up) => ({
+    heightAt: () => up,
+    probe: (n, e, out) => { out.up = up; out.nN = 0; out.nE = 0; out.nD = -1; out.cls = 0; },
+  });
+  const dragAt = (hifi, terrainUp) => {
+    const env = { rho: 1.225, wind: [0, 0, 0], battery: false, crashes: false, hifi, terrain: plateau(terrainUp) };
+    const s = FL.makeState();
+    FL.reset(s, ac, 'air');
+    s.p = [0, 0, -50.08]; s.q = FL.quatFromEuler(0, 6 * FL.D2R, 0); s.v = [12, 0, 0]; s.w = [0, 0, 0]; s.n = 0;
+    for (let i = 0; i < 20; i++) { FL.step(s, ac, { thr: 0, a: 0, e: 0, r: 0 }, env, DT); if (i < 19) { s.p = [0, 0, -50.08]; s.v = [12, 0, 0]; } }
+    return { drag: 12 - s.v[0], dvz: s.v[2] };
+  };
+  /* The two models spend the benefit differently at a fixed angle of attack:
+     the lightweight one cuts induced drag at fixed lift, the accurate one
+     re-equilibrates the circulation so part of it appears as extra lift. */
   for (const hifi of [false, true]) {
+    const near = dragAt(hifi, 50), high = dragAt(hifi, 0); // same altitude: 0.08 m over the plateau vs 50 m over the field
+    console.log(`   ${hifi ? 'accurate   ' : 'lightweight'}: at 8 cm AGL vs 50 m — drag ${near.drag.toFixed(5)} vs ${high.drag.toFixed(5)} m/s per step, lift Δvz ${near.dvz.toFixed(5)} vs ${high.dvz.toFixed(5)}`);
+    check(near.drag < high.drag, 'less induced drag skimming the plateau');
+    if (hifi) check(near.dvz < high.dvz - 1e-5, 'and more lift (the float in the flare)');
+  }
+}
+
+/* ---- cost: steps per second, all three models ---- */
+{
+  console.log('\n== Cost of the options (trainer, 1-s batches) ==');
+  for (const [label, ac, hifi] of [['lightweight    ', FL.build(FL.DEFS.trainer), false], ['accurate       ', FL.build(FL.DEFS.trainer), true], ['accurate · fine', FL.build(FL.DEFS.trainer, { fine: true }), true]]) {
     const env = envOf(hifi);
     const s = airStart(ac, 14, 500, 0.55);
     const N = 40000, t0 = process.hrtime.bigint();
     for (let i = 0; i < N; i++) FL.step(s, ac, { thr: 0.55, a: 0.05, e: -0.05, r: 0 }, env, DT);
     const us = Number(process.hrtime.bigint() - t0) / 1000 / N;
-    console.log(`   ${hifi ? 'accurate   ' : 'lightweight'}: ${us.toFixed(2)} µs/step (${(us * 0.4).toFixed(2)}% of real time at 400 Hz)`);
+    console.log(`   ${label}: ${us.toFixed(2)} µs/step (${(us * 0.04).toFixed(2)}% of one core at 400 Hz)`);
   }
 }
 
