@@ -94,7 +94,103 @@ console.log('\n== the score ==');
    A pilot that can hold a position, hold a height and point the nose. */
 function makePilot(ac) {
   const hoverThr = ac.hoverThr || 0.5;
-  return { iN: 0, iE: 0, iU: 0, ac, hoverThr, step: -1, through: false };
+  /* Two numbers the engine-out pilot needs about this particular machine: how
+     high to start the flare, which scales with how fast it is coming down, and
+     whether the throttle stick is still a collective once the drive is off. On
+     a gyrodyne it is not — the stick becomes engine power and the flare is
+     flown on pitch alone. */
+  /* The speed to glide an engine-out at: about four times the hover induced
+     velocity, which lands between 9 and 15 m/s across everything here and is
+     near enough to minimum power for a pilot this crude. A helicopter
+     autorotated at no airspeed comes straight down and has nothing to flare
+     with, which is the single thing this number is here to prevent. */
+  const vhov = ac.rotor ? Math.sqrt((ac.mass * G) / (2 * 1.225 * ac.rotor.A)) : 3;
+  const glideV = clamp(4 * vhov, 8, 18);
+  return {
+    iN: 0, iE: 0, iU: 0, ac, hoverThr, step: -1, through: false,
+    glideV,
+    glideLD: ac.rotor ? measureGlide(ac, glideV) : 6,
+    // with no collective the flare is pitch alone, and pitch alone has to be left late
+    flareH: ac.thrusters && ac.thrusters.length ? 2.2 : clamp(1.1 * vhov + 3, 4, 9),
+    noCollective: !!(ac.thrusters && ac.thrusters.length),
+  };
+}
+
+/* How far this particular machine goes for every metre it comes down, with the
+   rotor drive dead. Measured rather than guessed, because it is the number the
+   whole approach is planned on and it is wildly different between a 450 (about
+   1.4 to 1) and a tip-driven rotor or a gyrodyne (three times that). Fly it at
+   the glide speed off the clock for twenty seconds and read the slope. */
+function measureGlide(ac, V) {
+  const st = FL.makeState();
+  FL.reset(st, ac, 'air');
+  st.p = [0, 0, -600]; st.q = FL.quatFromEuler(0, 0, 0); st.v = [V, 0, 0];
+  const env = { rho: 1.225, wind: [0, 0, 0], battery: false, crashes: false };
+  const DT = 1 / 400;
+  for (let i = 0; i < 400 * 20; i++) {
+    const vb = FL.mulMtV(FL.quatToMat(st.q), st.v);
+    const e = clamp(-0.1 * (V - vb[0]), -0.7, 0.12);
+    FL.step(st, ac, { thr: 0, a: 0, e, r: 0, armed: true, hold: true, mode: 'angle', curve: 'normal' }, env, DT);
+  }
+  return clamp(Math.hypot(st.v[0], st.v[1]) / Math.max(0.3, st.v[2]), 0.6, 8);
+}
+
+/* The engine-out pilot. The position-hold pilot below has nothing to hold a
+   position with once the rotor drive is dead, so a task with `cut` set gets
+   this one instead: collective on the floor to keep the head turning, the nose
+   where the glide wants it, one turn onto the target rather than three, and a
+   flare at the bottom if there is something to land on. It is the same recipe
+   as the autorotation in test/heli_test.js, with a target to aim at.
+
+   It is deliberately mediocre — a fixed glide attitude and a fixed flare
+   height, no judgement at all — so a lesson it can finish is one a person can
+   finish with room to spare. */
+function glideIn(p, snap, w, dt) {
+  p.gt = (p.gt || 0) + dt;
+  const h = snap.up;
+  /* Aim short of the spot, not at it. The flare is not a stop: it is a float,
+     and how long a float depends on how flat this machine glides — a 450 carries
+     about eight metres past the aim point and a tip-driven rotor half as far
+     again. Aiming at the pad lands you beyond it, every time. */
+  const short = p.flareH * p.glideLD * 1.4;
+  const dn0 = w.n - snap.n, de0 = w.e - snap.e, far = Math.hypot(dn0, de0) || 1;
+  const k = w.land ? Math.max(0, 1 - short / far) : 1;
+  const dn = dn0 * k, de = de0 * k, dist = Math.hypot(dn, de);
+  const brg = Math.atan2(de0, dn0);
+  const crs = snap.gs > 2.5 ? Math.atan2(snap.ve, snap.vn) : snap.yaw;
+  const flaring = w.land && h < p.flareH;
+  const cushion = flaring && (snap.gs < 2.5 || h < 1.2);
+  let e, thr;
+  if (cushion) { e = 0.03; thr = p.noCollective ? 0 : clamp(0.5 + 0.35 * (-snap.vup - 0.5), 0, 1); }
+  else if (flaring) { e = 0.45; thr = p.noCollective ? 0 : 0.2; }
+  else {
+    /* The glide slope. How much height it takes to reach the target is the
+       distance over this machine's glide ratio; anything above that is surplus
+       and anything below it is a problem. Surplus goes into a slower, steeper
+       glide and a deficit into a faster, flatter one, which is the only range
+       control an aircraft with no engine has. */
+    const need = dist / p.glideLD;
+    const high = clamp((snap.up - w.up) - need, -40, 40);
+    const Vt = clamp(p.glideV - 0.22 * high, 0.55 * p.glideV, 1.5 * p.glideV);
+    e = clamp(-0.1 * (Vt - snap.gs), -0.7, 0.3);
+    thr = 0;
+  }
+  /* Arriving with height you cannot use is the other way to miss. There is no
+     airbrake on any of these and collective does the opposite of what you want —
+     it trades rotor for lift and makes you float further — so the only thing
+     that loses height without losing the field is to stop going straight at it.
+     Weave across the approach until the surplus is gone. A 450 glides about 1.4
+     to 1 and never needs this; a tip-driven rotor glides nearly three times
+     that and needs it on every approach. */
+  const spare = (h - w.up) - dist / p.glideLD;
+  const weave = !flaring && spare > 4 && far > 14 ? 0.85 * Math.sin(p.gt * 0.55) : 0;
+  // bank onto the target, and stop banking once the flare starts
+  const bank = flaring ? clamp(-0.5 * snap.roll, -0.3, 0.3) : clamp(1.3 * wrapPi(brg + weave - crs), -0.7, 0.7);
+  if (snap.wow) thr = 0; // a landing is not over until the collective is down
+  return {
+    thr, a: bank, e, r: clamp(1.0 * wrapPi(brg - snap.yaw), -0.6, 0.6),
+    armed: true, hold: true, mode: 'angle', lim: { bank: 35, pitch: 35, tBank: 60, tPitch: 60 },
+  };
 }
 // where the live task wants the aircraft to be, and which way round
 function want(run) {
@@ -107,6 +203,7 @@ function want(run) {
     spin: t.spin > 0 && run.spun < t.spin,
     gate: t.kind === 'gate' ? t.yawDeg : null,
     slow: t.kind === 'land' || t.speedMax > 0, land: t.kind === 'land',
+    cut: !!t.cut,
   };
 }
 
@@ -124,6 +221,7 @@ function aimAt(p, w, snap) {
 function fly(p, snap, w, dt) {
   const ac = p.ac;
   if (!w || w.hold) return { thr: p.hoverThr, a: 0, e: 0, r: 0, armed: true, mode: 'angle', lim: { bank: 35, pitch: 35, tBank: 60, tPitch: 60 } };
+  if (w.cut) return glideIn(p, snap, w, dt);
   // horizontal: velocity demand toward the target, then a lean that produces it
   const [tn, te] = aimAt(p, w, snap);
   const dn = tn - snap.n, de = te - snap.e, dist = Math.hypot(dn, de);
@@ -201,7 +299,7 @@ function flyLesson(ac, lesson, limit) {
     }
     t += DT;
   }
-  return { run, t, crashes, score: TUT.score(run) };
+  return { run, t, crashes, score: TUT.score(run), end: snapOf(st), note: run.note };
 }
 
 console.log('\n== every built-in lesson, flown ==');
@@ -220,8 +318,106 @@ for (const course of TUT.BUILTIN) {
     ok(r.run.done, `${lesson.id}: flown to the end`,
       r.run.done
         ? `${r.t.toFixed(0)} s of a ${lesson.par} s par, ${sc.total}/1000 ${sc.medal || 'no medal'}, mean error ${(sc.err * 100).toFixed(0)}% of the way to the edge${r.crashes ? `, ${r.crashes} crashes` : ''}`
-        : `stuck on task ${r.run.step + 1}/${lesson.tasks.length} ("${TUT.sayNow(r.run).say}") after ${r.t.toFixed(0)} s${r.crashes ? `, ${r.crashes} crashes` : ''}`);
+        : `stuck on task ${r.run.step + 1}/${lesson.tasks.length} ("${TUT.sayNow(r.run).say}") after ${r.t.toFixed(0)} s${r.crashes ? `, ${r.crashes} crashes` : ''} — ${r.note || 'no note'}, ended ${r.end.wow ? 'down' : 'flying'} at ${r.end.n.toFixed(0)}, ${r.end.e.toFixed(0)}, ${r.end.up.toFixed(0)} m`);
     if (r.run.done) ok(r.t < 2 * lesson.par, `${lesson.id}: par is reachable`, `${r.t.toFixed(0)} s against a ${lesson.par} s par`);
+  }
+}
+
+/* The engine-out ladder is one course flown by three very different machines,
+   and the differences are the whole point of it: a 450 glides at about 1.4 to
+   1, a tip-driven rotor at nearly three times that, and a gyrodyne further
+   still. A ladder that only worked on the one it was written for would be a
+   ladder that lied about the other two. */
+console.log('\n-- the engine-out ladder, on the other rotorcraft --');
+{
+  const course = TUT.BUILTIN.find((c) => c.id === 'engine-out');
+  for (const id of ['tipjet', 'gyrodyne']) {
+    const ac = FL.build(FL.DEFS[id]);
+    const p0 = makePilot(ac);
+    console.log(`\n   ${ac.name}: glides ${p0.glideLD.toFixed(1)} to 1 at ${p0.glideV.toFixed(1)} m/s, flares from ${p0.flareH.toFixed(1)} m${p0.noCollective ? ', and has no collective once the drive is off' : ''}`);
+    for (const lesson of course.lessons) {
+      const r = flyLesson(ac, lesson, Math.max(120, lesson.par * 3));
+      ok(r.run.done, `${id}/${lesson.id}: flown to the end`,
+        r.run.done ? `${r.t.toFixed(0)} s of a ${lesson.par} s par, ${r.score.total}/1000 ${r.score.medal || 'no medal'}${r.crashes ? `, ${r.crashes} crashes` : ''}`
+          : `stuck on task ${r.run.step + 1}/${lesson.tasks.length} after ${r.t.toFixed(0)} s — ${r.note || 'no note'}, ended ${r.end.wow ? 'down' : 'flying'} at ${r.end.n.toFixed(0)}, ${r.end.e.toFixed(0)}, ${r.end.up.toFixed(0)} m`);
+    }
+  }
+}
+
+/* The autogyro ladder needs a third pilot again. A gyro steers like a plane and
+   is held up like a rotorcraft, so it banks onto a marker the way the plane
+   pilot does and flies height on the throttle the way nothing else here does —
+   and it has to wait for the prerotator before it can go anywhere at all. */
+console.log('\n-- the autogyro ladder, on the autogyro --');
+function flyGyroLesson(ac, lesson, limit) {
+  const DT = 1 / 400, env = { rho: 1.225, wind: [0, 0, 0], battery: false, crashes: true };
+  const lim = { bank: 35, pitch: 30, tBank: 55, tPitch: 45 };
+  const st = FL.makeState();
+  const first = lesson.tasks.find((t) => t.kind !== 'say') || lesson.tasks[0];
+  const begin = () => {
+    FL.reset(st, ac, lesson.start === 'air' ? 'air' : 'runway');
+    if (lesson.start === 'air') {
+      // an air start for something that cannot hover is a cruise, not a hover
+      st.p = [first.n - 80, first.e, -Math.max(40, first.up + 25)];
+      st.q = FL.quatFromEuler(0, 0, 0);
+      st.v = [ac.cruise, 0, 0];
+      st.om = ac.rotor.om0;
+    }
+  };
+  begin();
+  const run = TUT.start(lesson);
+  const prerotOm = ac.rotor.prerot.om;
+  let t = 0, crashes = 0, pI = 0, flareT = null;
+  while (t < limit && !run.done) {
+    const snap = snapOf(st);
+    const w = want(run);
+    let a = 0, e = 0, thr = 0;
+    if (!w || w.hold) {
+      // the only thing to do while a `say` task runs is let the head spin up
+      thr = st.wow && st.om < prerotOm ? 0 : st.wow ? 0.05 : 0.6;
+    } else if (st.wow && st.om < prerotOm) {
+      thr = 0; // not going anywhere until the rotor is up
+    } else {
+      const dn = w.n - snap.n, de = w.e - snap.e, dist = Math.hypot(dn, de);
+      const crs = snap.gs > 4 ? Math.atan2(snap.ve, snap.vn) : snap.yaw;
+      /* Never ask for a turn tighter than the machine can fly. A gyro at 18 m/s
+         turns in about fifty metres, so a pure pursuit at full bank does not
+         capture a marker, it orbits one — which is exactly what it did before
+         this line existed. Ease the bank off as the marker comes up and fly
+         through it. */
+      const turnR = Math.max(25, (snap.gs * snap.gs) / (G * Math.tan(35 * D2R)));
+      a = clamp(1.4 * wrapPi(Math.atan2(de, dn) - crs) * clamp(dist / (2.2 * turnR), 0.18, 1), -1, 1);
+      if (w.cut) {
+        /* Engine off. Hold a nose-down glide at the attitude that sinks least,
+           and if there is something to land on, flare at two metres — the
+           window is about a metre deep and starting early is what loses it. */
+        thr = 0;
+        if (w.land && snap.up < 2) { if (flareT === null) flareT = t; e = clamp(0.1 + 1.0 * (t - flareT) / 0.9, 0.1, 0.8); a *= 0.2; }
+        else e = clamp(-0.3 + 0.03 * (w.up - snap.up), -0.5, -0.1);
+      } else {
+        const climb = clamp(0.3 * (w.up - snap.up), -3, 3);
+        thr = clamp(0.5 + 0.14 * climb, st.wow ? 0.9 : 0.1, 1);
+        pI = clamp(pI + (climb - snap.vup) * DT, -8, 8);
+        e = clamp(0.1 * (climb - snap.vup) + 0.04 * pI, -0.5, 0.5);
+        if (st.wow) e = 0.25; // hold the nose up through the roll
+      }
+    }
+    st.lastThr = thr;
+    FL.step(st, ac, { thr, a, e, r: 0, armed: true, hold: !!(w && w.cut), mode: 'angle', lim }, env, DT);
+    TUT.tick(run, snapOf(st), DT);
+    if (st.crashed) { crashes++; if (crashes > 3) break; begin(); pI = 0; flareT = null; }
+    t += DT;
+  }
+  return { run, t, crashes, score: TUT.score(run), end: snapOf(st), note: run.note };
+}
+{
+  const ac = FL.build(FL.DEFS.gyro);
+  const course = TUT.BUILTIN.find((c) => c.id === 'gyro-circuits');
+  if (!PICK || PICK === 'gyro-circuits') for (const lesson of course.lessons) {
+    const r = flyGyroLesson(ac, lesson, Math.max(220, lesson.par * 3));
+    ok(r.run.done, `${lesson.id}: flown to the end`,
+      r.run.done ? `${r.t.toFixed(0)} s of a ${lesson.par} s par, ${r.score.total}/1000 ${r.score.medal || 'no medal'}${r.crashes ? `, ${r.crashes} crashes` : ''}`
+        : `stuck on task ${r.run.step + 1}/${lesson.tasks.length} ("${TUT.sayNow(r.run).say}") after ${r.t.toFixed(0)} s${r.crashes ? `, ${r.crashes} crashes` : ''} — ${r.note || 'no note'}, ended ${r.end.wow ? 'down' : 'flying'} at ${r.end.n.toFixed(0)}, ${r.end.e.toFixed(0)}, ${r.end.up.toFixed(0)} m`);
   }
 }
 

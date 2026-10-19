@@ -445,6 +445,189 @@ const FL = (function () {
       camTilt: 5,
       colR: 0.38,
     },
+    /* A rotor driven by propellers out on the blades, the way a tipjet is driven
+       by burning gas out there: the drive pushes against the air, not against
+       the airframe, so there is no reaction torque and no tail rotor.
+
+       A propeller stops pulling at its pitch speed, and that one fact sizes the
+       whole machine. The props have to live at the blade tips, so the tip speed
+       has to stay well under what a small propeller can still work in — about
+       45 m/s here against a 74 m/s pitch speed. A slow tip speed buys thrust
+       only through area, so the rotor comes out big and the disc loading low;
+       and a big slow rotor with motor pods out near the tips carries an
+       enormous amount of energy for its weight. The machine that falls out of
+       the constraint is a poor hot-rod and a magnificent glider.
+
+       Yaw is the interesting part. With no torque path between rotor and
+       fuselage the fuselage hangs free on the mast bearing — which is why its
+       yaw inertia is the smallest of the three and not the largest — so the
+       pedal is a motor across that bearing, turning the fuselage against the
+       rotor's angular momentum. It works at a standstill and it works with the
+       drive dead, because the head carries its own pack for the derotator, the
+       receiver and the flight controller. What it costs is headspeed. */
+    tipjet: {
+      id: 'tipjet',
+      name: 'Tip-prop heli',
+      blurb: '2.6 kg camera helicopter with a 1.5 m rotor driven by two 5-inch props out at the blades — no tail rotor, because tip drive reacts on the air and not on the airframe. The pedal is a motor on the mast, so it steers on the rotor’s inertia and spends headspeed doing it. A derotated camera rides the hub.',
+      kind: 'heli',
+      mass: 2.6,
+      // yaw is the light axis, not the heavy one: nothing couples the rotor to the fuselage about the mast
+      I: [0.2, 0.26, 0.12],
+      rotor: {
+        drive: 'tip',
+        R: 0.75, chord: 0.14, blades: 2, a: 5.7, Cd0: 0.013, kInd: 1.15, CLmax: 1.0,
+        om0: 60, J: 0.28, Pmax: 900, govK: 0.06, spool: 0.25, friction: 0.0006, // 573 rpm, 45 m/s at the tip
+        tip: { n: 2, r: 0.65, Tmax: 12, Vp: 74, eta: 0.55, kD: 0.000097 }, // two 5-inch props, static thrust, pitch speed, pod drag
+        mast: { Q: 1.2 }, // the pedal: newton-metres across the mast bearing, paid for out of the rotor
+        h: 0.42, Kh: 60, tauF: 0.03, maxCyc: 0.25, blowback: 2.5,
+        lt: 0, TtMax: 0, tauT: 0.05, spin: -1, // no tail rotor at all
+        hFlare: 2.5,
+        curves: { normal: [-3, 7.5, 14], '3d': [-9, 2, 14] }, // not a 3D machine; the low curve is for setting up an autorotation
+      },
+      body: { r: [0, 0, 0], CdA: [0.035, 0.09, 0.14], fin: 0.02, finX: -0.55 },
+      pid: { roll: [16, 90, 0.3, 2.0, 0.01], pitch: [16, 90, 0.3, 2.0, 0.01], yaw: [12, 50, 0.3, 1.0, 0] },
+      angle: { max: 40, k: 4.5, rate: 200 },
+      rates: { roll: { c: 60, m: 180, e: 0 }, pitch: { c: 60, m: 180, e: 0 }, yaw: { c: 70, m: 200, e: 0 } },
+      batt: { chem: 'lipo', cells: 6, mAh: 5000, R: 0.02, Imax: 0, Iidle: 1.2, Vref: 22.8, label: '6S 5000 LiPo' },
+      wheels: [],
+      points: [
+        { p: [0.16, 0.13, 0.2], name: 'skid', foot: true, impact: 3.5, slide: 99 },
+        { p: [0.16, -0.13, 0.2], name: 'skid', foot: true, impact: 3.5, slide: 99 },
+        { p: [-0.16, 0.13, 0.2], name: 'skid', foot: true, impact: 3.5, slide: 99 },
+        { p: [-0.16, -0.13, 0.2], name: 'skid', foot: true, impact: 3.5, slide: 99 },
+        { p: [-0.6, 0, 0.02], name: 'tail', impact: 2, slide: 4 },
+        { p: [0.3, 0, 0.02], name: 'nose', impact: 2.5, slide: 6 },
+        { p: [0, 0, -0.55], name: 'hub camera', impact: 1.5, slide: 2 },
+      ],
+      contact: { kW: 0, cW: 0, kB: 2600, cB: 40, muRoll: 0, muLat: 0, muBody: 0.6 },
+      crash: { wheelImpact: 99 },
+      starts: ['pad', 'air'],
+      /* The camera is on top of the rotor head, turned the other way by a motor
+         of its own so the picture stands still. It rides the disc, not the
+         fuselage, which is exactly what it looks like: the horizon tips when
+         the disc tips, a beat before the airframe follows. */
+      hubCam: [0.02, 0, -0.52],
+      fpvCam: [0.02, 0, -0.52],
+      camTilt: -16, // a mast camera looks down past its own blades, not up over them
+      colR: 0.8,
+      look: { front: [0.2, 0.42, 0.72], rear: [0.86, 0.88, 0.9], frame: [0.18, 0.19, 0.21], wrap: [0.26, 0.3, 0.36], blades: 2 },
+    },
+    /* An autogyro. The rotor is never driven: the mast leans back nine degrees,
+       so air comes up through the disc all the time and keeps it turning, and
+       all the engine ever does is push the machine forward fast enough for that
+       to keep happening. It cannot hover and it cannot stall, it needs a run to
+       take off and a prerotator to start the head, and it lands by trading
+       speed for rotor — which is an autorotation, flown on every single
+       landing instead of once in an emergency. */
+    gyro: {
+      id: 'gyro',
+      name: 'Autogyro',
+      blurb: '3.2 kg autogyro: a 1.7 m rotor nobody drives, a pusher prop, and a mast raked 9° back so the air keeps the head turning. Prerotate on the ground, roll, fly. Every landing is an autorotation, which is why gyro pilots are good at them.',
+      kind: 'gyro',
+      mass: 3.2,
+      I: [0.18, 0.42, 0.35],
+      rotor: {
+        drive: 'none',
+        R: 0.85, chord: 0.075, blades: 2, a: 5.7, Cd0: 0.013, kInd: 1.15, CLmax: 1.0,
+        om0: 55, J: 0.075, Pmax: 0, govK: 0, spool: 1, friction: 0.0008, // 525 rpm is where it settles, not where it is held
+        fixed: 2.5,          // one blade angle, for the whole flight
+        rake: 9,             // degrees the mast leans back: the reason the rotor turns at all
+        prerot: { Q: 0.55, om: 45 }, // the engine spins the head up on the ground, then lets go of it: about ten seconds of waiting
+        vane: { area: 0.04, arm: 0.95, k: 0.6 }, // the rudder
+        h: 0.5, Kh: 55, tauF: 0.035, maxCyc: 0.2, blowback: 2.5,
+        lt: 0, TtMax: 0, tauT: 0.05, spin: -1,
+        hFlare: 1.5,
+      },
+      thrusters: [{ p: [-0.38, 0, -0.03], Tmax: 38, Tmin: 0, tau: 0.12, Vp: 40, D: 0.33, yaw: false }],
+      body: { r: [0, 0, 0], CdA: [0.05, 0.16, 0.2], fin: 0.03, finX: -0.85 },
+      pid: { roll: [14, 70, 0.3, 1.8, 0.01], pitch: [14, 70, 0.3, 1.8, 0.01], yaw: [8, 30, 0.3, 1.0, 0] },
+      angle: { max: 35, k: 4, rate: 160 },
+      rates: { roll: { c: 50, m: 160, e: 0 }, pitch: { c: 45, m: 140, e: 0 }, yaw: { c: 45, m: 130, e: 0 } },
+      batt: { chem: 'lipo', cells: 6, mAh: 6000, R: 0.02, Imax: 0, Iidle: 1.2, Vref: 22.8, label: '6S 6000 LiPo' },
+      wheels: [
+        { p: [0.34, 0, 0.3], steer: true },
+        { p: [-0.1, 0.22, 0.3] },
+        { p: [-0.1, -0.22, 0.3] },
+      ],
+      points: [
+        { p: [-0.68, 0, -0.05], name: 'tail', impact: 2, slide: 4 },
+        { p: [0.42, 0, 0.0], name: 'nose', impact: 2.5, slide: 6 },
+        { p: [0, 0, -0.52], name: 'rotor head', impact: 1.5, slide: 2 },
+      ],
+      contact: { kW: 3000, cW: 60, kB: 2600, cB: 40, muRoll: 0.03, muLat: 0.6, muBody: 0.6 },
+      crash: { wheelImpact: 5 },
+      starts: ['runway', 'air'],
+      cruise: 20,
+      steerMax: 0.5,
+      fpvCam: [0.46, 0, -0.06],
+      camTilt: 5,
+      colR: 0.5,
+      look: { front: [0.8, 0.2, 0.16], rear: [0.9, 0.9, 0.88], frame: [0.2, 0.2, 0.22], wrap: [0.3, 0.32, 0.36], blades: 2 },
+    },
+    /* The hybrid, and the oldest idea here: Fairey built two of them in the
+       1940s and 50s and called them gyrodynes. A shaft-driven rotor with no
+       tail rotor at all, and a pair of reversing-pitch propellers out on stub
+       wings doing the anti-torque between them — one pushing while the other
+       pulls, which is why it can hold a hover straight instead of charging
+       forward at whatever thrust its anti-torque happens to need.
+
+       Put the rotor drive on hold and the head tilts back seven degrees, the
+       collective parks low, the throttle stick becomes engine power to the
+       propellers, and the same airframe is an autogyro. Put it back on and it
+       is a helicopter again. Throttle hold is the whole switch — and because
+       the rotor keeps turning either way, it is a switch you can throw in
+       flight and throw back. */
+    gyrodyne: {
+      id: 'gyrodyne',
+      name: 'Gyrodyne',
+      blurb: '4.5 kg helicopter–autogyro hybrid: a 1.7 m shaft-driven rotor, no tail rotor, and two reversing-pitch tractor props on stub wings countering the torque between them. Throttle hold tilts the head back and it becomes an autogyro; let it off and it is a helicopter again.',
+      kind: 'heli',
+      mass: 4.5,
+      I: [0.42, 0.55, 0.55],
+      rotor: {
+        drive: 'shaft',
+        R: 0.85, chord: 0.065, blades: 2, a: 5.7, Cd0: 0.013, kInd: 1.15, CLmax: 1.0,
+        om0: 150, J: 0.16, Pmax: 2000, govK: 0.03, spool: 0.2, friction: 0.0004,
+        rake: 0, rakeFree: 7,   // the head tilts back when the drive goes off, and that is the mode change
+        autoPitch: 2.5,         // where the collective parks once it is an autogyro
+        vane: { area: 0.05, arm: 1.0, k: 0.5 }, // the V-tail's rudder
+        h: 0.4, Kh: 90, tauF: 0.025, maxCyc: 0.22, blowback: 2.5,
+        lt: 0, TtMax: 0, tauT: 0.04, spin: -1, // no tail rotor: the propellers do it
+        hFlare: 2,
+        curves: { normal: [-4, 3.5, 10], '3d': [-9, 0, 10] },
+      },
+      // out on the booms, where the arm is long: at 0.62 m they yaw it hard and pitch it hardly at all
+      thrusters: [
+        { p: [0.06, 0.62, -0.02], Tmax: 18, Tmin: -14, tau: 0.1, Vp: 40, D: 0.3, yaw: true },
+        { p: [0.06, -0.62, -0.02], Tmax: 18, Tmin: -14, tau: 0.1, Vp: 40, D: 0.3, yaw: true },
+      ],
+      body: { r: [0, 0, 0], CdA: [0.045, 0.14, 0.22], fin: 0.035, finX: -0.95 },
+      pid: { roll: [20, 110, 0.3, 2.2, 0.01], pitch: [20, 110, 0.3, 2.2, 0.01], yaw: [14, 60, 0.3, 1.4, 0] },
+      angle: { max: 45, k: 5, rate: 240 },
+      rates: { roll: { c: 70, m: 220, e: 0 }, pitch: { c: 70, m: 220, e: 0 }, yaw: { c: 60, m: 180, e: 0 } },
+      batt: { chem: 'lipo', cells: 12, mAh: 8000, R: 0.03, Imax: 0, Iidle: 1.5, Vref: 44.4, label: '12S 8000 LiPo' },
+      wheels: [],
+      points: [
+        { p: [0.2, 0.17, 0.28], name: 'skid', foot: true, impact: 3.5, slide: 99 },
+        { p: [0.2, -0.17, 0.28], name: 'skid', foot: true, impact: 3.5, slide: 99 },
+        { p: [-0.2, 0.17, 0.28], name: 'skid', foot: true, impact: 3.5, slide: 99 },
+        { p: [-0.2, -0.17, 0.28], name: 'skid', foot: true, impact: 3.5, slide: 99 },
+        { p: [-0.9, 0, -0.02], name: 'V-tail', impact: 2, slide: 4 }, // it strikes at about 19° nose up: the flare has a limit
+        { p: [0.45, 0, 0.0], name: 'nose', impact: 2.5, slide: 6 },
+        { p: [0, 0, -0.5], name: 'rotor head', impact: 1.5, slide: 2 },
+        { p: [0.06, 0.78, -0.02], name: 'boom', impact: 2, slide: 3 },
+        { p: [0.06, -0.78, -0.02], name: 'boom', impact: 2, slide: 3 },
+      ],
+      contact: { kW: 0, cW: 0, kB: 3600, cB: 55, muRoll: 0, muLat: 0, muBody: 0.6 },
+      crash: { wheelImpact: 99 },
+      starts: ['pad', 'air'],
+      cruise: 26,
+      hubCam: [0.02, 0, -0.5],
+      fpvCam: [0.48, 0, -0.08],
+      camTilt: 8,
+      colR: 0.85,
+      look: { front: [0.26, 0.3, 0.38], rear: [0.82, 0.84, 0.88], frame: [0.16, 0.17, 0.2], wrap: [0.3, 0.33, 0.4], blades: 2 },
+    },
   };
 
   /* Cut every lifting surface into strips and push them onto ac.strips.
@@ -743,6 +926,11 @@ const FL = (function () {
     }
   }
 
+  /* The kinds that have rotors instead of wings, and so skip the neutral point
+     and the static margin: their centre of gravity is the body origin by
+     definition. `gyro` is an autogyro — a rotorcraft, but not one that hovers. */
+  const ROTARY_KIND = { quad: 1, heli: 1, gyro: 1 };
+
   /* Build strips from a definition. Returns the aircraft object step() uses.
      opts.fine doubles the strip count on a cosine spacing, for the accurate
      model to resolve tips and flap edges; the default build is untouched. */
@@ -750,7 +938,7 @@ const FL = (function () {
     const ac = JSON.parse(JSON.stringify(def));
     ac.fine = !!(opts && opts.fine);
     ac.strips = [];
-    if (ac.kind === 'quad' || ac.kind === 'heli') return buildRotary(ac);
+    if (ROTARY_KIND[ac.kind]) return buildRotary(ac);
     const { wingArea, wingSpan, wingSlope } = buildStrips(ac);
     ac.S = wingArea; ac.b = wingSpan;
     const wingStrips = ac.strips.filter((s) => s.role === 'wing');
@@ -831,29 +1019,55 @@ const FL = (function () {
       ac.ARw = wingArea > 0 ? (wingSpan * wingSpan) / wingArea : 1;
       const ws = ac.strips.reduce((t, x) => t + x.area, 0);
       ac.mac = ws > 0 ? ac.strips.reduce((t, x) => t + x.area * x.chord, 0) / ws : 0;
-      // a lifting body has no moving surfaces; stripForces still asks for the limit
-      ac.defl = ac.defl || { a: 0, e: 0, r: 0, f: 0, flapMax: 0 };
       ac.flapArea = 0;
       ac.deda = 0;
     }
+    // no rotorcraft has moving surfaces; stripForces and the nosewheel both ask for the limits anyway
+    ac.defl = ac.defl || { a: 0, e: 0, r: 0, f: 0, flapMax: 0 };
+    ac.steerMax = ac.steerMax || 0;
     if (ac.kind === 'quad') {
       // collective thrust for hover, as a stick position (thrust ∝ motor command²)
       const base = hoverCommand(ac);
       ac.hoverThr = (base - ac.motor.idle) / (1 - ac.motor.idle);
     }
-    if (ac.kind === 'heli') {
+    if (ac.kind === 'heli' || ac.kind === 'gyro') {
       const Ro = ac.rotor;
       Ro.A = Math.PI * Ro.R * Ro.R;
       Ro.sigma = (Ro.blades * Ro.chord) / (Math.PI * Ro.R);
+      /* How far back the mast leans. A fixed rake is an autogyro's reason to
+         turn at all; a head that takes up a different rake once the drive is
+         off is a gyrodyne's mode change, and the second or so it takes to get
+         there is the mechanism doing it rather than a switch being thrown. */
+      Ro.rakeR = (Ro.rake || 0) * D2R;
+      Ro.rakeFreeR = (Ro.rakeFree === undefined ? Ro.rake || 0 : Ro.rakeFree) * D2R;
+      if (Ro.hFlare === undefined) Ro.hFlare = 2;
       // blade tips at 8 azimuths: touching the ground while the rotor turns is a blade strike
       for (let k = 0; k < 8; k++) { const az = (k / 8) * 2 * Math.PI; ac.points.push({ p: [Ro.R * Math.cos(az), Ro.R * Math.sin(az), -Ro.h], name: 'rotor blade', prop: true, rotor: true, strike: 0.2, impact: 0.5, slide: 0.5 }); }
-      // hover collective and its stick position on each pitch curve
+      /* The headspeed below which the rotor cannot make one g however much
+         collective you pull, because the mean blade lift coefficient has reached
+         the stall. It is the floor of the autorotation energy budget: everything
+         the head is holding above it is spendable, and everything below it is
+         already gone. */
       const T = ac.mass * G, OmR = Ro.om0 * Ro.R, vi = Math.sqrt((Ro.kInd * T) / (2 * 1.225 * Ro.A));
-      const k = 0.5 * Ro.sigma * Ro.a * 1.225 * Ro.A * OmR * OmR;
-      ac.hoverPitch = 3 * (T / k + vi / OmR / 2);
-      const stickFor = (c) => { const d = ac.hoverPitch / D2R; return d < c[1] ? (0.5 * (d - c[0])) / (c[1] - c[0]) : 0.5 + (0.5 * (d - c[1])) / (c[2] - c[1]); };
-      ac.hoverThrCurve = { normal: stickFor(Ro.curves.normal), '3d': stickFor(Ro.curves['3d']) };
-      ac.hoverThr = ac.hoverThrCurve.normal;
+      ac.omMin = Math.sqrt((6 * T) / (Ro.CLmax * Ro.sigma * 1.225 * Ro.A)) / Ro.R;
+      /* A machine can carry a derotated camera on its head and still fly FPV
+         from the nose — the gyrodyne does, because the head camera is the
+         payload and the nose camera is the pilot's. The disc-riding view is
+         only for when the two are the same camera. */
+      ac.fpvOnHub = !!(ac.hubCam && ac.fpvCam.every((v, k) => Math.abs(v - ac.hubCam[k]) < 1e-9));
+      // the propellers on the airframe, if it has any: an autogyro's engine, a gyrodyne's pair
+      if (ac.thrusters && ac.thrusters.length) {
+        for (const Th of ac.thrusters) Th.A = (Math.PI * Th.D * Th.D) / 4;
+        ac.thrMax = Math.min(...ac.thrusters.map((Th) => Th.Tmax));
+      } else { ac.thrusters = null; ac.thrMax = 0; }
+      // hover collective and its stick position on each pitch curve; an autogyro has neither
+      if (Ro.curves) {
+        const k = 0.5 * Ro.sigma * Ro.a * 1.225 * Ro.A * OmR * OmR;
+        ac.hoverPitch = 3 * (T / k + vi / OmR / 2);
+        const stickFor = (c) => { const d = ac.hoverPitch / D2R; return d < c[1] ? (0.5 * (d - c[0])) / (c[1] - c[0]) : 0.5 + (0.5 * (d - c[1])) / (c[2] - c[1]); };
+        ac.hoverThrCurve = { normal: stickFor(Ro.curves.normal), '3d': stickFor(Ro.curves['3d']) };
+        ac.hoverThr = ac.hoverThrCurve.normal;
+      } else { ac.hoverPitch = (Ro.fixed || 0) * D2R; ac.hoverThr = 0.6; }
     }
     hifiPrep(ac);
     return ac;
@@ -865,7 +1079,7 @@ const FL = (function () {
       n: 0, sa: 0, se: 0, sr: 0, sf: 0, gear: 1, fwd: 0, soc: 1, mAh: 0, vb: 0, I: 0,
       crashed: false, crashMsg: '', wow: false, held: false, t: 0, clw: 0,
       mot: [0, 0, 0, 0], pidI: [0, 0, 0], spPrev: [0, 0, 0], ff: [0, 0, 0], buf: [0, 0], wPrev: [0, 0, 0], dF: [0, 0, 0], // flight controller
-      om: 0, coll: 0, gov: 0, tailI: 0, vi: 0, tilt: [0, 0], tt: 0, // helicopter rotor
+      om: 0, coll: 0, gov: 0, tailI: 0, vi: 0, tilt: [0, 0], tt: 0, tipT: 0, tp: [], rk: 0, // rotor, tip props, airframe propellers, mast rake
       bT: 20, ice: null, iceProp: 0, iceLens: 0, iceMass: 0, iceGl: 0, shed: 0, // pack temperature (°C) and icing
       sep: null, gam: null, // accurate aero: per-strip separation lag and circulation (lazily sized)
       tele: { alpha: 0, beta: 0, V: 0, CL: 0, qbar: 0, T: 0, nz: 1, stallL: 0, stallR: 0 },
@@ -884,7 +1098,7 @@ const FL = (function () {
     s.sep = null; s.gam = null;
     s.w = [0, 0, 0]; s.n = 0; s.sa = s.se = s.sr = s.sf = 0; s.gear = 1;
     s.crashed = false; s.crashMsg = ''; s.mAh = 0; s.soc = 1; s.t = 0; s.held = false; s.clw = 0;
-    s.mot = [0, 0, 0, 0]; s.pidI = [0, 0, 0]; s.spPrev = [0, 0, 0]; s.ff = [0, 0, 0]; s.buf = [0, 0]; s.wPrev = [0, 0, 0]; s.dF = [0, 0, 0]; s.om = 0; s.coll = 0; s.gov = 0; s.tailI = 0; s.vi = 0; s.tilt = [0, 0]; s.tt = 0;
+    s.mot = [0, 0, 0, 0]; s.pidI = [0, 0, 0]; s.spPrev = [0, 0, 0]; s.ff = [0, 0, 0]; s.buf = [0, 0]; s.wPrev = [0, 0, 0]; s.dF = [0, 0, 0]; s.om = 0; s.coll = 0; s.gov = 0; s.tailI = 0; s.vi = 0; s.tilt = [0, 0]; s.tt = 0; s.tipT = 0; s.tp = []; s.rk = ac.rotor ? ac.rotor.rakeR : 0;
     s.fwd = 0;
 
     /* A tail-sitter stands on its tail with the nose straight up, and in the
@@ -921,8 +1135,29 @@ const FL = (function () {
       s.v = V > 0 ? mulMV(quatToMat(s.q), [V, 0, 0]) : [0, 0, 0];
       if (V > 0 || agl > 0.05) {
         if (ac.kind === 'quad' || ac.kind === 'vtol') { const b = Math.sqrt((ac.mass * G) / (4 * ac.motor.Tmax)); s.mot = [b, b, b, b]; if (ac.kind === 'vtol') s.fwd = V > 0 ? 1 : 0; }
-        else if (ac.kind === 'heli') { s.om = ac.rotor.om0; s.gov = 1; s.coll = ac.hoverPitch; s.vi = Math.sqrt((ac.mass * G) / (2 * 1.225 * ac.rotor.A)); }
+        else if (ac.kind === 'heli' || ac.kind === 'gyro') { s.om = ac.rotor.om0; s.gov = ac.kind === 'gyro' ? 0 : 1; s.coll = ac.hoverPitch; s.vi = Math.sqrt((ac.mass * G) / (2 * 1.225 * ac.rotor.A)); }
         else s.n = ac.kind === 'wing' ? 0.45 : 0.6;
+      }
+      return;
+    }
+
+    /* An autogyro cannot be put into a hover, because it does not have one. In
+       the air it starts on the downwind leg at cruise with the rotor already up
+       to speed, like a plane; on the ground it starts with the rotor stopped,
+       because prerotating it is part of the takeoff. */
+    if (ac.kind === 'gyro') {
+      if (where === 'air') {
+        const V = ac.cruise || 18;
+        s.p = [60, 40, -up(60, 40) - 40];
+        s.q = quatFromEuler(0, 0.02, -Math.PI / 2);
+        s.v = mulMV(quatToMat(s.q), [V, 0, 0]);
+        s.om = ac.rotor.om0; s.coll = ac.hoverPitch;
+        s.vi = Math.sqrt((ac.mass * G) / (2 * 1.225 * ac.rotor.A));
+      } else {
+        const zw = ac.wheels.length ? Math.max(...ac.wheels.map((wh) => wh.p[2])) : 0.05;
+        s.p = [12, -52, -up(12, -52) - zw - 0.002];
+        s.q = quatFromEuler(0, 0, Math.PI / 2);
+        s.v = [0, 0, 0];
       }
       return;
     }
@@ -1309,7 +1544,7 @@ const FL = (function () {
     const m = ac.mass, I = ac.I, P = ac.prop, B = ac.batt;
     s.t += dt;
     if (ac.kind === 'quad') return stepQuad(s, ac, ctl, env, dt);
-    if (ac.kind === 'heli') return stepHeli(s, ac, ctl, env, dt);
+    if (ac.kind === 'heli' || ac.kind === 'gyro') return stepRotor(s, ac, ctl, env, dt);
     if (ac.kind === 'vtol') return stepVtol(s, ac, ctl, env, dt);
 
     /* --- motor & battery ---
@@ -1739,22 +1974,91 @@ const FL = (function () {
     t.wash = wash;
   }
 
-  /* ---------------- Helicopter (flybarless, governed) ----------------
-     ctl: { thr = collective stick 0..1, a, e, r, mode, lim, armed (motor allowed), hold (throttle hold), curve 'normal' | '3d' } */
-  function stepHeli(s, ac, ctl, env, dt) {
-    const Ro = ac.rotor, B = ac.batt, I = ac.I, rho = env.rho, w = s.w;
-    const motorOn = !!ctl.armed && !ctl.hold && !s.crashed && !(env.battery && s.soc <= 0);
+  /* ---------------- Rotorcraft: helicopter, tip-driven rotor, autogyro ----------------
+     One rotor, three ways of turning it. `rotor.drive` says which, and almost
+     everything below is shared, because almost everything below is the same
+     rotor:
 
-    // collective from the pitch curve (servo-rate limited)
-    const c = Ro.curves[ctl.curve] || Ro.curves.normal, x = clamp(ctl.thr, 0, 1);
-    const thDeg = x < 0.5 ? lerp(c[0], c[1], x / 0.5) : lerp(c[1], c[2], (x - 0.5) / 0.5);
+       'shaft'  a motor on the mast. Its torque has to react on something and
+                the something is the airframe, which is what a tail rotor is
+                for.
+       'tip'    propellers out on the blades, pushing the disc round like a
+                tipjet. They push against the air, not against the airframe, so
+                there is no reaction torque and nothing for a tail rotor to
+                cancel. A propeller also stops pulling at its own pitch speed,
+                so the drive fades out as the head comes up — `tip.Vp` is what
+                keeps a tip-driven rotor near its design headspeed without a
+                governor having to, and what forces the whole machine to be
+                big, slow-turning and lightly loaded.
+       'none'   an autogyro. The rotor is never driven at all: the air drives
+                it, all the time, which is autorotation flown on purpose. The
+                thrust comes from propellers on the airframe, and what makes the
+                air come up through the disc is `rotor.rake` — the mast leans
+                back, so a disc level with the horizon meets the oncoming air at
+                a positive angle.
+
+     Two machines sit between those three. A tip-driven rotor has no reaction
+     torque to cancel and so no tail rotor, which also leaves it nothing to
+     point the nose with: `rotor.mast` is the answer, a motor between the
+     fuselage and the head that yaws the fuselage against the rotor's own
+     angular momentum. It works at zero airspeed and it works with the drive
+     dead, because the hub it lives on has its own pack — and it is not free,
+     because its reaction comes out of the rotor. On a tip-driven machine the
+     pedal spends headspeed, and in an autorotation headspeed is the only thing
+     you have.
+
+     And a gyrodyne — a shaft-driven rotor with a pair of reversing-pitch
+     propellers on stub wings, which is what `thrusters` are for — flies as a
+     helicopter on the collective, the propellers differentially countering the
+     shaft torque. Put the rotor drive on hold and the same airframe is an
+     autogyro: the stick becomes engine power and the rotor turns on air alone.
+     `ctl.hold` is the whole switch, and nothing else about it changes.
+
+     ctl: { thr (collective stick, or engine power once the rotor is free), a, e, r,
+            mode, lim, armed, hold (rotor drive off), curve 'normal' | '3d' } */
+  function stepRotor(s, ac, ctl, env, dt) {
+    const Ro = ac.rotor, B = ac.batt, I = ac.I, rho = env.rho, w = s.w;
+    const drv = Ro.drive || 'shaft';
+    const liveAc = !!ctl.armed && !s.crashed && !(env.battery && s.soc <= 0);
+    // the rotor drive: never on an autogyro, off on throttle hold, off on a flat pack
+    const rotorOn = drv !== 'none' && liveAc && !ctl.hold;
+    const nT = ac.thrusters ? ac.thrusters.length : 0;
+    if (s.tp.length !== nT) s.tp = new Array(nT).fill(0);
+    /* Whose job the throttle stick has. On anything with a collective it is the
+       collective, and it stays live with the drive held — that is what you
+       autorotate on. On an autogyro, and on a gyrodyne the moment its rotor
+       drive goes off, there is no collective worth flying and the stick becomes
+       engine power to the propellers instead. */
+    const stickIsEngine = nT > 0 && (drv === 'none' || !rotorOn);
+    const engineOn = nT > 0 && liveAc && (drv === 'none' ? !ctl.hold : true);
+    const x = clamp(ctl.thr, 0, 1);
+
+    /* Collective, servo-rate limited. An autogyro's blades sit at one angle for
+       the life of the flight; a gyrodyne's park at `autoPitch` while it is being
+       an autogyro, which is where a free rotor turns fastest for the least drag. */
+    const cv = Ro.curves ? (Ro.curves[ctl.curve] || Ro.curves.normal) : null;
+    const thDeg = Ro.fixed !== undefined ? Ro.fixed
+      : stickIsEngine ? (Ro.autoPitch !== undefined ? Ro.autoPitch : cv[0])
+      : x < 0.5 ? lerp(cv[0], cv[1], x / 0.5) : lerp(cv[1], cv[2], (x - 0.5) / 0.5);
     s.coll = approach(s.coll, thDeg * D2R, 4 * dt);
 
     const R = quatToMat(s.q);
     const wind = env.wind || [0, 0, 0];
     const vb = mulMtV(R, [s.v[0] - wind[0], s.v[1] - wind[1], s.v[2] - wind[2]]);
     const OmR = Math.max(1e-3, s.om * Ro.R), A = Ro.A;
-    const vc = -vb[2], Vh = Math.hypot(vb[0], vb[1]); // climb along the shaft, speed in the rotor plane
+    s.rk += ((rotorOn ? Ro.rakeR : Ro.rakeFreeR) - s.rk) * Math.min(1, dt / (Ro.tauRake || 1.2));
+    const rake = s.rk;
+    /* Where the disc is pointing — last step's flapping plus the mast rake — and
+       so what the air is doing through it. Taking the tilt into account is not a
+       refinement here, it is the mechanism: an autogyro's rotor is driven by air
+       coming up through a disc that leans back, and a helicopter in fast forward
+       flight is quietly part-autorotating for the same reason. (The tilt is
+       redone below once this step's flapping is known; a disc does not move far
+       in 2.5 ms.) */
+    const tp0 = s.tilt[0] - Ro.blowback * (vb[1] / OmR) * s.coll;
+    const tq0 = s.tilt[1] + rake + Ro.blowback * (vb[0] / OmR) * s.coll;
+    const vc = -vb[2] - tq0 * vb[0] + tp0 * vb[1]; // climb along the disc normal: below zero and the air drives the rotor
+    const Vh = Math.hypot(vb[0], vb[1]); // speed in the rotor plane
     const vhov = Math.sqrt((ac.mass * G) / (2 * rho * A));
 
     // ---- blade ice (inner blade, ~75% radius, warms least) ----
@@ -1778,25 +2082,78 @@ const FL = (function () {
     const Tstall = ((Ro.CLmax * (1 - bpen.dCL)) / 6) * Ro.sigma * rho * A * OmR * OmR;
     const bladeStall = Math.max(0, Math.abs(T) / Tstall - 1);
     if (bladeStall > 0) T = Math.sign(T) * Tstall;
-    // vortex ring state: sinking at about the induced speed with little forward speed
+    /* Vortex ring state: sinking at about your own induced speed with little
+       forward speed, so the rotor keeps re-ingesting its own wake. It takes a
+       rotor that is pushing air down to do it — a free rotor is out the far side
+       of it, in the windmill brake state, and settles there instead. */
     const sink = -vc / vhov;
-    const vrs = clamp(1 - Math.abs(sink - 1.2) / 0.8, 0, 1) * clamp(1 - Vh / (1.5 * vhov), 0, 1);
+    const vrs = rotorOn ? clamp(1 - Math.abs(sink - 1.2) / 0.8, 0, 1) * clamp(1 - Vh / (1.5 * vhov), 0, 1) : 0;
     const hR = Math.max(0.05, aglOf(s, env) + Ro.h);
     const ge = 1 / (1 - Math.min(0.3, Math.pow(Ro.R / (4 * hR), 2)));
     T *= ge * (1 - 0.35 * vrs);
 
-    // ---- rotor speed: governor vs aerodynamic torque (autorotation when the air drives the rotor) ----
+    /* ---- what the rotor costs, and what the drive can pay ----
+       Qaero is what the air asks of the head. It goes negative when the flow
+       comes up through the disc, and a negative Qaero is autorotation: the air
+       paying instead of charging. */
     const mu = Vh / OmR;
     const P0 = (rho * A * OmR ** 3 * Ro.sigma * (Ro.Cd0 + bpen.dCD) * (1 + 4.65 * mu * mu) * (1 + 6 * bladeStall)) / 8; // iced or stalled blades: more drag
-    const Qaero = (T * (vc + vi) + P0 * 1.12) / Math.max(s.om, 5); // tail rotor ≈ 12% of the main rotor's profile power
-    s.gov = approach(s.gov, motorOn ? 1 : 0, (s.om > 0.6 * Ro.om0 ? 1.5 : Ro.spool) * dt); // soft start, quick bailout
-    const Qmax = Ro.Pmax / Math.max(s.om, 30);
-    const Qm = motorOn ? clamp(Qaero + Ro.govK * (s.gov * Ro.om0 - s.om) * 50, 0, Qmax) : 0;
-    s.om = Math.max(0, s.om + ((Qm - Qaero - Ro.friction * s.om) / Ro.J) * dt);
-    const Pel = (Qm * s.om) / 0.8;
-    battery(s, B, B.Iidle + Pel / Math.max(s.vb || B.Vref, 10), Math.hypot(s.v[0], s.v[1], s.v[2]), env, dt);
+    const tailP = drv === 'shaft' && Ro.TtMax ? 1.12 : 1; // a tail rotor costs about 12% of the main rotor's profile power
+    const Qaero = (T * (vc + vi) + P0 * tailP) / Math.max(s.om, 5);
+    /* A shaft is limited by the motor's power. Tip propellers are limited by
+       their own thrust, which fades towards nothing as the head approaches their
+       pitch speed, and they react on nothing at all. */
+    let Qmax = 0, eta = 0.8, reactK = 0;
+    if (drv === 'shaft') { Qmax = Ro.Pmax / Math.max(s.om, 30); reactK = -Ro.spin; }
+    else if (drv === 'tip') {
+      const Tp = Ro.tip;
+      s.tipT = Tp.Tmax * clamp(1 - (s.om * Tp.r) / Tp.Vp, 0, 1); // thrust still on offer at this tip speed
+      Qmax = Tp.n * Tp.r * s.tipT;
+      eta = Tp.eta;
+    }
+    s.gov = approach(s.gov, rotorOn ? 1 : 0, (s.om > 0.6 * Ro.om0 ? 1.5 : Ro.spool) * dt); // soft start, quick bailout
+    const Qm = rotorOn ? clamp(Qaero + Ro.govK * (s.gov * Ro.om0 - s.om) * 50, 0, Qmax) : 0;
+    const react = reactK * Qm;
+    /* A prerotator. An autogyro cannot start its rotor on the air, because
+       standing still there is no air going through the disc: the engine spins the
+       head up on the ground and then lets go of it, and letting go of it is the
+       moment the air has to take over. It runs only with the wheels down and the
+       throttle closed, which is how it is done for real. */
+    const pre = Ro.prerot && s.wow && liveAc && x < 0.15 && s.om < Ro.prerot.om ? Ro.prerot.Q : 0;
+    // tip pods drag the disc round whether they are driven or not; in autorotation that is all they do
+    const Qdrag = Ro.friction * s.om + (drv === 'tip' ? Ro.tip.kD * s.om * s.om : 0);
 
-    // ---- flybarless controller: rate PID → wanted moments → disc tilt; heading hold → tail thrust ----
+    /* ---- yaw: whatever this machine has to yaw with ----
+       A tail rotor, a motor on the mast, differential thrust from a pair of
+       propellers, vanes in the rotor's wash. A real design has one of them; a
+       gyrodyne has two. Each is asked for its share of the single yaw demand in
+       proportion to what it can make, so the controller never has to know which
+       it is talking to.
+
+       The mast motor is the one worth understanding. With no torque path between
+       a tip-driven rotor and its fuselage, the fuselage hangs free on the
+       bearing and a motor across that bearing turns it against the rotor's
+       angular momentum — full authority at zero airspeed and with the drive
+       dead, paid for out of the rotor. Vanes are the opposite: rudders standing
+       in the downwash, so in a hover the wash is all they have, in a glide the
+       airspeed is, and in the last few feet of a zero-speed autorotation they
+       have neither. */
+    const omr = s.om / Ro.om0;
+    const TtMax = (Ro.TtMax || 0) * omr * omr;
+    const mastQ = Ro.mast ? Ro.mast.Q * clamp(omr / 0.3, 0, 1) : 0; // needs a turning head to react against
+    let vaneCap = 0;
+    if (Ro.vane) {
+      const wash = vc + vi > 0 ? vc + 2 * vi : 0; // the wake is below the disc only while the rotor pushes air down
+      vaneCap = 0.5 * rho * (vb[0] * vb[0] + wash * wash) * Ro.vane.area * Ro.vane.k * Ro.vane.arm;
+    }
+    let thrCap = 0, TcomEach = 0;
+    if (nT) {
+      TcomEach = engineOn && stickIsEngine ? x * ac.thrMax : 0;
+      for (const Th of ac.thrusters) if (Th.yaw) thrCap += Math.abs(Th.p[1]) * Math.max(0, Math.min(Th.Tmax - TcomEach, TcomEach - Th.Tmin));
+    }
+    const yawCap = TtMax * (Ro.lt || 0) + mastQ + vaneCap + thrCap;
+
+    // ---- flybarless controller: rate PID → wanted moments → disc tilt, and one yaw demand ----
     const sp = rotarySetpoints(ctl, R, w, ac);
     const gains = [ac.pid.roll, ac.pid.pitch, ac.pid.yaw], alpha = [0, 0, 0];
     const live = s.om > 0.3 * Ro.om0 && !s.crashed;
@@ -1813,25 +2170,61 @@ const FL = (function () {
       alpha[k] = g[0] * e + g[1] * s.pidI[k] + g[2] * s.ff[k] - (g[4] || 0) * s.dF[k];
     }
     const Iw = [I[0] * w[0], I[1] * w[1], I[2] * w[2]], gyro = cross(w, Iw);
-    const omr = s.om / Ro.om0;
     const Kc = Ro.Kh * omr * omr + Math.max(0, T) * Ro.h; // moment per radian of disc tilt
     const tiltCmd = [
       live ? clamp((I[0] * alpha[0] + gyro[0]) / Math.max(Kc, 0.5), -Ro.maxCyc, Ro.maxCyc) : 0,
       live ? clamp((I[1] * alpha[1] + gyro[1]) / Math.max(Kc, 0.5), -Ro.maxCyc, Ro.maxCyc) : 0,
     ];
     for (let k = 0; k < 2; k++) s.tilt[k] += (tiltCmd[k] - s.tilt[k]) * Math.min(1, dt / Ro.tauF);
-    // blowback: the disc flaps away from the relative wind
-    const tp = s.tilt[0] - Ro.blowback * (vb[1] / OmR) * s.coll, tq = s.tilt[1] + Ro.blowback * (vb[0] / OmR) * s.coll;
-    // tail: cancel the motor's reaction torque, then chase the yaw-rate setpoint
-    const react = -Ro.spin * Qm; // motor torque pushes the body the other way
-    const TtMax = Ro.TtMax * omr * omr;
-    const TtCmd = s.om > 5 ? clamp((I[2] * alpha[2] + gyro[2] - react) / Ro.lt, -TtMax, TtMax) : 0;
-    s.tt += (TtCmd - s.tt) * Math.min(1, dt / Ro.tauT); // tail servo and pitch slider lag
-    const Tt = clamp(s.tt, -TtMax, TtMax);
+    /* Flapping, and then where the disc actually points. The two are not the
+       same thing once the mast is raked: the hub spring is loaded by the disc
+       moving relative to its *shaft*, so flapping is what goes into it, while
+       the thrust leans wherever the disc leans — rake included. Feeding the
+       rake into the spring instead would have the controller spending its whole
+       cyclic range cancelling the rig, which is what an autogyro is rigged that
+       way to avoid. */
+    const fp = s.tilt[0] - Ro.blowback * (vb[1] / OmR) * s.coll;
+    const fq = s.tilt[1] + Ro.blowback * (vb[0] / OmR) * s.coll;
+    const tp = fp, tq = fq + rake;
+    const Ks = Ro.Kh * omr * omr; // the hub spring alone; Kc adds the thrust acting a mast-height above the CG
+    /* The shaft torque comes out of the yaw demand first: on a tail-rotor
+       helicopter, cancelling that reaction is most of what the pedal is doing. */
+    const Mzw = I[2] * alpha[2] + gyro[2] - react;
+    const yawCmd = s.om > 5 && yawCap > 1e-6 ? clamp(Mzw / yawCap, -1, 1) : 0;
+    s.tt += (yawCmd - s.tt) * Math.min(1, dt / Ro.tauT); // servos, pitch sliders and vane linkages all lag
+    const yf = clamp(s.tt, -1, 1);
+
+    /* ---- rotor speed ----
+       Driven, prerotated, dragged — and torqued by the mast motor, whose
+       reaction is the pedal's bill. */
+    const Qmast = -yf * mastQ;
+    s.om = Math.max(0, s.om + ((Qm + pre + Qmast - Qaero - Qdrag) / Ro.J) * dt);
+    let Pel = (Qm * s.om) / eta + (pre * s.om) / 0.7;
 
     // ---- forces and moments ----
     const F = [-T * tq, T * tp, -T];
-    const Mo = [Kc * tp, Kc * tq, Tt * Ro.lt + react];
+    const Mo = [Ks * fp + T * Ro.h * tp, Ks * fq + T * Ro.h * tq, react + yf * (TtMax * (Ro.lt || 0) + mastQ + vaneCap)];
+    if (nT) {
+      /* The propellers: each one's share of the mean, each one's share of the
+         differential, and both acting where it is actually bolted — so a pair
+         slung below the centre of gravity pitches the nose as the power comes
+         on, exactly as the real thing does. Reversing pitch is what lets the
+         differential sit about zero mean thrust, which is the only reason a
+         gyrodyne can hover straight instead of charging forward at whatever
+         thrust its anti-torque happens to need. */
+      for (let i = 0; i < nT; i++) {
+        const Th = ac.thrusters[i];
+        const head = Th.yaw ? Math.max(0, Math.min(Th.Tmax - TcomEach, TcomEach - Th.Tmin)) : 0;
+        const want = clamp(TcomEach - yf * Math.sign(Th.p[1]) * head, Th.Tmin, Th.Tmax);
+        s.tp[i] += (want - s.tp[i]) * Math.min(1, dt / Th.tau);
+        const Ti = s.tp[i] * clamp(1 - Math.max(0, vb[0]) / Th.Vp, 0, 1.2); // a propeller stops pulling at its pitch speed
+        F[0] += Ti;
+        Mo[1] += Th.p[2] * Ti;
+        Mo[2] -= Th.p[1] * Ti;
+        Pel += (Math.abs(s.tp[i]) * (Math.max(0, vb[0]) + Math.sqrt(Math.abs(s.tp[i]) / (2 * rho * Th.A)))) / 0.75;
+      }
+    }
+    battery(s, B, B.Iidle + Pel / Math.max(s.vb || B.Vref, 10), Math.hypot(s.v[0], s.v[1], s.v[2]), env, dt);
     if (vrs > 0) { // VRS: buffeting
       s.buf[0] += (Math.random() * 2 - 1 - s.buf[0]) * Math.min(1, dt / 0.08);
       s.buf[1] += (Math.random() * 2 - 1 - s.buf[1]) * Math.min(1, dt / 0.08);
@@ -1847,13 +2240,32 @@ const FL = (function () {
     const Yf = -0.5 * rho * Vn * ac.body.fin * 3 * vb[1];
     F[1] += Yf; Mo[2] += ac.body.finX * Yf;
     Mo[0] -= 0.03 * w[0]; Mo[1] -= 0.05 * w[1]; // rotor damping
+    // stub wings and a tailplane, if it has them: the same strip model a plane uses
+    if (ac.strips.length) {
+      const gw = env.gw || [0, 0, 0], wa = [w[0] - gw[0], w[1] - gw[1], w[2] - gw[2]];
+      stripForces(s, ac, vb, wa, R, rho, env, 0, dt, F, Mo);
+    }
 
     const Fcb = finish(s, ac, F, Mo, R, env, dt);
     s.n = omr;
+    /* The energy budget an autorotation is flown on, which once the drive is off
+       is the only budget there is. `Erot` is what the head holds above the speed
+       below which it can no longer make one g — spend past that and there is no
+       flare left, whatever the altimeter says. `Eneed` is the kinetic energy of
+       the descent plus the height the cushion is flown over. `flare` is their
+       ratio: the number to fly, and under 100% you arrive rather than land.
+       `Eair` is the airspeed you can still trade for headspeed, which is why a
+       glide is flown at a speed and not at an attitude. */
     const t = s.tele;
     t.V = Vn; t.qbar = 0.5 * rho * Vn * Vn; t.T = T; t.alpha = 0; t.beta = 0; t.CL = 0; t.stallL = 0; t.stallR = 0;
     t.nz = -(F[2] + Fcb[2]) / (ac.mass * G);
     t.coll = s.coll; t.vi = vi; t.vrs = vrs; t.Pm = Qm * s.om; t.bladeStall = bladeStall; t.bladeIce = bpen.dCL;
+    t.free = !rotorOn; t.stickIsEngine = stickIsEngine; t.Qaero = Qaero; t.Qmast = Qmast;
+    t.Erot = Math.max(0, 0.5 * Ro.J * (s.om * s.om - ac.omMin * ac.omMin));
+    t.Eneed = 0.5 * ac.mass * Math.max(0, s.v[2]) ** 2 + ac.mass * G * Ro.hFlare;
+    t.Eair = 0.5 * ac.mass * Vh * Vh;
+    t.flare = t.Erot / t.Eneed;
+    t.yawCap = yawCap; t.yawUse = Math.abs(yf);
   }
 
   /* Assisted modes for planes. sticks: raw pilot sticks; manual: the surfaces the pilot would get in

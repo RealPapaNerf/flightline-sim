@@ -253,19 +253,49 @@ const ACF = (function (FL) {
     rotorDrag: n(0, 0.2),
     look: PLANE_LOOK,
   });
+  /* A propeller bolted to the airframe rather than to the rotor: an autogyro's
+     engine, or one of a gyrodyne's pair. `Tmin` below zero is a reversing-pitch
+     blade, which is what lets a pair work differentially about no net thrust;
+     `yaw` says this one is part of the pedal. */
+  const THRUSTER = o({
+    p: v(3, -4, 4), Tmax: n(0.1, 600), Tmin: n(-600, 0, 0), tau: n(0.005, 2),
+    Vp: n(1, 300), D: n(0.01, 1.5), yaw: b(false),
+  });
+  /* Helicopters, tip-driven rotors and autogyros are one definition with one
+     rotor in it. What separates them is `rotor.drive` and which of the optional
+     blocks below the file carries: a shaft-driven rotor wants `curves` and
+     usually a tail rotor, a tip-driven one wants `tip` and a `mast` motor to
+     yaw with, an autogyro wants `fixed`, `rake` and a `prerot`. See
+     docs/aircraft-format.md for which goes with which. */
+  const ROTOR = o({
+    R: n(0.05, 2), chord: n(0.005, 0.25), blades: i(2, 8), a: n(2, 8), Cd0: n(0.004, 0.06),
+    kInd: n(1, 1.5), CLmax: n(0.4, 1.6), om0: n(20, 3000), J: n(1e-5, 5), Pmax: n(0, 20000),
+    govK: n(0, 1), spool: n(0.01, 3), friction: n(0, 0.1),
+    h: n(0, 1.5), Kh: n(0, 2000), tauF: n(0.001, 0.5), maxCyc: n(0.02, 0.6), blowback: n(0, 20),
+    lt: n(0, 3), TtMax: n(0, 300), tauT: n(0.002, 0.5), spin: n(-1, 1),
+    curves: opt(o({ normal: v(3, -20, 20), '3d': v(3, -20, 20) })),
+    drive: e(['shaft', 'tip', 'none'], 'shaft'),
+    fixed: opt(n(-5, 15)),          // an autogyro's one blade angle, degrees
+    autoPitch: opt(n(-10, 10)),     // where a collective parks once the drive is off, degrees
+    rake: n(0, 20, 0),              // degrees the mast leans back
+    rakeFree: opt(n(0, 20)),        // the rake it takes up with the drive off, if that is different
+    tauRake: n(0.1, 10, 1.2),       // how long the head takes to get there
+    hFlare: n(0.2, 10, 2),          // the height the cushion is flown over, for the energy budget
+    tip: opt(o({ n: i(1, 8), r: n(0.02, 2), Tmax: n(0.1, 600), Vp: n(5, 400), eta: n(0.1, 1), kD: n(0, 0.1) })),
+    mast: opt(o({ Q: n(0, 200) })),
+    vane: opt(o({ area: n(0, 2), arm: n(0.02, 4), k: n(0, 4) })),
+    prerot: opt(o({ Q: n(0, 200), om: n(1, 3000) })),
+  });
   const HELI = Object.assign({}, COMMON, ROTARY, {
-    kind: e(['heli']),
-    rotor: o({
-      R: n(0.05, 2), chord: n(0.005, 0.2), blades: i(2, 8), a: n(2, 8), Cd0: n(0.004, 0.06),
-      kInd: n(1, 1.5), CLmax: n(0.4, 1.6), om0: n(20, 3000), J: n(1e-5, 5), Pmax: n(10, 20000),
-      govK: n(0, 1), spool: n(0.01, 3), friction: n(0, 0.1),
-      h: n(0, 1.5), Kh: n(0, 2000), tauF: n(0.001, 0.5), maxCyc: n(0.02, 0.6), blowback: n(0, 20),
-      lt: n(0.05, 3), TtMax: n(0.1, 300), tauT: n(0.002, 0.5), spin: n(-1, 1),
-      curves: o({ normal: v(3, -20, 20), '3d': v(3, -20, 20) }),
-    }),
+    kind: e(['heli', 'gyro']),
+    rotor: ROTOR,
+    thrusters: opt(a(4, THRUSTER)),
+    cruise: opt(n(1, 120)),       // the speed an air start begins at, for a machine that cannot hover
+    steerMax: n(0, 1, 0),
+    hubCam: opt(v(3, -8, 8)),     // a derotated camera on top of the rotor head
     look: opt(QUAD_LOOK),
   });
-  const TABLE = { wing: PLANE, conventional: PLANE, quad: QUAD, heli: HELI, vtol: VTOL };
+  const TABLE = { wing: PLANE, conventional: PLANE, quad: QUAD, heli: HELI, gyro: HELI, vtol: VTOL };
   const MAX_STRIPS = 40; // a plane's whole flying cost is its strips; see docs/aircraft-format.md
 
   function stripCount(def) {
@@ -289,7 +319,7 @@ const ACF = (function (FL) {
     if (!def.name) def.name = def.id;
     const ns = stripCount(def);
     if (ns > MAX_STRIPS) { out.errors.push(`surfaces add up to ${ns} strips; the limit is ${MAX_STRIPS} (lower each surface's "n")`); return null; }
-    if (kind !== 'quad' && kind !== 'heli' && !def.surfaces.some((sf) => sf.role === 'wing')) { out.errors.push('no surface has role "wing"'); return null; }
+    if (kind !== 'quad' && kind !== 'heli' && kind !== 'gyro' && !def.surfaces.some((sf) => sf.role === 'wing')) { out.errors.push('no surface has role "wing"'); return null; }
     if (kind === 'quad' && def.motors.length !== 4) { out.errors.push(`motors: ${def.motors.length} given; the model flies 4`); return null; }
     if (kind === 'vtol') {
       /* A tail-sitter can be a four-motor cruciform or a twin-motor flying wing, so
@@ -808,7 +838,7 @@ const ACF = (function (FL) {
   /* Bake in the mechanical trim: the elevator a hands-off aircraft flies
      with. V defaults to 1.5× the stall speed. */
   function autoTrim(def, V) {
-    if (def.kind === 'quad' || def.kind === 'heli') return def;
+    if (def.kind === 'quad' || def.kind === 'heli' || def.kind === 'gyro') return def;
     const ac = FL.build(def);
     const Vt = V || 1.5 * FL.stallSpeed(ac).Vs;
     const t = FL.trim(ac, Vt);

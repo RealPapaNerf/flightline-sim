@@ -580,7 +580,7 @@ to the surfaces has the deflection to fly it with.
 | `look.dark` | 3 × (0…1) | *optional* | prop, cowl and tyres |
 | `look.metal` | 3 × (0…1) | *optional* | spinner and gear legs |
 
-#### Helicopters only (`kind` `heli`)
+#### Rotorcraft only (`kind` `heli` or `gyro`)
 
 | field | range | default | what it is |
 |---|---|---|---|
@@ -599,7 +599,7 @@ to the surfaces has the deflection to fly it with.
 | `rates.yaw.c` | 1 … 600 | **required** | Betaflight Actual rates: centre sensitivity, °/s |
 | `rates.yaw.m` | 20 … 2000 | **required** | max rate at full stick, °/s |
 | `rates.yaw.e` | 0 … 1 | **required** | expo, 0…1 |
-| `kind` | `heli` | **required** | `conventional` has a tail, `wing` is a plank or flying wing |
+| `kind` | `heli`, `gyro` | **required** | `gyro` is an autogyro: a rotorcraft, but not one that hovers |
 | `rotor.R` | 0.05 … 2 | **required** | rotor radius, m |
 | `rotor.chord` | 0.005 … 0.2 | **required** | blade chord, m |
 | `rotor.blades` | 2 … 8 | **required** | number of main-rotor blades |
@@ -609,7 +609,7 @@ to the surfaces has the deflection to fly it with.
 | `rotor.CLmax` | 0.4 … 1.6 | **required** | mean blade lift coefficient it can hold |
 | `rotor.om0` | 20 … 3000 | **required** | governed headspeed, rad/s (rpm × π/30) |
 | `rotor.J` | 0.00001 … 5 | **required** | rotor inertia, kg·m² — what you autorotate on |
-| `rotor.Pmax` | 10 … 20000 | **required** | motor power the governor can call on, W |
+| `rotor.Pmax` | 0 … 20000 | **required** | motor power the governor can call on, W (0 on an autogyro) |
 | `rotor.govK` | 0 … 1 | **required** | governor gain |
 | `rotor.spool` | 0.01 … 3 | **required** | spool-up time constant, s |
 | `rotor.friction` | 0 … 0.1 | **required** | drivetrain friction torque, N·m |
@@ -618,16 +618,108 @@ to the surfaces has the deflection to fly it with.
 | `rotor.tauF` | 0.001 … 0.5 | **required** | how quickly the disc follows a cyclic input, s |
 | `rotor.maxCyc` | 0.02 … 0.6 | **required** | cyclic limit, radians of disc tilt |
 | `rotor.blowback` | 0 … 20 | **required** | how much forward speed tilts the disc back |
-| `rotor.lt` | 0.05 … 3 | **required** | tail rotor arm, m |
-| `rotor.TtMax` | 0.1 … 300 | **required** | tail thrust at full headspeed, N |
+| `rotor.lt` | 0 … 3 | **required** | tail rotor arm, m (0 if it has no tail rotor) |
+| `rotor.TtMax` | 0 … 300 | **required** | tail thrust at full headspeed, N (0 if it has no tail rotor) |
 | `rotor.tauT` | 0.002 … 0.5 | **required** | tail response lag, s |
 | `rotor.spin` | -1 … 1 | **required** | main rotor direction: −1 clockwise seen from above |
-| `rotor.curves.normal` | 3 × (-20 … 20) | **required** | collective in degrees at stick 0, ½ and 1 |
-| `rotor.curves.3d` | 3 × (-20 … 20) | **required** | the same for the 3D curve (zero pitch at mid stick) |
+| `rotor.curves.normal` | 3 × (-20 … 20) | *optional* | collective in degrees at stick 0, ½ and 1 |
+| `rotor.curves.3d` | 3 × (-20 … 20) | *optional* | the same for the 3D curve (zero pitch at mid stick) |
+| `rotor.drive` | `shaft`, `tip`, `none` | *shaft* | what turns the rotor — see [Three ways to turn a rotor](#three-ways-to-turn-a-rotor) |
+| `rotor.fixed` | -5 … 15 | *optional* | one blade angle for the whole flight, degrees. An autogyro has this instead of `curves` |
+| `rotor.autoPitch` | -10 … 10 | *optional* | where a collective parks when the drive goes off and the stick becomes engine power, degrees |
+| `rotor.rake` | 0 … 20 | *0* | degrees the mast leans back. An autogyro's reason to turn at all |
+| `rotor.rakeFree` | 0 … 20 | *= rake* | the rake the head takes up with the drive off — a tilting head, and a gyrodyne's mode change |
+| `rotor.tauRake` | 0.1 … 10 | *1.2* | how long the head takes to get there, s |
+| `rotor.hFlare` | 0.2 … 10 | *2* | the height the cushion is flown over, which is what the flare margin is measured against, m |
+| `rotor.tip.n` | 1 … 8 | **required with `tip`** | how many propellers are out on the blades |
+| `rotor.tip.r` | 0.02 … 2 | **required with `tip`** | how far out they are, m |
+| `rotor.tip.Tmax` | 0.1 … 600 | **required with `tip`** | static thrust of each one, N |
+| `rotor.tip.Vp` | 5 … 400 | **required with `tip`** | its pitch speed, m/s: thrust fades to nothing as the tip approaches this |
+| `rotor.tip.eta` | 0.1 … 1 | **required with `tip`** | how much of the electrical power reaches the rotor |
+| `rotor.tip.kD` | 0 … 0.1 | **required with `tip`** | pod drag torque, N·m per (rad/s)² — paid whether driven or not |
+| `rotor.mast.Q` | 0 … 200 | *optional* | a motor across the mast bearing: the pedal on a machine with no reaction torque, N·m |
+| `rotor.vane.area` | 0 … 2 | *optional* | vanes or a rudder in the rotor's wash, m² |
+| `rotor.vane.arm` | 0.02 … 4 | *optional* | their arm behind the CG, m |
+| `rotor.vane.k` | 0 … 4 | *optional* | lift coefficient at full deflection |
+| `rotor.prerot.Q` | 0 … 200 | *optional* | prerotator torque, N·m. Runs only on the ground with the throttle closed |
+| `rotor.prerot.om` | 1 … 3000 | *optional* | the headspeed it spins up to, rad/s |
+| `thrusters[].p` | 3 × (-4 … 4) | *optional* | a propeller bolted to the airframe: where it is, m |
+| `thrusters[].Tmax` | 0.1 … 600 | *optional* | its thrust, N |
+| `thrusters[].Tmin` | -600 … 0 | *0* | how hard it can push backwards — below zero means reversing pitch |
+| `thrusters[].tau` | 0.005 … 2 | *optional* | response lag, s |
+| `thrusters[].Vp` | 1 … 300 | *optional* | pitch speed, m/s |
+| `thrusters[].D` | 0.01 … 1.5 | *optional* | diameter, m |
+| `thrusters[].yaw` | true/false | *false* | whether this one is part of the pedal |
+| `cruise` | 1 … 120 | *optional* | the speed an air start begins at, for a machine that cannot hover, m/s |
+| `hubCam` | 3 × (-8 … 8) | *optional* | a derotated camera on top of the rotor head, body coordinates |
+| `steerMax` | 0 … 1 | *0* | nosewheel steering, for a rotorcraft that takes off on wheels |
 | `look.front` | 3 × (0…1) | *optional* | quad: front props |
 | `look.rear` | 3 × (0…1) | *optional* | quad: rear props |
 | `look.frame` | 3 × (0…1) | *optional* | quad: arms and plates |
 | `look.wrap` | 3 × (0…1) | *optional* | quad: battery wrap |
+
+## Three ways to turn a rotor
+
+`kind` `heli` and `kind` `gyro` share one rotor model. What separates the
+machines built on it is `rotor.drive`, and which of the optional blocks above
+the file carries with it.
+
+### `shaft` — a motor on the mast
+
+The ordinary helicopter, and the default. The motor's torque has to react on
+something and the something is the airframe, which is what a tail rotor is for:
+`lt` and `TtMax`. The throttle stick is the collective, through `curves`, and it
+stays live with the motor held — that is what you autorotate on.
+
+A shaft-driven rotor **without** a tail rotor has to put that reaction
+somewhere else. The gyrodyne puts it into a pair of `thrusters` with `yaw` set
+and `Tmin` below zero, so one pushes while the other pulls and the torque is
+cancelled at no net thrust. Without something to take it, the airframe simply
+turns the other way.
+
+### `tip` — propellers out on the blades
+
+A tipjet, driven by propellers rather than gas. They push against the air and
+not against the airframe, so there is no reaction torque at all and nothing for
+a tail rotor to cancel.
+
+One number sizes the whole machine: `tip.Vp`, the propellers' pitch speed. A
+propeller stops pulling when it is flying at its own pitch speed, and these ones
+are flying at the blade tip speed, so the tip speed has to stay well under it.
+A slow tip speed buys thrust only through area, so the rotor comes out big and
+lightly loaded — which is why the tip-prop heli in `aircraft/` glides twice as
+far as a 450 and autorotates at under 3 m/s. `tip.kD` is the pods' drag, paid
+whether they are driven or not, and it is what you give up for all of that.
+
+With no torque path between rotor and fuselage, the fuselage hangs free on the
+mast bearing and has nothing to point the nose with either. `mast.Q` is the
+answer: a motor across that bearing, turning the fuselage against the rotor's
+own angular momentum. It works at a standstill and it works with the drive
+dead — and its reaction comes out of the rotor, so on a machine like this **the
+pedal spends headspeed**.
+
+### `none` — an autogyro
+
+Nothing drives the rotor, ever. `rake` leans the mast back so that air comes up
+through the disc all the time and keeps it turning, which is autorotation flown
+on purpose, and `thrusters` push the machine along fast enough for that to keep
+happening. The blades sit at one angle, `fixed`, for the whole flight: there is
+no collective and `curves` is left out.
+
+It cannot hover and it cannot stall. It needs a run to take off and a `prerot`
+to start the head, because standing still there is no air going through the
+disc. And every landing is an autorotation, flared in a window about a metre
+deep, which is why its `starts` are `runway` and `air` rather than `pad`.
+
+### The energy budget
+
+Whatever is driving it, once the drive goes off the only budget left is the one
+in the rotor, and the sim reports it as **flare margin** — in the OSD and in
+`tele.flare`. It is the energy the head is holding above the speed at which it
+can no longer make one g, against the energy it takes to stop the descent plus
+the height (`hFlare`) the cushion is flown over. Under 100% the landing is an
+arrival. `tele.Eair` is the airspeed you can still trade into it, which is why a
+glide is flown at a speed and not at an attitude.
 
 ## Lifting bodies on a quad
 

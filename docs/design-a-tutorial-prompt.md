@@ -88,6 +88,16 @@ ground under him - and every angle is a compass heading, 0 = north, 90 = east.
   { "kind": "say",             no flying: a line of coaching between two tasks
     "say": "<what to do next>", "tip": "<why>", "hold": 3 }
 
+  "cut": true                  on any flying task, on a rotorcraft: the rotor
+                               drive fails for the length of that task and the
+                               sim holds it off, whether the pilot was ready or
+                               not. The collective stays live on a helicopter;
+                               an autogyro loses its engine instead. Use it for
+                               engine-out drills, and give the task room — a
+                               450 glides about 1.4 m along for every metre
+                               down, a tip-driven rotor or a gyrodyne two to
+                               three times that.
+
 Scoring, so you can judge a par: 1,000 points - 500 for finishing, 200 for
 coming in under par, 300 for precision (how near the middle of every marker
 you flew, averaged). A crash costs 120. Gold is 850, silver 650, bronze 420.

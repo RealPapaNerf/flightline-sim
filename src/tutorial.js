@@ -84,6 +84,11 @@ const TUT = (function () {
     ['height', 'n', [0.6, 60], 2.5],
     ['yawDeg', 'n', [-360, 360], 0],  // gate heading: which way you fly through it
     ['rate', 'n', [0.2, 20], 1.5],    // land: the touchdown rate that still counts as gentle
+    /* The rotor drive fails for the length of this task, whether you were ready
+       or not. The lesson engine only carries the flag — it has no physics and
+       no controls — and the sim and the test pilot both read it off the live
+       task and hold the drive off while it is set. */
+    ['cut', 'b', 0, false],
     ['par', 'n', [1, 600], 20],
   ];
   const LESSON_RULES = [
@@ -128,7 +133,7 @@ const TUT = (function () {
   }
 
   const MAX_TASKS = 40, MAX_LESSONS = 30;
-  const AC_KINDS = ['quad', 'heli', 'wing', 'conventional', 'vtol'];
+  const AC_KINDS = ['quad', 'heli', 'gyro', 'wing', 'conventional', 'vtol'];
 
   function normLesson(raw, out, where) {
     if (!raw || typeof raw !== 'object') { out.errors.push(`${where}: not an object`); return null; }
@@ -743,7 +748,123 @@ const TUT = (function () {
   // the courses that ship with the sim, normalised through the same reader a
   // file goes through, so a built-in course cannot be something a file could
   // not have been
-  const BUILTIN = [QUAD, HELI, PLANE].map((c) => {
+
+  /* The engine-out ladder. Every other course here teaches you to make an
+     aircraft do something; this one teaches you what to do when it stops.
+
+     A task with `cut` set fails the rotor drive for the length of that task,
+     and fails it whether you were ready or not — the whole point is that the
+     quiet arrives on its own. The engine does not come back until the task is
+     over, so each of these is one try.
+
+     The ladder is built out of height, because height is the budget. Sixty
+     metres is plenty and the drill is just to fly the glide; thirty is enough
+     if you lower the collective straight away; eighteen is about all a 450 has
+     and nothing at all is wasted. Fly it on a tip-driven rotor or a gyrodyne
+     and the numbers change completely, which is the other reason it is here. */
+  const AUTOS = {
+    id: 'engine-out', name: 'Engine out',
+    blurb: 'Six engine failures, each with less height than the last. The sim fails the rotor drive for you — there is nothing to press and no warning. Watch the flare margin: it is the energy in the head against the energy it takes to stop, and under 100% you arrive rather than land.',
+    kinds: ['heli'],
+    lessons: [
+      { id: 'lower-it', name: '1 · Lower the collective', start: 'pad', boxR: 200, maxAlt: 90, par: 150,
+        blurb: 'Climb to sixty metres and have the drive fail on you. There is one thing to do in the first second and it is counter-intuitive: push the collective down. Land anywhere in the circle.',
+        tasks: [
+          say('Climb to 60 m over the field', 'The moment it goes quiet, collective to the bottom. Holding collective in to stay up is what kills the head, and a dead head cannot be flared. You trade height for rotor speed first and worry about where you are going second.', 3),
+          mark({ say: 'Up to 60 m', n: 35, e: 0, up: 60, r: 20, band: 14, par: 35 }),
+          pad({ say: 'Engine out. Get it down anywhere in the circle', n: 25, e: 0, up: 0, r: 18, band: 10, rate: 2.5, par: 55, cut: true,
+            tip: 'Nose down to hold the glide speed, collective down to hold the head. Anywhere inside the circle counts — this one is not about the spot.' }),
+        ] },
+      { id: 'steer-it', name: '2 · Steer the glide', start: 'pad', boxR: 240, maxAlt: 100, par: 170,
+        blurb: 'The same failure, but now you have to go somewhere with it. A glide you cannot steer is a glide you cannot aim, and you only find out which you have by trying.',
+        tasks: [
+          say('Climb to 60 m out over the field', '', 3),
+          mark({ say: 'Up to 70 m, well out', n: 80, e: 15, up: 70, r: 20, band: 14, par: 40 }),
+          mark({ say: 'Engine out. Through the marker at 28 m', n: 40, e: 0, up: 28, r: 14, band: 10, par: 35, cut: true,
+            tip: 'Turning costs you rotor as well as height. Make one turn, not three small ones.' }),
+          pad({ say: 'And down in the circle', n: PAD_N, e: PAD_E, up: 0, r: 18, band: 8, rate: 2.5, par: 50, cut: true }),
+        ] },
+      { id: 'to-the-pad', name: '3 · Straight in to the pad', start: 'pad', boxR: 200, maxAlt: 80, par: 160,
+        blurb: 'Fifty metres, straight in, on the pad. Plenty of height — enough that you can still fix a bad decision, which is exactly what makes it the right place to learn the flare.',
+        tasks: [
+          say('Climb to 50 m on the approach line', '', 3),
+          mark({ say: 'Up to 50 m, out to the north', n: 55, e: 0, up: 50, r: 18, band: 12, par: 40 }),
+          pad({ say: 'Engine out. Autorotate to the pad', n: PAD_N, e: PAD_E, up: 0, r: 17, band: 5, rate: 2, par: 55, cut: true,
+            tip: 'Hold the nose a little up through the glide to keep the head alive, flare at about five metres, and put the last of the collective in as it stops. One try.' }),
+        ] },
+      { id: 'thirty', name: '4 · Thirty metres', start: 'pad', boxR: 180, maxAlt: 60, par: 140,
+        blurb: 'Half the height and the same pad. There is no longer time to think about it: the collective has to come down while you are still working out what happened.',
+        tasks: [
+          say('Climb to 30 m on the approach line', 'Below about forty metres the glide never really settles — you lower the collective, point it at the pad, and flare. Everything else is decoration.', 3),
+          mark({ say: 'Up to 30 m, out to the north', n: 25, e: 0, up: 30, r: 16, band: 10, par: 35 }),
+          pad({ say: 'Engine out. Autorotate to the pad', n: PAD_N, e: PAD_E, up: 0, r: 22, band: 5, rate: 2.2, par: 55, cut: true }),
+        ] },
+      { id: 'minimum', name: '5 · The minimum', start: 'pad', boxR: 160, maxAlt: 45, par: 130,
+        blurb: 'Eighteen metres. On a 450 that is about all there is — the head has one flare in it and nothing spare. On a tip-driven rotor or a gyrodyne it is comfortable, and finding out how much more they have is the point of flying this one twice.',
+        tasks: [
+          say('Climb to 18 m just north of the pad', 'This is the bottom of the height band where a flare still works. Below it you are landing, not autorotating, and the only thing left to do is be level and wings-level when you get there.', 3),
+          mark({ say: 'Up to 18 m', n: 18, e: 0, up: 18, r: 12, band: 8, par: 30 }),
+          pad({ say: 'Engine out. Put it on the pad', n: PAD_N, e: PAD_E, up: 0, r: 12, band: 6, rate: 2.5, par: 55, cut: true,
+            tip: 'Nothing fancy. Collective down, nose level, one flare, and accept where it puts you.' }),
+        ] },
+      { id: 'turn-back', name: '6 · The turn back', start: 'pad', boxR: 280, maxAlt: 105, par: 190,
+        blurb: 'It fails downwind, pointing away, at sixty metres. You have the height for one turn and not for two, and the turn is where most of the rotor goes.',
+        tasks: [
+          say('Climb away downwind, out to the north-east', '', 3),
+          mark({ say: 'Out to 75 m, well away', n: 80, e: 30, up: 75, r: 20, band: 14, par: 45 }),
+          mark({ say: 'Engine out. Turn back towards the field', n: 45, e: 8, up: 32, r: 18, band: 12, par: 40, cut: true,
+            tip: 'Start the turn immediately and make it one smooth turn. Rolling in and out of it twice costs you the rotor you were going to flare with.' }),
+          pad({ say: 'And down on the pad', n: PAD_N, e: PAD_E, up: 0, r: 16, band: 6, rate: 2.5, par: 55, cut: true }),
+        ] },
+    ],
+  };
+
+  /* The autogyro ladder. A gyro cannot hover, so none of the hovering ladder
+     applies and none of the engine-out ladder does either — its rotor is
+     already in autorotation and always was. What it has instead is a takeoff
+     that will not happen until the head is up to speed, and a landing flare
+     with a window about a metre wide. */
+  const GYRO = {
+    id: 'gyro-circuits', name: 'Learn to fly an autogyro',
+    blurb: 'Prerotate, roll, fly a circuit, find the glide with the engine off, and land it in the one-metre window where the flare works. A gyro lands by autorotating every single time, which is why gyro pilots are the ones you ask about autorotations.',
+    kinds: ['gyro'],
+    lessons: [
+      { id: 'roll', name: '1 · Prerotate and roll', start: 'runway', boxR: 300, maxAlt: 90, par: 150,
+        blurb: 'The head will not start itself standing still — there is no air going through the disc. Spin it up on the ground with the throttle closed, then open up and go.',
+        tasks: [
+          say('Hold the throttle closed and let the prerotator spin the head up', 'It takes about fifteen seconds and you cannot hurry it. Open the throttle before the head is up to speed and you will use the whole runway and still not fly.', 16),
+          mark({ say: 'Open up, roll, and climb away east', n: RWY_N, e: 90, up: 25, r: 20, band: 14, par: 45 }),
+          mark({ say: 'Climb to 50 m', n: RWY_N + 20, e: 150, up: 50, r: 22, band: 16, par: 45 }),
+        ] },
+      { id: 'height', name: '2 · Speed and height', start: 'runway', boxR: 400, maxAlt: 110, par: 190,
+        blurb: 'Out over the field on a gentle curve, climbing and then coming back down, without turning hard. A gyro turns in about fifty metres at cruise and will not be hurried — the whole aircraft is slow, and the way to fly it well is to stop asking.',
+        tasks: [
+          say('Prerotate, roll and climb away east', '', 16),
+          mark({ say: 'Climb out east to 30 m', n: RWY_N, e: 110, up: 30, r: 32, band: 22, par: 40 }),
+          mark({ say: 'Bend left and climb to 60 m', n: 70, e: 200, up: 60, r: 34, band: 24, par: 45 }),
+          mark({ say: 'Level off and come back down to 30 m', n: 150, e: 260, up: 30, r: 34, band: 24, par: 50,
+            tip: 'Throttle is height and attitude is speed, the same way round as a plane. Push the nose down with the power still on and all you do is go faster.' }),
+        ] },
+      { id: 'glide', name: '3 · Close the throttle', start: 'air', boxR: 500, maxAlt: 170, par: 160,
+        blurb: 'Shut the engine off at height and find out what it does. Nothing dramatic — the rotor was never being driven, so nothing about it changes. What changes is that you are now descending, and the only control you have over how fast is the attitude you hold.',
+        tasks: [
+          say('Settle at 90 m, then the engine goes', 'Hold a nose-down attitude and leave it there. The rotor finds its own speed at every attitude you give it, and it is the attitude, not the rotor, that sets how fast you come down.', 3),
+          mark({ say: 'Get to 90 m out over the field', n: 90, e: 60, up: 90, r: 38, band: 26, par: 50 }),
+          mark({ say: 'Engine out. Glide down to 35 m', n: 150, e: 150, up: 35, r: 38, band: 26, par: 55, cut: true,
+            tip: 'About ten degrees nose down gives the least sink. Steeper is faster and sinks more; nose up and it sinks more still, because a gyro behind the power curve is just a slower way down.' }),
+        ] },
+      { id: 'flare', name: '4 · The flare window', start: 'air', boxR: 400, maxAlt: 120, par: 170,
+        blurb: 'The whole skill in one task. A flare that arrests the sink also runs the speed out, and an autogyro has no way to hover while it waits — so the ground has to arrive at the same moment the speed does. The window is about a metre deep.',
+        tasks: [
+          say('Set up a glide at 70 m, engine off, and land on the strip', 'Flare too high and it stops, hangs, and drops the last five metres. Flare too low and you arrive at the glide descent rate. Two metres is about right, and a metre either way roughly triples the arrival.', 3),
+          mark({ say: 'Engine out. Down to 25 m on final', n: RWY_N, e: -55, up: 25, r: 30, band: 20, par: 55, cut: true }),
+          pad({ say: 'Flare low and put it on the strip', n: RWY_N, e: 10, up: 0, r: 25, band: 10, rate: 3, par: 70, cut: true,
+            tip: 'Hold the glide right down to about two metres, then rotate smoothly to twenty-odd degrees nose up and hold it there. Do not start early.' }),
+        ] },
+    ],
+  };
+
+  const BUILTIN = [QUAD, HELI, AUTOS, PLANE, GYRO].map((c) => {
     const r = read(Object.assign({ format: `flightline-tutorial/${FORMAT}`, author: 'Flightline' }, c));
     if (!r.ok) throw new Error(`built-in course ${c.id}: ${r.errors.join('; ')}`);
     return r.course;

@@ -13,26 +13,26 @@
       "file": "blown-wing-twin.json",
       "name": "Blown-wing VTOL",
       "kind": "vtol",
-      "blurb": "Twin-motor flying wing that stands on its tail. The two props blow over the elevons, which is the only thing holding its attitude at zero airspeed \u2014 then it tips over and flies away as a wing at 97 km/h.",
+      "blurb": "Twin-motor flying wing that stands on its tail. The two props blow over the elevons, which is the only thing holding its attitude at zero airspeed — then it tips over and flies away as a wing at 97 km/h.",
       "author": "Flightline"
     },
     {
       "file": "camera-platform-2m.json",
       "name": "2 m camera platform",
       "kind": "conventional",
-      "blurb": "Two-metre pod-and-boom camera plane, 3 kg, flaps over most of the span and retracts. Slow, steady and happy to be left alone \u2014 the Ranger 1980 / Skywalker 1900 idea.",
+      "blurb": "Two-metre pod-and-boom camera plane, 3 kg, flaps over most of the span and retracts. Slow, steady and happy to be left alone — the Ranger 1980 / Skywalker 1900 idea.",
       "author": "Flightline"
     },
     {
       "file": "lb7-longrange.json",
       "name": "7\" lifting body",
       "kind": "quad",
-      "blurb": "7-inch long-range quad with a 345 mm wing across the frame, rigged 32\u00b0 up from the props. 1.2 kg on 6S2P Li-ion: the wing carries about a quarter of the weight at cruise and the range goes up by a quarter with it.",
+      "blurb": "7-inch long-range quad with a 345 mm wing across the frame, rigged 32° up from the props. 1.2 kg on 6S2P Li-ion: the wing carries about a quarter of the weight at cruise and the range goes up by a quarter with it.",
       "author": "Flightline"
     },
     {
       "file": "nano-goblin-ardupilot.json",
-      "name": "Nano Goblin \u00b7 ArduPilot",
+      "name": "Nano Goblin · ArduPilot",
       "kind": "wing",
       "blurb": "The 580 mm plank with an ArduPilot stack, GPS mast and a downward lidar: 300 g instead of 250, so it stalls a little faster and climbs a little worse. Turn the lidar on under Link & sensors.",
       "author": "RealPapaNerf"
@@ -53,9 +53,9 @@
     },
     {
       "file": "quad-7in-ardupilot.json",
-      "name": "7\" quad \u00b7 ArduPilot",
+      "name": "7\" quad · ArduPilot",
       "kind": "quad",
-      "blurb": "7-inch long-range quad with an ArduPilot stack on a 6S2P 18650 pack. 1.15 kg, about 6:1 on the motor rating \u2014 but the pack cannot feed a full punch, so watch what the voltage does when you pull hard.",
+      "blurb": "7-inch long-range quad with an ArduPilot stack on a 6S2P 18650 pack. 1.15 kg, about 6:1 on the motor rating — but the pack cannot feed a full punch, so watch what the voltage does when you pull hard.",
       "author": "RealPapaNerf"
     },
     {
@@ -63,6 +63,27 @@
       "name": "Speed tail-sitter",
       "kind": "vtol",
       "blurb": "Four motors along the nose, a body that flies like a wing, and nothing else. Stands on its tail, pitches over, and runs.",
+      "author": "Flightline"
+    },
+    {
+      "file": "tip-prop-heli.json",
+      "name": "Tip-prop heli",
+      "kind": "heli",
+      "blurb": "2.6 kg camera helicopter with a 1.5 m rotor driven by two 5-inch props out at the blades — no tail rotor, because tip drive reacts on the air and not on the airframe. The pedal is a motor on the mast, so it steers on the rotor’s inertia and spends headspeed doing it. A derotated camera rides the hub.",
+      "author": "Flightline"
+    },
+    {
+      "file": "autogyro.json",
+      "name": "Autogyro",
+      "kind": "gyro",
+      "blurb": "3.2 kg autogyro: a 1.7 m rotor nobody drives, a pusher prop, and a mast raked 9° back so the air keeps the head turning. Prerotate on the ground, roll, fly. Every landing is an autorotation, which is why gyro pilots are good at them.",
+      "author": "Flightline"
+    },
+    {
+      "file": "gyrodyne.json",
+      "name": "Gyrodyne",
+      "kind": "heli",
+      "blurb": "4.5 kg helicopter–autogyro hybrid: a 1.7 m shaft-driven rotor, no tail rotor, and two reversing-pitch tractor props on stub wings countering the torque between them. Throttle hold tilts the head back and it becomes an autogyro; let it off and it is a helicopter again.",
       "author": "Flightline"
     }
   ]

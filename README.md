@@ -49,15 +49,19 @@ GitHub Pages is switched on under Repo → Settings → Pages → Deploy from a 
 | **7″ LR** | long range, 1.05 kg | 6S2P 18650 Li-ion |
 | **13″ lifter** | 3.7 kg, landing gear, three-camera pod | 12S2P 21700 Li-ion |
 | **450 heli** | flybarless, 2,900 rpm governor, Normal and 3D pitch curves | 6S 1300 LiPo |
+| **Tip-prop heli** | 1.5 m rotor driven by two props out on the blades. No tail rotor; the pedal is a motor on the mast. Derotated camera on the hub | 6S 5000 LiPo |
+| **Autogyro** | 1.7 m rotor nobody drives, mast raked 9° back, pusher prop, prerotator | 6S 6000 LiPo |
+| **Gyrodyne** | shaft-driven rotor, no tail rotor, two reversing-pitch props on stub booms. Throttle hold turns it into an autogyro | 12S 8000 LiPo |
 
 Plus whatever you load: the [`aircraft/`](aircraft/) folder here — which has the
-Goblin with an ArduPilot stack, three of the quads, a 2 m camera plane and a
-657 km/h-class tail-sitter — a file someone sends you, or one you build in the sim.
-See **Your own aircraft** below.
+Goblin with an ArduPilot stack, three of the quads, a 2 m camera plane, a
+657 km/h-class tail-sitter and the three rotorcraft above — a file someone sends
+you, or one you build in the sim. See **Your own aircraft** below.
 
 Li-ion packs can't feed a full punch on the bigger quads: the voltage dives and the
 thrust goes with it. Bench numbers for each aircraft come from `node test/quad_test.js
-<id>`, `node test/heli_test.js`, `node test/fm_test.js` and `node test/aircraft_test.js`.
+<id>`, `node test/heli_test.js`, `node test/rotorcraft_test.js`, `node test/fm_test.js`
+and `node test/aircraft_test.js`.
 
 **How the planes stall.** The Goblin mushes: full up elevon gives a nose-high bob and
 sink, and a hard pull at speed stalls it at about 6 g. The trainer stalls root-first and
@@ -67,6 +71,42 @@ stall–spin.
 **The heli.** Throttle hold (`H`) stops the motor and leaves the collective live. Lower
 the collective and the air coming up through the disc keeps the rotor turning. Flare and
 cushion with the stored headspeed. Leave the collective up and the rotor dies.
+
+### Rotors that are not helicopters
+
+One rotor model, three ways of turning it, and the differences between them are
+the point. [`docs/aircraft-format.md`](docs/aircraft-format.md#three-ways-to-turn-a-rotor)
+has the fields.
+
+- **Tip-prop heli** — propellers out on the blades, pushing the disc round like
+  a tipjet. They push against the air and not against the airframe, so there is
+  no reaction torque and no tail rotor. One number sizes the machine: a
+  propeller stops pulling at its own pitch speed, and these are flying at the
+  blade tip speed, so the tip speed has to stay low, so the rotor has to be big
+  and lightly loaded. It glides 2 to 1 against a 450's 1.4 and autorotates at
+  2.9 m/s against 7.2. Yaw is a motor across the mast bearing turning the
+  fuselage against the rotor's own momentum — it works at a standstill and it
+  works engine-out, because the hub carries its own pack for the derotator, the
+  receiver and the flight controller, and **the pedal spends headspeed**.
+- **Autogyro** — nothing drives the rotor, ever. The mast leans back 9°, so air
+  comes up through the disc and keeps it turning, and the pusher's only job is
+  to keep that happening. It cannot hover and it cannot stall. Prerotate on the
+  ground (throttle closed, about ten seconds), roll, fly. Every landing is an
+  autorotation, and the flare window is about a metre deep: started at 2 m it
+  touches down at 0.4 m/s, started at 4 m at 3.7.
+- **Gyrodyne** — the Fairey idea at model scale. Shaft-driven rotor, no tail
+  rotor, and two reversing-pitch propellers on stub booms taking the torque
+  between them: in the hover they sit at +3 N and −3 N, so the reaction is
+  cancelled at no net thrust and it hovers straight instead of charging forward.
+  Throttle hold rakes the head back 7°, parks the collective and hands the stick
+  to the propellers, and the same airframe is an autogyro at 46% headspeed. Let
+  it off and it is a helicopter again. The switch can be thrown in flight and
+  thrown back.
+
+**The flare margin.** Once any of them loses its drive, the only budget left is
+the one in the rotor, and the OSD shows it: the energy the head holds above the
+speed at which it can no longer make one g, against the energy it takes to stop
+the descent. Under 100% the landing is an arrival.
 
 ## Your own aircraft
 
@@ -159,6 +199,14 @@ order, and it scores you out of 1,000 at the end. Three ship with the sim:
 - **Learn to fly a plane** — the circuit ladder: get it off the ground, fly a
   left-hand circuit round the strip, a figure of eight, slow flight and the
   stall, then approaches and landings.
+- **Engine out** — six engine failures with less height each time, from sixty
+  metres down to eighteen. A task can carry `cut`, and when it does the sim
+  fails the rotor drive for you: there is nothing to press and no warning,
+  because a real failure does not wait until you are ready. Fly it on the 450,
+  then on the tip-prop heli, then on the gyrodyne, and watch the same ladder
+  turn into three different problems.
+- **Learn to fly an autogyro** — prerotate and roll, speed and height without
+  hard turns, close the throttle and find the glide, and then the flare window.
 
 Each lesson draws what you have to fly: hover cages you have to stay inside,
 hoops you have to fly through, gates, and a landing pad. The live one is amber,
@@ -181,10 +229,14 @@ same medals and scores.
 - [`docs/design-a-tutorial-prompt.md`](docs/design-a-tutorial-prompt.md) — the
   prompt, and what separates a course from a waypoint list
 
-`node test/tutorial_test.js` flies every lesson of all three courses with an
+`node test/tutorial_test.js` flies every lesson of all five courses with an
 autopilot, which is how a lesson that cannot be completed — a hold that cannot
 be held, a marker out of reach, a par nobody could make — gets caught before a
-beginner finds it.
+beginner finds it. The engine-out ladder is flown three times over, once on each
+rotorcraft, by a pilot that measures the machine's glide ratio first and then
+plans the approach on it; the autogyro ladder gets a pilot of its own, because a
+gyro steers like a plane and is held up like a rotorcraft and waits for its
+prerotator like neither.
 
 ## Flight modes
 

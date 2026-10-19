@@ -147,6 +147,21 @@ const raf = (n) => new Promise((r) => { let i = 0; const go = () => (++i >= n ? 
   AX[7] = -1; await raf(260);
   say(st.fwd < 0.001 && Math.abs(F.camTilt() + 100) < 0.05, 'and back at rest both come home to the hover', 'fwd ' + st.fwd.toFixed(4) + ', mount ' + F.camTilt().toFixed(2) + '°');
 
+  /* ---- every aircraft's model notes, rendered ----
+     A page of generated HTML with a row for everything an aircraft might have,
+     and three of them now have very little in common: an autogyro has no pitch
+     curves to print, a tip-driven rotor no tail rotor and no motor power, a
+     gyrodyne two propellers where the tail rotor used to be. Rendering it for
+     each one is the cheapest way to catch a field that is not there. */
+  for (const id of F.acList()) {
+    F.setAircraft(id); await raf(4);
+    let html = '', err = null;
+    try { html = F.notes(); } catch (e) { err = (e && e.message) || String(e); }
+    const ac = F.AC();
+    say(!err && html.length > 400 && !/undefined|NaN/.test(html), 'the model notes render for the ' + ac.name,
+      err ? 'threw: ' + err : /undefined|NaN/.test(html) ? 'printed a missing field' : html.length + ' characters');
+  }
+
   say(true, 'the page ran all of that without an exception');
  } catch (e) { say(false, 'threw: ' + ((e && e.stack) || e)); }
  window.__done = true;

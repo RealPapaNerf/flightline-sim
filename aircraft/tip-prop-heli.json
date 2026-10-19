@@ -1,0 +1,268 @@
+{
+  "format": "flightline-aircraft/1",
+  "author": "Flightline",
+  "version": "1",
+  "source": "designed in the sim, 18 Oct 2026; see notes",
+  "def": {
+    "id": "tipjet",
+    "name": "Tip-prop heli",
+    "blurb": "2.6 kg camera helicopter with a 1.5 m rotor driven by two 5-inch props out at the blades — no tail rotor, because tip drive reacts on the air and not on the airframe. The pedal is a motor on the mast, so it steers on the rotor’s inertia and spends headspeed doing it. A derotated camera rides the hub.",
+    "notes": "Not a measurement of anything: a design worked out from one constraint. A propeller stops pulling at its pitch speed, so a rotor driven by props at its tips has to turn slowly — 45 m/s at the tip here against a 74 m/s pitch speed — and a slow rotor only makes thrust through area. That gives a big, lightly loaded disc with motor pods out near the tips, which is why it glides twice as far as a 450 and autorotates at under 3 m/s. Yaw is a 1.2 N·m motor across the mast bearing, reacting against the rotor, powered off the hub pack along with the derotator and the flight controller. Correct the all-up weight first; everything else follows the rotor.",
+    "mass": 2.6,
+    "I": [
+      0.2,
+      0.26,
+      0.12
+    ],
+    "body": {
+      "r": [
+        0,
+        0,
+        0
+      ],
+      "CdA": [
+        0.035,
+        0.09,
+        0.14
+      ],
+      "fin": 0.02,
+      "finX": -0.55
+    },
+    "batt": {
+      "chem": "lipo",
+      "cells": 6,
+      "mAh": 5000,
+      "R": 0.02,
+      "Imax": 0,
+      "Iidle": 1.2,
+      "Vref": 22.8,
+      "label": "6S 5000 LiPo"
+    },
+    "wheels": [],
+    "points": [
+      {
+        "p": [
+          0.16,
+          0.13,
+          0.2
+        ],
+        "name": "skid",
+        "impact": 3.5,
+        "slide": 99,
+        "foot": true
+      },
+      {
+        "p": [
+          0.16,
+          -0.13,
+          0.2
+        ],
+        "name": "skid",
+        "impact": 3.5,
+        "slide": 99,
+        "foot": true
+      },
+      {
+        "p": [
+          -0.16,
+          0.13,
+          0.2
+        ],
+        "name": "skid",
+        "impact": 3.5,
+        "slide": 99,
+        "foot": true
+      },
+      {
+        "p": [
+          -0.16,
+          -0.13,
+          0.2
+        ],
+        "name": "skid",
+        "impact": 3.5,
+        "slide": 99,
+        "foot": true
+      },
+      {
+        "p": [
+          -0.6,
+          0,
+          0.02
+        ],
+        "name": "tail",
+        "impact": 2,
+        "slide": 4
+      },
+      {
+        "p": [
+          0.3,
+          0,
+          0.02
+        ],
+        "name": "nose",
+        "impact": 2.5,
+        "slide": 6
+      },
+      {
+        "p": [
+          0,
+          0,
+          -0.55
+        ],
+        "name": "hub camera",
+        "impact": 1.5,
+        "slide": 2
+      }
+    ],
+    "contact": {
+      "kW": 0,
+      "cW": 0,
+      "kB": 2600,
+      "cB": 40,
+      "muRoll": 0,
+      "muLat": 0,
+      "muBody": 0.6
+    },
+    "crash": {
+      "wheelImpact": 99
+    },
+    "starts": [
+      "pad",
+      "air"
+    ],
+    "fpvCam": [
+      0.02,
+      0,
+      -0.52
+    ],
+    "camTilt": -16,
+    "colR": 0.8,
+    "pid": {
+      "roll": [
+        16,
+        90,
+        0.3,
+        2,
+        0.01
+      ],
+      "pitch": [
+        16,
+        90,
+        0.3,
+        2,
+        0.01
+      ],
+      "yaw": [
+        12,
+        50,
+        0.3,
+        1,
+        0
+      ]
+    },
+    "angle": {
+      "max": 40,
+      "k": 4.5,
+      "rate": 200
+    },
+    "rates": {
+      "roll": {
+        "c": 60,
+        "m": 180,
+        "e": 0
+      },
+      "pitch": {
+        "c": 60,
+        "m": 180,
+        "e": 0
+      },
+      "yaw": {
+        "c": 70,
+        "m": 200,
+        "e": 0
+      }
+    },
+    "kind": "heli",
+    "rotor": {
+      "R": 0.75,
+      "chord": 0.14,
+      "blades": 2,
+      "a": 5.7,
+      "Cd0": 0.013,
+      "kInd": 1.15,
+      "CLmax": 1,
+      "om0": 60,
+      "J": 0.28,
+      "Pmax": 900,
+      "govK": 0.06,
+      "spool": 0.25,
+      "friction": 0.0006,
+      "h": 0.42,
+      "Kh": 60,
+      "tauF": 0.03,
+      "maxCyc": 0.25,
+      "blowback": 2.5,
+      "lt": 0,
+      "TtMax": 0,
+      "tauT": 0.05,
+      "spin": -1,
+      "curves": {
+        "normal": [
+          -3,
+          7.5,
+          14
+        ],
+        "3d": [
+          -9,
+          2,
+          14
+        ]
+      },
+      "drive": "tip",
+      "rake": 0,
+      "tauRake": 1.2,
+      "hFlare": 2.5,
+      "tip": {
+        "n": 2,
+        "r": 0.65,
+        "Tmax": 12,
+        "Vp": 74,
+        "eta": 0.55,
+        "kD": 0.000097
+      },
+      "mast": {
+        "Q": 1.2
+      }
+    },
+    "steerMax": 0,
+    "hubCam": [
+      0.02,
+      0,
+      -0.52
+    ],
+    "look": {
+      "front": [
+        0.2,
+        0.42,
+        0.72
+      ],
+      "rear": [
+        0.86,
+        0.88,
+        0.9
+      ],
+      "frame": [
+        0.18,
+        0.19,
+        0.21
+      ],
+      "wrap": [
+        0.26,
+        0.3,
+        0.36
+      ],
+      "blades": 2
+    }
+  }
+}

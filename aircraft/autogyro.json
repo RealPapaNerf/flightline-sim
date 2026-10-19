@@ -1,0 +1,245 @@
+{
+  "format": "flightline-aircraft/1",
+  "author": "Flightline",
+  "version": "1",
+  "source": "designed in the sim, 18 Oct 2026; see notes",
+  "def": {
+    "id": "gyro",
+    "name": "Autogyro",
+    "blurb": "3.2 kg autogyro: a 1.7 m rotor nobody drives, a pusher prop, and a mast raked 9° back so the air keeps the head turning. Prerotate on the ground, roll, fly. Every landing is an autorotation, which is why gyro pilots are good at them.",
+    "notes": "A model-sized autogyro worked out rather than measured. The rotor is never driven: the mast is raked 9° back so air comes up through the disc and keeps it turning, and the head settles around 520 rpm on its own at every attitude. The prerotator is 0.55 N·m, which is about ten seconds of waiting before it will fly. The number to correct first is the all-up weight, then the pusher thrust.",
+    "mass": 3.2,
+    "I": [
+      0.18,
+      0.42,
+      0.35
+    ],
+    "body": {
+      "r": [
+        0,
+        0,
+        0
+      ],
+      "CdA": [
+        0.05,
+        0.16,
+        0.2
+      ],
+      "fin": 0.03,
+      "finX": -0.85
+    },
+    "batt": {
+      "chem": "lipo",
+      "cells": 6,
+      "mAh": 6000,
+      "R": 0.02,
+      "Imax": 0,
+      "Iidle": 1.2,
+      "Vref": 22.8,
+      "label": "6S 6000 LiPo"
+    },
+    "wheels": [
+      {
+        "p": [
+          0.34,
+          0,
+          0.3
+        ],
+        "steer": true
+      },
+      {
+        "p": [
+          -0.1,
+          0.22,
+          0.3
+        ]
+      },
+      {
+        "p": [
+          -0.1,
+          -0.22,
+          0.3
+        ]
+      }
+    ],
+    "points": [
+      {
+        "p": [
+          -0.68,
+          0,
+          -0.05
+        ],
+        "name": "tail",
+        "impact": 2,
+        "slide": 4
+      },
+      {
+        "p": [
+          0.42,
+          0,
+          0
+        ],
+        "name": "nose",
+        "impact": 2.5,
+        "slide": 6
+      },
+      {
+        "p": [
+          0,
+          0,
+          -0.52
+        ],
+        "name": "rotor head",
+        "impact": 1.5,
+        "slide": 2
+      }
+    ],
+    "contact": {
+      "kW": 3000,
+      "cW": 60,
+      "kB": 2600,
+      "cB": 40,
+      "muRoll": 0.03,
+      "muLat": 0.6,
+      "muBody": 0.6
+    },
+    "crash": {
+      "wheelImpact": 5
+    },
+    "starts": [
+      "runway",
+      "air"
+    ],
+    "fpvCam": [
+      0.46,
+      0,
+      -0.06
+    ],
+    "camTilt": 5,
+    "colR": 0.5,
+    "pid": {
+      "roll": [
+        14,
+        70,
+        0.3,
+        1.8,
+        0.01
+      ],
+      "pitch": [
+        14,
+        70,
+        0.3,
+        1.8,
+        0.01
+      ],
+      "yaw": [
+        8,
+        30,
+        0.3,
+        1,
+        0
+      ]
+    },
+    "angle": {
+      "max": 35,
+      "k": 4,
+      "rate": 160
+    },
+    "rates": {
+      "roll": {
+        "c": 50,
+        "m": 160,
+        "e": 0
+      },
+      "pitch": {
+        "c": 45,
+        "m": 140,
+        "e": 0
+      },
+      "yaw": {
+        "c": 45,
+        "m": 130,
+        "e": 0
+      }
+    },
+    "kind": "gyro",
+    "rotor": {
+      "R": 0.85,
+      "chord": 0.075,
+      "blades": 2,
+      "a": 5.7,
+      "Cd0": 0.013,
+      "kInd": 1.15,
+      "CLmax": 1,
+      "om0": 55,
+      "J": 0.075,
+      "Pmax": 0,
+      "govK": 0,
+      "spool": 1,
+      "friction": 0.0008,
+      "h": 0.5,
+      "Kh": 55,
+      "tauF": 0.035,
+      "maxCyc": 0.2,
+      "blowback": 2.5,
+      "lt": 0,
+      "TtMax": 0,
+      "tauT": 0.05,
+      "spin": -1,
+      "drive": "none",
+      "fixed": 2.5,
+      "rake": 9,
+      "tauRake": 1.2,
+      "hFlare": 1.5,
+      "vane": {
+        "area": 0.04,
+        "arm": 0.95,
+        "k": 0.6
+      },
+      "prerot": {
+        "Q": 0.55,
+        "om": 45
+      }
+    },
+    "thrusters": [
+      {
+        "p": [
+          -0.38,
+          0,
+          -0.03
+        ],
+        "Tmax": 38,
+        "Tmin": 0,
+        "tau": 0.12,
+        "Vp": 40,
+        "D": 0.33,
+        "yaw": false
+      }
+    ],
+    "cruise": 20,
+    "steerMax": 0.5,
+    "look": {
+      "front": [
+        0.8,
+        0.2,
+        0.16
+      ],
+      "rear": [
+        0.9,
+        0.9,
+        0.88
+      ],
+      "frame": [
+        0.2,
+        0.2,
+        0.22
+      ],
+      "wrap": [
+        0.3,
+        0.32,
+        0.36
+      ],
+      "blades": 2
+    }
+  }
+}

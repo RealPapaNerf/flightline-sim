@@ -52,6 +52,10 @@
     sheetTab: 'aircraft', // last settings tab
     // terrain maps: which of the open map's starts a reset uses, and where to list maps from
     mapStart: '', mapLib: '',
+    // where you stand on each map, by map id: { sel, n, e }. `sel` is a site
+    // id, 'map' for the one the document chose, or 'custom' for a spot you
+    // flew to and kept. Per map, because a flying site belongs to a place.
+    mapStand: {},
     terrainWind: true, // upslope lift, lee sink and canyon channelling, on a map
     hud: 'hud', // FPV OSD style: 'hud' (pitch ladder and tapes) or 'classic'
     // link and sensors: downward lidar, RC link, video transmitter, interference (%), RTL altitude (m) for planes / rotorcraft
@@ -107,7 +111,21 @@
   const ACS = {};          // id -> built aircraft (strips, bench numbers)
   const SRC = {};          // id -> { def, meta, spec, builtin } the file it came from
   const START_LABEL = { launch: 'Hand launch', runway: 'Runway', air: 'In the air', pad: 'Launch pad' };
-  const ROTARY = (ac) => ac.kind === 'quad' || ac.kind === 'heli' || ac.kind === 'vtol';
+  const ROTARY = (ac) => ac.kind === 'quad' || ac.kind === 'heli' || ac.kind === 'gyro' || ac.kind === 'vtol';
+  /* Has a main rotor: a helicopter, a tip-driven one, or an autogyro. Almost
+     everything that used to ask "is it a heli" means this, because what it
+     actually wanted was the headspeed, the blades or the collective. The few
+     places that really do mean a collective ask for `ac.rotor.curves`, which an
+     autogyro does not have. */
+  const ROTOR = (ac) => ac.kind === 'heli' || ac.kind === 'gyro';
+  const COLL = (ac) => !!(ac.rotor && ac.rotor.curves);
+  /* What throttle hold does to this machine, in the words that fit it. On a
+     helicopter it stops the motor and leaves the collective live. On a gyrodyne
+     it is the mode switch into being an autogyro. On an autogyro there is no
+     rotor drive to hold, so it is simply the engine. */
+  const HOLD_LABEL = (ac) => (ac.kind === 'gyro' ? 'ENGINE OFF'
+    : ac.thrusters && ac.thrusters.length ? 'AUTOGYRO MODE'
+    : ROTOR(ac) ? 'THROTTLE HOLD' : 'THROTTLE CUT');
   function installDef(def, meta, spec, builtin) {
     const ac = FL.build(def, { fine: S.aero === 'fine' });
     ACS[def.id] = ac;
@@ -689,6 +707,98 @@
      { json, heights, surface, image }. terrain.js does the decoding and the
      checking; this puts the result into the running sim. */
   let mapStatus = '';
+  /* Which of a map's starts a reset uses.
+
+     The aircraft already has a start the player chose in the bar — hand
+     launch, runway, in the air. A map offers its own list using the same
+     ids, so the two have to be reconciled, and the old rule was simply
+     "the map's first one", which is the pad. That silently turned every
+     hand-launch model into one sitting on the ground the moment a map was
+     opened, and the bar went on claiming "Hand launch" while it happened.
+     The aircraft's choice wins wherever the map can honour it. */
+  function pickMapStart(map, keepChoice) {
+    if (!map.starts.length) return '';
+    const has = (id) => map.starts.some((s) => s.id === id);
+    // Opening a map keeps a choice already made in "Reset puts you", but only
+    // if this aircraft could use it: a wheeled trainer must not inherit the
+    // hand launch the last model was on.
+    if (keepChoice && has(S.mapStart) && AC.starts.includes(S.mapStart)) return S.mapStart;
+    // the start the player chose in the bar, then anything else this
+    // aircraft knows how to begin from, and only then the map's first
+    for (const want of [startOf(AC.id), ...AC.starts]) if (has(want)) return want;
+    return map.starts[0].id;
+  }
+
+  /* ------------------------------------------------------------ where you stand
+
+     A terrain map is kilometres across and the document picks one spot on it
+     to stand. On a 6 km canyon that spot is a guess, and the builder's guess
+     is the centre of the box — which in Zion is a wall. So the stand point is
+     a setting, not a property of the map: a named site the map shipped, or a
+     place you flew to and kept.
+
+     Moving it moves the camera, the mat under your feet, the windsock, and
+     the density altitude, because all of those are "where you are". It does
+     NOT move the aircraft: you fly somewhere, decide you like the view, and
+     keep flying from there. */
+
+  /* Everywhere you could stand on this map, in the order the picker shows. */
+  function standSites(map) {
+    const out = [{ id: 'map', name: 'Where the map puts you', n: map.basePilot.n, e: map.basePilot.e }];
+    for (const s of map.sites) out.push(s);
+    const rec = S.mapStand[map.id];
+    if (rec && rec.sel === 'custom') out.push({ id: 'custom', name: 'Where I flew to', n: rec.n, e: rec.e });
+    return out;
+  }
+
+  /* The point the settings ask for, falling back to the document's own when
+     a saved site id is not in this map — which happens when a map is rebuilt
+     with different sites under a settings file that remembers the old ones. */
+  function standPoint(map) {
+    const rec = S.mapStand[map.id];
+    if (!rec) return { ...map.basePilot, sel: 'map' };
+    if (rec.sel === 'custom') return { n: rec.n, e: rec.e, sel: 'custom' };
+    const site = map.sites.find((x) => x.id === rec.sel);
+    if (site) return { n: site.n, e: site.e, sel: site.id };
+    return { ...map.basePilot, sel: 'map' };
+  }
+
+  /* Put the pilot at a point and move everything that is "you" with them. */
+  function applyStand(map) {
+    const pt = standPoint(map);
+    map.pilot = { n: pt.n, e: pt.e, up: map.terrain.heightAt(pt.n, pt.e), yawDeg: map.pilot ? map.pilot.yawDeg : 0 };
+    map.standSel = pt.sel;
+    // you stand where the map says, 1.7 m above the ground there
+    EYE[0] = map.pilot.e; EYE[1] = map.pilot.up + 1.7; EYE[2] = -map.pilot.n;
+    // density altitude follows the ground you are standing on, not the
+    // elevation the builder measured at a spot you have since left
+    S.elevFt = Math.round(((map.datumElevM + map.pilot.up) / 0.3048) / 250) * 250;
+    applySetting('elevFt');
+    buildMapWorld(map);
+    return map.pilot;
+  }
+
+  /* How far the stand point has moved from the one the document chose. The
+     starts that belong to you are carried by this; the ones that belong to
+     the map are not. */
+  function standDelta() {
+    if (!mapInfo || !mapInfo.basePilot) return { n: 0, e: 0 };
+    return { n: mapInfo.pilot.n - mapInfo.basePilot.n, e: mapInfo.pilot.e - mapInfo.basePilot.e };
+  }
+
+  /* Stand where the aircraft is now. The whole point of the feature: fly
+     down the canyon, find somewhere with a view, and make it the flight line. */
+  function standHere() {
+    if (!mapInfo) { toast('Stand points are a terrain-map thing — the built-in field has one place to stand.'); return; }
+    const n = st.p[0], e = st.p[1], T = mapInfo.terrain;
+    if (n < T.nMin || n > T.nMax || e < T.eMin || e > T.eMax) { toast('That is off the edge of the map.'); return; }
+    S.mapStand[mapInfo.id] = { sel: 'custom', n, e };
+    saveS();
+    const p = applyStand(mapInfo);
+    toast(`Standing here — ${Math.round(mapInfo.datumElevM + p.up)} m, ${Math.round(Math.hypot(n - mapInfo.basePilot.n, e - mapInfo.basePilot.e))} m from where the map put you`);
+    refreshBar();
+  }
+
   function openMap(loaded) {
     const map = TERRAIN.loadMap(loaded.json, loaded.heights, loaded.surface);
     terrain = map.terrain;
@@ -696,12 +806,11 @@
     env.terrain = terrain;
     GLR.freeTex(R, colorTex); colorTex = null;
     if (loaded.image) colorTex = GLR.imageTex(R, loaded.image);
-    buildMapWorld(map);
-    // you stand where the map says, 1.7 m above the ground there
-    EYE[0] = map.pilot.e; EYE[1] = map.pilot.up + 1.7; EYE[2] = -map.pilot.n;
-    // field elevation drives density altitude, so the weather follows the map
-    S.elevFt = Math.round((map.fieldElevM / 0.3048) / 250) * 250;
-    if (!map.starts.some((s) => s.id === S.mapStart)) S.mapStart = map.starts.length ? map.starts[0].id : '';
+    // the document's own pilot spot, kept so a stand point can be measured
+    // from it and so "where the map puts you" can always be gone back to
+    map.basePilot = { n: map.pilot.n, e: map.pilot.e };
+    applyStand(map);
+    S.mapStart = pickMapStart(map, true);
     applySetting('elevFt');
     saveS();
     doReset();
@@ -874,7 +983,7 @@
   // ground under snow: only when it's snowing and cold enough to lie
   const snowCover = () => ((S.precip === 'snow' || S.precip === 'heavysnow') && atmo.Tc <= 1 ? (S.precip === 'heavysnow' ? 0.72 : 0.5) : 0);
   // ice the pilot can see: plane surfaces whiten with relative ice height; props and blades with prop ice
-  const propChord = (ac) => (ac.motor ? 0.09 * ac.motor.D : ac.kind === 'heli' ? ac.rotor.chord : 0.08 * ac.prop.D + 0.006);
+  const propChord = (ac) => (ac.motor ? 0.09 * ac.motor.D : ROTOR(ac) ? ac.rotor.chord : ac.prop ? 0.08 * ac.prop.D + 0.006 : 0.03);
   function iceInfo() {
     let kc = 0;
     if (st.ice && AC.strips) { let a = 0; AC.strips.forEach((sp, i) => { if (sp.role === 'wing') { kc += (st.ice[i] / sp.chord) * sp.area; a += sp.area; } }); kc = a ? kc / a : 0; }
@@ -1142,6 +1251,148 @@
     const tail = { blades: tp.blades, disc: tp.disc, mat: M4.mul(M4.trans(-0.03, 0.03, 0.62), M4.rotY(Math.PI / 2)), spin: (s0) => s0.om / Ro.om0, dir: 1, ang: 0 };
     return { parts, props: [main, tail], cam: BR(ac.fpvCam) };
   }
+
+  /* A rotorcraft drawn from its own definition: a pod, a mast, a rotor with as
+     many blades as the file says, and then whichever of the three drives it has.
+     Propellers out on the blade tips ride round inside the blade mesh, because
+     that is where they are; propellers on stub booms are ordinary spinning props
+     bolted to the airframe; a tail rotor is a prop on the end of a boom. Skids
+     or wheels, a fin or a V-tail, and the derotated camera on top of the head if
+     it has one.
+
+     The 450 keeps its hand-made mesh. Everything else with a rotor comes through
+     here, built-in or imported, so a file describing a machine nobody has ever
+     drawn still looks like what it is rather than like a 450. */
+  function buildRotorcraft(ac) {
+    const Ro = ac.rotor, L = ac.look || {};
+    const shell = L.front || [0.25, 0.3, 0.4], top = L.rear || [0.88, 0.9, 0.92];
+    const frame = L.frame || [0.18, 0.19, 0.21], wrap = L.wrap || [0.28, 0.31, 0.37];
+    const dark = [0.08, 0.08, 0.09], alu = [0.72, 0.74, 0.78];
+    const blade = [0.12, 0.12, 0.13], tipCol = [1.0, 0.85, 0.15], glass = [0.12, 0.17, 0.24];
+    const P = (x, y, z) => BR([x, y, z]);
+    const pts = ac.points.filter((p) => !p.rotor);
+    const noseX = Math.max(0.1, ...pts.map((p) => p.p[0]));
+    const tailX = Math.min(-0.1, ...pts.map((p) => p.p[0]));
+    const footZ = Math.max(0.08, ...pts.filter((p) => p.foot).map((p) => p.p[2]),
+      ...ac.wheels.map((w) => w.p[2]));
+    const hw = 0.13 * Ro.R, hh = 0.15 * Ro.R;           // pod half-width and half-height
+    const podBack = Math.max(tailX * 0.45, -0.5 * Ro.R);
+    const g = new Geo();
+
+    // --- the pod, and a canopy over the front of it ---
+    g.blob(0, 0, -(noseX + podBack) / 2, hw, hh, (noseX - podBack) / 2, { top: top, bottom: shell, side: shell });
+    g.blob(0, hh * 0.55, -(noseX * 0.55), hw * 0.72, hh * 0.5, (noseX - podBack) * 0.26, glass);
+    // --- tail boom, and the tail on the end of it ---
+    const hasVee = !!(ac.thrusters && ac.thrusters.length > 1);
+    g.taper(-podBack * 0.5, hw * 0.9, hh * 0.9, hh * 0.1, -tailX, 0.035 * Ro.R, 0.035 * Ro.R, hh * 0.1, frame);
+    const tz = -tailX, fin = Math.max(0.1, 0.42 * Ro.R);
+    if (hasVee) {
+      // a V-tail, which is what a machine with its propellers out on booms wants:
+      // nothing to put a fin in front of, and the rotor wash misses both halves
+      for (const sx of [-1, 1]) {
+        slab(g, [0, hh * 0.1, tz - fin * 0.75], [sx * fin * 0.62, -fin * 0.42, tz - fin * 0.2],
+          [sx * fin * 0.62, -fin * 0.42, tz], [0, hh * 0.1, tz], 0.006, 0.004, top, shell, wrap);
+      }
+    } else {
+      slab(g, [0, hh * 0.1, tz - fin * 0.8], [0, fin * 0.7, tz - fin * 0.45],
+        [0, fin * 0.7, tz], [0, hh * 0.1, tz], 0.006, 0.004, top, top, wrap, [1, 0, 0]);
+      slab(g, [-fin * 0.45, hh * 0.1, tz - fin * 0.5], [fin * 0.45, hh * 0.1, tz - fin * 0.5],
+        [fin * 0.45, hh * 0.1, tz - fin * 0.1], [-fin * 0.45, hh * 0.1, tz - fin * 0.1], 0.005, 0.004, shell, shell, shell);
+    }
+    // --- mast, head, and the derotated camera on top of it if it has one ---
+    g.cyl(0, hh * 0.3, 0, 0.016 * Ro.R + 0.004, 0.014 * Ro.R + 0.004, Ro.h - hh * 0.3, 8, alu);
+    g.box(-0.03 * Ro.R - 0.008, Ro.h - 0.012, -0.03 * Ro.R - 0.008, 0.03 * Ro.R + 0.008, Ro.h + 0.012, 0.03 * Ro.R + 0.008, frame);
+    if (ac.hubCam) {
+      /* The derotated head: a motor and a pack under a housing, with the lens
+         on top of it. The camera point itself has to sit in clear air above the
+         glass or the first thing it shows you is the inside of its own dome —
+         test/camera_test.js checks exactly that, for this and for every file. */
+      const c = P(ac.hubCam[0], ac.hubCam[1], ac.hubCam[2]);
+      const rr = 0.04 * Ro.R + 0.012, lens = Math.max(0.03, c[1] - Ro.h - 0.02);
+      g.cyl(c[0], Ro.h + 0.012, c[2], rr, rr * 0.82, lens * 0.62, 10, [0.16, 0.2, 0.34]);
+      g.blob(c[0], Ro.h + 0.012 + lens * 0.62, c[2], rr * 0.82, lens * 0.28, rr * 0.82, glass);
+    }
+    // --- feet: wheels if it has them, skids if it does not ---
+    if (ac.wheels.length) {
+      for (const wh of ac.wheels) {
+        const w = P(wh.p[0], wh.p[1], wh.p[2]);
+        const r = 0.055 * Ro.R + 0.018;
+        g.cyl(w[0] - 0.012, w[1], w[2], r, r, 0.024, 10, dark);
+        g.box(w[0] - 0.006, w[1], w[2] - 0.006, w[0] + 0.006, Math.min(0, w[1] + footZ * 0.8), w[2] + 0.006, frame);
+      }
+    } else {
+      const feet = pts.filter((p) => p.foot);
+      const sy = feet.length ? Math.max(...feet.map((p) => Math.abs(p.p[1]))) : hw * 1.3;
+      const sx0 = feet.length ? Math.min(...feet.map((p) => p.p[0])) : podBack;
+      const sx1 = feet.length ? Math.max(...feet.map((p) => p.p[0])) : noseX * 0.5;
+      for (const s of [-1, 1]) {
+        g.box(s * sy - 0.008, -footZ - 0.01, -sx1 - 0.06, s * sy + 0.008, -footZ + 0.004, -sx0 + 0.06, dark);
+        for (const x of [sx0, sx1]) g.box(s * sy * 0.62 - 0.006, -footZ, -x - 0.008, s * sy * 0.62 + 0.006, -hh * 0.5, -x + 0.008, dark);
+      }
+    }
+
+    const parts = [{ mesh: GLR.mesh(MR, g), mat: M4.ident() }];
+    const props = [];
+
+    /* --- the rotor ---
+       Blades in their own frame, laid flat by `post`, turned by `spin` and
+       leaned by `tilt`. Tip propellers live in this mesh rather than in the prop
+       list, because they are bolted to the blades and go round with them: what
+       you see out at the tips is two blurred discs orbiting the mast, which is
+       exactly what the real thing looks like. */
+    const gb = new Geo(), ch = Ro.chord;
+    for (let b = 0; b < Ro.blades; b++) {
+      gb.with(M4.rotZ((b / Ro.blades) * Math.PI * 2), () => {
+        gb.box(0.03 * Ro.R, -ch / 2, -ch * 0.03, Ro.R * 0.86, ch / 2, ch * 0.03, blade);
+        gb.box(Ro.R * 0.86, -ch / 2, -ch * 0.03, Ro.R, ch / 2, ch * 0.03, tipCol);
+        if (Ro.tip && b < Ro.tip.n) {
+          const pr = Math.max(0.05, 0.9 * ch), r = Ro.tip.r;
+          gb.box(r - ch * 0.45, -ch * 0.3, -ch * 0.26, r + ch * 0.45, ch * 0.3, ch * 0.26, frame); // the pod
+          gb.cyl(r, -ch * 0.34 - 0.004, 0, pr, pr, 0.005, 16, [0.5, 0.52, 0.56]);                  // its propeller, blurred
+        }
+      });
+    }
+    const gd = new Geo(); gd.disc(Ro.R, 32, [0.55, 0.57, 0.6]);
+    props.push({
+      blades: GLR.mesh(MR, gb), disc: GLR.mesh(MR, gd),
+      mat: M4.trans(0, Ro.h + 0.016, 0), post: M4.rotX(-Math.PI / 2),
+      // the disc leans with the cyclic, and on a raked head it leans with the rake too
+      tilt: (s0) => M4.mul(M4.rotZ(-1.5 * s0.tilt[0]), M4.rotX(1.5 * s0.tilt[1] + (s0.rk || 0))),
+      spin: (s0) => s0.om / Ro.om0, dir: Ro.spin >= 0 ? 1 : -1, ang: 0, showFpv: !!ac.fpvOnHub,
+    });
+
+    // --- propellers on the airframe: an autogyro's engine, a gyrodyne's pair ---
+    if (ac.thrusters) {
+      ac.thrusters.forEach((Th, i) => {
+        const w = P(Th.p[0], Th.p[1], Th.p[2]);
+        if (Math.abs(Th.p[1]) > hw * 1.4) { // out on a boom: draw the boom and a nacelle
+          const g2 = new Geo();
+          const sgn = Math.sign(Th.p[1]);
+          g2.box(Math.min(0, w[0]), w[1] - 0.012, -Th.p[0] - 0.02, Math.max(0, w[0]), w[1] + 0.012, -Th.p[0] + 0.02, frame);
+          g2.blob(w[0], w[1], -Th.p[0] + 0.045, 0.05 * Ro.R + 0.012, 0.05 * Ro.R + 0.012, 0.1 * Ro.R + 0.02, { top, bottom: shell, side: shell });
+          parts.push({ mesh: GLR.mesh(MR, g2), mat: M4.ident() });
+          void sgn;
+        }
+        const pm = propMeshes(g, 2, Th.D / 2, blade, [0.62, 0.64, 0.68]);
+        props.push({
+          blades: pm.blades, disc: pm.disc,
+          mat: M4.trans(w[0], w[1], w[2] - 0.03),
+          spin: (s0) => Math.min(1, Math.abs((s0.tp && s0.tp[i]) || 0) / Th.Tmax),
+          dir: i % 2 ? 1 : -1, ang: i * 0.8,
+        });
+      });
+    }
+    // --- and a tail rotor, for the ones that still have one ---
+    if (Ro.TtMax > 0 && Ro.lt > 0) {
+      const tp = propMeshes(g, 2, Math.max(0.06, 0.16 * Ro.R), blade, [0.6, 0.6, 0.62]);
+      props.push({
+        blades: tp.blades, disc: tp.disc,
+        mat: M4.mul(M4.trans(-0.03, hh * 0.1, Ro.lt), M4.rotY(Math.PI / 2)),
+        spin: (s0) => s0.om / Ro.om0, dir: 1, ang: 0,
+      });
+    }
+    return { parts, props, cam: BR(ac.fpvCam) };
+  }
   /* A plane drawn from its definition: every lifting surface with its moving
      control surfaces, a fuselage, landing gear (retracting if it has them) and
      the prop. This is what an imported or just-built aircraft looks like; the
@@ -1330,7 +1581,7 @@
   }
   /* ---- end fuselage extent ---- */
   const MODELS = {};
-  const modelFor = (ac) => (ac.kind === 'quad' ? buildQuad(ac) : ac.kind === 'heli' ? buildHeli(ac)
+  const modelFor = (ac) => (ac.kind === 'quad' ? buildQuad(ac) : ac.id === 'heli' ? buildHeli(ac) : ROTOR(ac) ? buildRotorcraft(ac)
     : ac.id === 'trainer' ? buildTrainer(ac) : ac.id === 'goblin' ? buildGoblin(ac) : buildPlane(ac));
   const VTOL = (ac) => ac.kind === 'vtol';
   for (const [id, ac] of Object.entries(ACS)) MODELS[id] = modelFor(ac);
@@ -1361,7 +1612,14 @@
   function currentStart() {
     if (mapInfo && mapInfo.starts.length) {
       const want = S.mapStart;
-      return mapInfo.starts.find((s) => s.id === want) || mapInfo.starts[0];
+      const s = mapInfo.starts.find((x) => x.id === want) || mapInfo.starts[0];
+      // A start anchored to the map is a place — a runway stays where it is.
+      // Everything else was written relative to the pilot spot, so it comes
+      // with you when you move; otherwise you would stand on one side of the
+      // canyon and have the model appear on the other.
+      if (s.anchor === 'map') return s;
+      const d = standDelta();
+      return (d.n || d.e) ? { ...s, n: s.n + d.n, e: s.e + d.e } : s;
     }
     return startOf(AC.id);
   }
@@ -1383,7 +1641,7 @@
     NAV.reset(nav, st); fsActive = false;
     const inAir = startInAir(where);
     armed = inAir;
-    if (inAir) kb.thr = AC.kind === 'quad' ? AC.hoverThr : AC.kind === 'heli' ? AC.hoverThrCurve[S.curve] : AC.kind === 'wing' ? 0.55 : 0.6;
+    if (inAir) kb.thr = AC.kind === 'quad' ? AC.hoverThr : COLL(AC) ? AC.hoverThrCurve[S.curve] : AC.kind === 'gyro' ? 0.6 : AC.kind === 'wing' ? 0.55 : 0.6;
     else kb.thr = 0;
     flapSet = 0; gearDown = !inAir; st.gear = gearDown ? 1 : 0;
     fwdCmd = isVtol() && inAir ? 1 : 0;
@@ -1651,6 +1909,12 @@
 
   /* ---------- actions ---------- */
   let cutOn = false, cutHeld = false;
+  /* Throttle hold, from wherever it came. A lesson can also fail the rotor drive
+     on you: a task with `cut` set holds it for as long as that task is live, and
+     the reason the lesson does it rather than asking you to press H is that a
+     real failure does not wait until you are ready either. */
+  const tutCut = () => !!(tut.run && !tut.run.done && !tut.run.failed && (TUT.taskOf(tut.run) || {}).cut);
+  const holdNow = () => cutOn || cutHeld || tutCut();
   let osdFlash = { text: '', t: 0 };
   const flash = (text) => { osdFlash = { text, t: 1.6 }; };
   if (!S.trim || typeof S.trim !== 'object') S.trim = {};
@@ -1689,7 +1953,7 @@
       case 'mode-althold': setAp('althold'); break;
       case 'mode-loiter': setAp('loiter'); break;
       case 'mode-rtl': setAp('rtl'); break;
-      case 'cut-toggle': cutOn = !cutOn; flash(`${AC.kind === 'heli' ? 'THROTTLE HOLD' : 'THROTTLE CUT'} ${cutOn ? 'ON' : 'OFF'}`); break;
+      case 'cut-toggle': cutOn = !cutOn; flash(`${HOLD_LABEL(AC)} ${cutOn ? 'ON' : 'OFF'}`); break;
       case 'curve-toggle': setCurve(S.curve === '3d' ? 'normal' : '3d'); break;
       case 'launch': if (st.held && armed) { FL.launch(st); timerOn = true; } break;
       case 'trim-e-up': trimStep('e', 1); break;
@@ -1805,6 +2069,7 @@
         else if (c === 'KeyG') fire('mode-rtl');
         else if (c === 'KeyI') fire('curve-toggle');
         else if (c === 'KeyC') fire('flaps-cycle');
+        else if (c === 'KeyB') standHere();
         else if (c === 'KeyU') fire('gear-toggle');
         else if (c === 'KeyT') fire('transition');
         else if (c === 'Digit1') setView('los'); else if (c === 'Digit2') setView('fpv'); else if (c === 'Digit3') setView('split');
@@ -2405,7 +2670,10 @@
     $('#vView').textContent = VIEW_LABEL[S.view];
     $('#vMode').textContent = modeName(S.mode);
     $('#bMode').classList.toggle('hot', S.mode !== 'manual' || !!apMode());
-    $('#vStart').textContent = START_LABEL[startOf(AC.id)];
+    // On a map it is the map's start that is used, so showing the
+    // aircraft's own would be a label for something that is not happening.
+    const mStart = mapInfo && mapInfo.starts.find((x) => x.id === S.mapStart);
+    $('#vStart').textContent = mStart ? mStart.name : START_LABEL[startOf(AC.id)];
     $('#vPause').textContent = paused ? 'Paused' : 'Running';
     $('#bPause').classList.toggle('hot', userPaused);
     const chip = $('#chip');
@@ -2427,9 +2695,12 @@
     NAV.enter(nav, m, st); flash(AP_NAME[m].toUpperCase()); refreshBar();
   }
   function cycleMode() { setMode(MODES[(MODES.indexOf(S.mode) + 1) % MODES.length]); }
-  function setCurve(c) { c = c === '3d' ? '3d' : 'normal'; if (c !== S.curve && AC.kind === 'heli') flash(c === '3d' ? '3D CURVE' : 'NORMAL CURVE'); S.curve = c; saveS(); syncSheet(); }
+  function setCurve(c) { c = c === '3d' ? '3d' : 'normal'; if (c !== S.curve && COLL(AC)) flash(c === '3d' ? '3D CURVE' : 'NORMAL CURVE'); S.curve = c; saveS(); syncSheet(); }
   function setAircraft(id) {
-    S.aircraft = id; AC = ACS[id]; saveS(); doReset(); ghostLoad(); refreshBar(); buildSheet();
+    S.aircraft = id; AC = ACS[id];
+    // a different aircraft may want a different kind of start
+    if (mapInfo) S.mapStart = pickMapStart(mapInfo);
+    saveS(); doReset(); ghostLoad(); refreshBar(); buildSheet();
     if (race.r) { race.r.me.ac = id; race.r.me.best = S.best[id] || null; race.r.hello(); refreshRace(); }
   }
   function cycleAircraft() { const ids = Object.keys(ACS); setAircraft(ids[(ids.indexOf(S.aircraft) + 1) % ids.length]); }
@@ -2652,7 +2923,14 @@
   $('#bAc').addEventListener('click', cycleAircraft);
   $('#bView').addEventListener('click', cycleView);
   $('#bMode').addEventListener('click', cycleMode);
-  function cycleStart() { const opts = AC.starts, cur = startOf(AC.id); S.start[AC.id] = opts[(opts.indexOf(cur) + 1) % opts.length]; saveS(); doReset(); refreshBar(); }
+  function cycleStart() {
+    const opts = AC.starts, cur = startOf(AC.id);
+    S.start[AC.id] = opts[(opts.indexOf(cur) + 1) % opts.length];
+    // on a map the bar's start has to reach the map's own list, or pressing
+    // it changes the label and nothing else
+    if (mapInfo) S.mapStart = pickMapStart(mapInfo);
+    saveS(); doReset(); refreshBar();
+  }
   $('#bStart').addEventListener('click', cycleStart);
   $('#bReset').addEventListener('click', doReset);
   $('#bPause').addEventListener('click', togglePause);
@@ -2692,7 +2970,7 @@
       { tab: 'aircraft', title: 'Aircraft', items: [
         seg('aircraft', 'Model', Object.values(ACS).map((a) => [a.id, a.name]), AC.blurb, () => S.aircraft, (v) => setAircraft(v)),
         seg('start', 'Reset puts you', AC.starts.map((s) => [s, START_LABEL[s]]), AC.kind === 'wing' ? 'Hand launch: arm with throttle down, then push throttle above 70% and the model is thrown once the motor is wound up (or press L to throw at any throttle). Real technique applies: full power, and maybe a touch of up elevator.' : '', () => startOf(AC.id), (v) => { S.start[AC.id] = v; doReset(); refreshBar(); }),
-        ...(AC.kind === 'heli' ? [seg('curve', 'Pitch curve', [['normal', 'Normal'], ['3d', '3D (idle up)']],
+        ...(COLL(AC) ? [seg('curve', 'Pitch curve', [['normal', 'Normal'], ['3d', '3D (idle up)']],
           `Normal: ${AC.rotor.curves.normal.join('° / ')}° at the bottom, middle and top of the stick; hover is at about ${Math.round(AC.hoverThrCurve.normal * 100)}%. 3D: ${AC.rotor.curves['3d'].join('° / ')}°, with zero pitch at mid stick so you can fly inverted; hover is at about ${Math.round(AC.hoverThrCurve['3d'] * 100)}%. The governor holds ${Math.round((AC.rotor.om0 * 60) / (2 * Math.PI))} rpm in both. Throttle hold (H, or a controller channel) stops the motor and leaves the collective live, for autorotations.`,
           () => S.curve, (v) => setCurve(v))] : []),
         seg('mode', 'Flight mode', MODES.map((m) => [m, baseName(m)]), ROTARY(AC)
@@ -2714,6 +2992,10 @@
       { tab: 'map', title: 'Map', items: [{ type: 'maps' },
         seg('terrainWind', 'Terrain-shaped wind', [[true, 'On'], [false, 'Off']],
           'On a map, the ground shapes the wind: it blows up a windward slope and sinks down a lee one, a valley turns it to run along itself, and the air behind a ridge is sheltered, sinking and rough. Off leaves the wind the same everywhere, as it is on the built-in field. Only does anything with a map loaded.'),
+        ...(mapInfo && standSites(mapInfo).length > 1 ? [seg('mapStand', 'Where you stand', standSites(mapInfo).map((s) => [s.id, s.name]),
+          'A map is kilometres across and the document picks one spot on it. Choose another, or fly somewhere you like the look of and press B to stand there — the camera, the windsock and the density altitude all come with you, and the aircraft keeps flying.',
+          () => (mapInfo ? mapInfo.standSel : 'map'),
+          (v) => { S.mapStand[mapInfo.id] = v === 'custom' ? S.mapStand[mapInfo.id] : { sel: v }; saveS(); applyStand(mapInfo); refreshBar(); })] : []),
         ...(mapInfo && mapInfo.starts.length > 1 ? [seg('mapStart', 'Reset puts you', mapInfo.starts.map((s) => [s.id, s.name]), '', () => S.mapStart, (v) => { S.mapStart = v; saveS(); doReset(); refreshBar(); })] : []),
       ] },
       { tab: 'controller', title: 'Controller', items: [{ type: 'radio' },
@@ -3352,7 +3634,10 @@
   function syncSheet() { if (sheetOpen()) buildSheet(); }
   function rotaryNotesHtml() {
     const W = AC.mass * FL.G;
-    if (AC.kind === 'quad') {
+    /* Everything held up by four motors rather than by a rotor: the quads, and
+       a tail-sitter, which has no `rotor` at all and used to fall through this
+       into the rotor notes and throw. */
+    if (AC.kind === 'quad' || VTOL(AC)) {
       const M = AC.motor, tw = (4 * M.Tmax) / W, pid = AC.pid;
       const vt = (cda) => Math.sqrt((2 * W) / (1.225 * cda)); // zero-throttle terminal along one body axis
       return `<div class="notes"><div class="kv">
@@ -3370,29 +3655,47 @@
 rotor drag = −k·ΣT·v_inplane   body drag = −½ρ|v|·CdA·v</span>
         <p><b>Drag, and why you don't slow down off throttle.</b> At zero throttle there is nothing but body drag, quadratic along each axis (the areas above), and it balances gravity at the terminal speeds above — so with the nose held down you are ballistic and you <i>gain</i> speed until the dive reaches terminal. The brake is attitude, not throttle: level off and the airflow hits the big top area instead of the small front, or pitch back past level and the thrust vector opposes the motion too. The in-plane rotor drag scales with thrust, so it also only helps while you are on the throttle.</p>
         <p><b>Flight controller.</b> Betaflight-style: Actual rates turn sticks into rotation-rate targets, a rate PID with feed-forward, D on gyro and I-term relax turns them into wanted moments, and an air-mode mixer shares thrust between the four motors, giving up collective before it gives up attitude.</p>
-        <p><b>Prop wash.</b> Dropping fast and straight down puts the props in their own wake: thrust drops and the quad shakes until you get forward speed.</p>
+        <p><b>Prop wash.</b> Dropping fast and straight down puts the props in their own wake: thrust drops and it shakes until you get forward speed.</p>
         <p><b>Simplified.</b> No blade flapping, no motor temperature, no filtering delays beyond the motor lag and D-term filter; the frame is rigid.</p></div>`;
     }
     const Ro = AC.rotor, rpm = (om) => Math.round((om * 60) / (2 * Math.PI)), pid = AC.pid;
+    const drv = Ro.drive || 'shaft';
+    const driveText = drv === 'tip'
+      ? `${Ro.tip.n} propellers at ${Ro.tip.r} m, ${Ro.tip.Tmax} N static each — no reaction torque on the airframe`
+      : drv === 'none' ? 'nothing: the air, through a raked disc'
+      : `a motor on the mast, ${Ro.Pmax} W${Ro.TtMax ? '' : ' — with no tail rotor to take the reaction'}`;
+    const yawBits = [];
+    if (Ro.TtMax > 0 && Ro.lt > 0) yawBits.push(`a tail rotor, ${Ro.TtMax} N at ${Ro.lt} m`);
+    if (Ro.mast) yawBits.push(`a ${Ro.mast.Q} N·m motor on the mast, reacting against the rotor`);
+    if (AC.thrusters && AC.thrusters.some((T) => T.yaw)) yawBits.push(`differential thrust, ±${Math.abs(AC.thrusters[0].p[1])} m apart`);
+    if (Ro.vane) yawBits.push(`${Ro.vane.area} m² of vane at ${Ro.vane.arm} m`);
+    const yawText = yawBits.join(' · ') || 'nothing';
     return `<div class="notes"><div class="kv">
       <span>Flying weight</span><span>${Math.round(AC.mass * 1000)} g</span>
       <span>Rotor</span><span>${Math.round(Ro.R * 2000)} mm, ${Ro.blades} blades, ${Math.round(Ro.chord * 1000)} mm chord (σ ${Ro.sigma.toFixed(3)})</span>
-      <span>Headspeed · tip speed</span><span>${rpm(Ro.om0)} rpm · ${Math.round(Ro.om0 * Ro.R)} m/s</span>
-      <span>Hover collective</span><span>${(AC.hoverPitch / D2R).toFixed(1)}° (stick ${Math.round(AC.hoverThrCurve.normal * 100)}% Normal, ${Math.round(AC.hoverThrCurve['3d'] * 100)}% 3D)</span>
-      <span>Pitch curves</span><span>Normal ${Ro.curves.normal.join(' / ')}° · 3D ${Ro.curves['3d'].join(' / ')}°</span>
+      <span>Headspeed · tip speed</span><span>${rpm(Ro.om0)} rpm · ${Math.round(Ro.om0 * Ro.R)} m/s${drv === 'none' ? ' (where it settles, not where it is held)' : ''}</span>
+      <span>Driven by</span><span>${driveText}</span>
+      <span>Yaw</span><span>${yawText}</span>
+      ${COLL(AC) ? `<span>Hover collective</span><span>${(AC.hoverPitch / D2R).toFixed(1)}° (stick ${Math.round(AC.hoverThrCurve.normal * 100)}% Normal, ${Math.round(AC.hoverThrCurve['3d'] * 100)}% 3D)</span>
+      <span>Pitch curves</span><span>Normal ${Ro.curves.normal.join(' / ')}° · 3D ${Ro.curves['3d'].join(' / ')}°</span>`
+      : `<span>Blade pitch</span><span>${Ro.fixed}° fixed, mast raked ${Ro.rake}° back</span>`}
       <span>Blade lift slope · Cd0 · CLmax</span><span>${Ro.a} /rad · ${Ro.Cd0} · ${Ro.CLmax}</span>
-      <span>Motor power · rotor inertia</span><span>${Ro.Pmax} W · ${Ro.J} kg·m²</span>
+      <span>Rotor inertia · energy</span><span>${Ro.J} kg·m² · ${Math.round(0.5 * Ro.J * Ro.om0 ** 2)} J at ${rpm(Ro.om0)} rpm, ${Math.round(0.5 * Ro.J * (Ro.om0 ** 2 - AC.omMin ** 2))} J of it spendable</span>
+      <span>Blades stall below</span><span>${rpm(AC.omMin)} rpm — the floor of the autorotation budget</span>
       <span>Rate PID roll/pitch</span><span>P ${pid.roll[0]} I ${pid.roll[1]} FF ${pid.roll[2]}</span>
       <span>Pack</span><span>${AC.batt.label}</span></div>
       <p><b>Rotor thrust.</b> Blade-element theory with momentum inflow, solved every step, so thrust depends on collective, headspeed, climb or descent rate and forward speed. Forward speed lowers the induced velocity (translational lift), which is why 15–45 km/h takes less power than a hover. Mean blade lift is capped at CLmax, so a slow rotor can't make much thrust no matter how much pitch you pull.</p>
       <span class="eq">T = ½σa·ρA(ΩR)²·[θ(1/3 + μ²/2) − λ/2]     λ = (v_climb + v_i)/(ΩR)
 v_i = κT / (2ρA·√(V_fwd² + (v_climb + v_i)²))     κ = ${Ro.kInd}
 T ≤ (CLmax/6)·σρA(ΩR)²</span>
-      <p><b>Headspeed.</b> The rotor is its own state. A governor holds ${rpm(Ro.om0)} rpm up to ${Ro.Pmax} W of motor power. On throttle hold the motor stops and only the air drives the rotor: with the collective low and the heli descending, air flowing up through the disc keeps it turning (autorotation); leave the collective up and it slows down fast. Bank that headspeed for the flare and the cushion.</p>
-      <span class="eq">J·dΩ/dt = Q_motor − [T·(v_climb + v_i) + 1.12·P0] / Ω − friction
+      <p><b>Headspeed.</b> The rotor is its own state, and the flow through the disc is measured through the <i>disc</i> — tilted by the cyclic, by blowback and by the mast rake — not through the fuselage. ${drv === 'none'
+        ? `Nothing drives it, ever: the mast leans ${Ro.rake}° back, so air comes up through a disc that is at a positive angle to the oncoming air, and that is what keeps it turning. It settles wherever the attitude you are holding puts it, every time, with no governor involved. On the ground there is no air going through the disc at all, which is what the prerotator is for.`
+        : `A governor holds ${rpm(Ro.om0)} rpm${drv === 'tip' ? `, as far as the tip propellers can still push — they are flying at ${Math.round(Ro.om0 * Ro.tip.r)} m/s at that headspeed against a ${Ro.tip.Vp} m/s pitch speed, and what is left over is the climb you have` : ` up to ${Ro.Pmax} W of motor power`}. On throttle hold the drive stops and only the air drives the rotor: with the collective low and the aircraft descending, air flowing up through the disc keeps it turning (autorotation); leave the collective up and it slows down fast. Bank that headspeed for the flare and the cushion.`}</p>
+      <span class="eq">J·dΩ/dt = Q_drive − [T·(v_disc + v_i) + ${drv === 'shaft' && Ro.TtMax ? '1.12·' : ''}P0] / Ω − friction${Ro.mast ? ' − Q_mast' : ''}
 P0 = ρA(ΩR)³·σ·Cd0·(1 + 4.65μ²) / 8</span>
+      <p><b>The flare margin</b>, in the OSD whenever the drive is off. ½J(Ω² − Ω_min²) is what the head is holding above the ${rpm(AC.omMin)} rpm at which it can no longer make one g; against it goes ½mv² of descent plus mg·${Ro.hFlare} m for the height the cushion is flown over. Under 100% the landing is an arrival. Forward speed is a second tank you can pour into the first, which is why a glide is flown at a speed and not at an attitude.</p>
       <p><b>Vortex ring.</b> Descending straight down at about the hover induced velocity (1–2 m/s here) puts the rotor in its own wake: thrust drops up to 35% and the heli shakes until you add forward speed.</p>
-      <p><b>Flybarless controller.</b> Rate PID on cyclic with feed-forward; the wanted moment becomes disc tilt through the hub stiffness and thrust offset. The tail chases a yaw-rate target and cancels the motor's reaction torque, with a ${Math.round(Ro.tauT * 1000)} ms lag, so a collective punch kicks the tail a little. Horizon, Trainer and Angle work as on the quad.</p>
+      <p><b>Flybarless controller.</b> Rate PID on cyclic with feed-forward; the wanted moment becomes disc tilt through the hub stiffness and thrust offset — flapping relative to the shaft loads the hub, while the thrust leans wherever the disc leans, rake included. The yaw loop asks for one moment and every actuator the aircraft has supplies its share of it in proportion to what it can make, with a ${Math.round(Ro.tauT * 1000)} ms lag. ${drv === 'shaft' && Ro.TtMax ? "The reaction torque comes out of that demand first, so a collective punch kicks the tail a little." : drv === 'shaft' ? "The reaction torque comes out of that demand first — on this one there is no tail rotor to take it, so the propellers do, and a collective punch spends some of their differential." : drv === 'tip' ? "There is no reaction torque to take, because the drive pushes on the air: the mast motor's whole job is pointing the nose, and its own reaction comes out of the rotor. With the drive dead, every pedal input is paid for in headspeed." : "There is no reaction torque at all, so the rudder is doing nothing but steering."} Horizon, Trainer and Angle work as on the quad.</p>
       <p><b>Simplified.</b> Uniform inflow (no wake skew or blade-by-blade loads), no blade flapping dynamics beyond a short tilt lag and blowback, a stiff hub, and no tail-rotor stall.</p></div>`;
   }
   // sensors, link and autopilot, written so every number can be checked
@@ -3525,7 +3828,17 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   }
   function fpvCam(v, planeM) {
     const m = MODELS[viewAc] || MODELS[AC.id];
-    const camW = M4.chain(planeM, M4.trans(m.cam[0], m.cam[1], m.cam[2]), M4.rotX(camTiltNow() * D2R));
+    const ac = ACS[viewAc] || AC, s0 = viewSt || st;
+    /* A camera on top of the rotor head is derotated — a motor on the hub turns
+       it back the other way, off its own pack, so the picture does not spin with
+       the blades. Derotation takes out the spin and nothing else: the mount is
+       still bolted to the head, so it rides the disc rather than the airframe.
+       The horizon tips when the disc tips, a beat before the fuselage follows
+       it, and the whole aircraft hangs underneath you. */
+    const hub = ac.fpvOnHub ? M4.mul(M4.rotZ(-s0.tilt[0]), M4.rotX(s0.tilt[1] + (s0.rk || 0))) : null;
+    const camW = hub
+      ? M4.chain(planeM, M4.trans(m.cam[0], m.cam[1], m.cam[2]), hub, M4.rotX(camTiltNow() * D2R))
+      : M4.chain(planeM, M4.trans(m.cam[0], m.cam[1], m.cam[2]), M4.rotX(camTiltNow() * D2R));
     const aspect = v.w / v.h;
     const hf = S.fpvFov * D2R;
     let vf = aspect >= 1 ? 2 * Math.atan(Math.tan(hf / 2) / aspect) : 2 * Math.atan(Math.tan(hf / 2) * 1) ;
@@ -3575,7 +3888,18 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
          once seen and it made the terrain look corrugated. The grain lives in
          the vertex colours instead (terrain.js, `grain`), where it is a
          function of world position and cannot alias at any distance. */
-      const o = colorTex ? { tex: colorTex.tex, mix: snowMix } : { mix: snowMix };
+      /* With an orthophoto draped on it, the terrain is already lit: the
+         photo was flown on a particular morning and carries that morning's
+         shadows. Lighting it a second time multiplies the two together, and
+         a north-facing canyon wall — already deep shadow in the photo — goes
+         almost black, which is no use at all when you are diving it. So the
+         sim adds a fill light over imagery instead: a face in full sun is
+         left exactly as it was, and a face the sun never reaches is lifted
+         half way toward it, so nothing is darkened and a shaded canyon wall
+         is still readable when you are diving it. Without imagery the
+         shading is the only thing describing the shape, so there is no fill
+         and the full range stays. */
+      const o = colorTex ? { tex: colorTex.tex, mix: snowMix, fill: 0.5 } : { mix: snowMix };
       for (const ch of chunks) {
         if (!ch.mesh || !chunkAhead(ch, cam)) continue;
         GLR.draw(R, ch.mesh, I, o);
@@ -3617,7 +3941,11 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     const propMix = ii.prop > 0.02 ? [0.86, 0.92, 0.98, clamp(ii.prop * 1.3, 0, 0.75)] : null;
     for (const p of model.parts) { const m = p.anim ? M4.chain(planeM, p.mat, p.anim(st)) : M4.mul(planeM, p.mat); partM.push(m); GLR.draw(R, p.mesh, m, { mix: iceMix }); }
     const propMs = model.props.map((pr) => (pr.tilt ? M4.chain(planeM, pr.mat, pr.tilt(st), pr.post, M4.rotZ(pr.ang)) : M4.chain(planeM, pr.mat, M4.rotZ(pr.ang))));
-    if (v.kind !== 'fpv') model.props.forEach((pr, i) => GLR.draw(R, pr.blades, propMs[i], { mix: propMix }));
+    /* In FPV you are looking out of your own aircraft and do not want its
+       propellers in the way — except from a camera on top of a rotor head,
+       where the blades going round underneath you are the view. `showFpv` is
+       that one exception, and nothing else sets it. */
+    model.props.forEach((pr, i) => { if (v.kind !== 'fpv' || pr.showFpv) GLR.draw(R, pr.blades, propMs[i], { mix: propMix }); });
     // shadow (sun overhead), drawn once per pixel via stencil
     /* The shadow is the model squashed flat onto the ground, so on a map it has
        to be squashed onto the ground *under the model*, not onto the datum —
@@ -3636,9 +3964,9 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       gl.disable(gl.POLYGON_OFFSET_FILL); gl.disable(gl.STENCIL_TEST);
       gl.depthMask(true); gl.disable(gl.BLEND);
     }
-    if (v.kind !== 'fpv') {
+    {
       gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
-      model.props.forEach((pr, i) => { const sp = pr.spin(st); if (sp > 0.12) GLR.draw(R, pr.disc, propMs[i], { alpha: 0.16 + 0.12 * sp, unlit: true, mix: propMix }); });
+      model.props.forEach((pr, i) => { const sp = pr.spin(st); if (sp > 0.12 && (v.kind !== 'fpv' || pr.showFpv)) GLR.draw(R, pr.disc, propMs[i], { alpha: 0.16 + 0.12 * sp, unlit: true, mix: propMix }); });
       gl.depthMask(true); gl.disable(gl.BLEND);
     }
     if (avatars.length) drawAvatars(v);
@@ -3677,8 +4005,8 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   const fmtTime = (t) => `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
   let blink = 0;
   // throttle readout; a heli shows collective pitch and headspeed instead
-  const thrText = (pct) => (AC.kind === 'heli'
-    ? `${st.coll >= 0 ? '+' : ''}${(st.coll / D2R).toFixed(1)}° ${Math.round((st.om * 60) / (2 * Math.PI))} RPM`
+  const thrText = (pct) => (ROTOR(AC)
+    ? (st.tele.stickIsEngine ? `THR ${Math.round(inp.thr * 100)}% ` : `${st.coll >= 0 ? '+' : ''}${(st.coll / D2R).toFixed(1)}° `) + `${Math.round((st.om * 60) / (2 * Math.PI))} RPM`
     : `THR ${Math.round(inp.thr * 100)}${pct ? '%' : ''}`);
   // one-line weather summary for the LOS readout (empty on a plain clear day)
   function wxLine() {
@@ -3699,13 +4027,21 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     if (st.held && !armed) w.push(['THROTTLE DOWN TO ARM', '#ffd36a']);
     else if (st.held) w.push(['THROTTLE UP TO LAUNCH', '#ffd36a']);
     else if (!armed) w.push(['THROTTLE DOWN TO ARM', '#ffd36a']);
-    if (cutOn || cutHeld) w.push([AC.kind === 'heli' ? 'THROTTLE HOLD' : 'THROTTLE CUT', '#ff9d42']);
+    if (holdNow()) w.push([HOLD_LABEL(AC), '#ff9d42']);
     if (fsActive && blink % 1 < 0.65) w.push([apMode() === 'rtl' ? 'RC FAILSAFE · RTL' : 'RC FAILSAFE', '#ff6157']);
     else if (!fsActive && nav.link.rcLq < 60) w.push([`RC LINK ${Math.round(nav.link.rcLq)}%`, '#ff9d42']);
     if (apMode() === 'rtl' && !fsActive) w.push([`RTL · ${({ climb: 'CLIMBING', return: 'RETURNING', land: 'LANDING', loiter: 'CIRCLING HOME' })[nav.ap.phase] || ''}`, '#ffd36a']);
-    if (AC.kind === 'heli' && !st.crashed) {
-      if (armed && !(cutOn || cutHeld) && st.wow && st.om < 0.95 * AC.rotor.om0) w.push(['SPOOLING UP', '#ffd36a']);
-      else if (!st.wow && st.om < 0.8 * AC.rotor.om0 && blink % 1 < 0.6) w.push(['LOW HEADSPEED', '#ff6157']);
+    if (ROTOR(AC) && !st.crashed) {
+      if (armed && !holdNow() && st.wow && st.om < 0.95 * AC.rotor.om0 && AC.rotor.drive !== 'none') w.push(['SPOOLING UP', '#ffd36a']);
+      else if (AC.kind === 'gyro' && st.om < 0.75 * AC.rotor.om0 && st.wow) w.push(['PREROTATING', '#ffd36a']);
+      else if (!st.wow && st.om < (AC.kind === 'gyro' ? 0.6 : 0.8) * AC.rotor.om0 && blink % 1 < 0.6) w.push(['LOW HEADSPEED', '#ff6157']);
+      /* The autorotation budget, and the only number worth looking at once the
+         drive is off: the energy in the head against the energy it takes to stop
+         the descent. Under 100% there is no flare left in it. */
+      if (st.tele.free && !st.wow) {
+        const f = st.tele.flare;
+        w.push([`FLARE ${f > 9.95 ? '>999' : Math.round(f * 100)}%`, f < 1 ? '#ff6157' : f < 1.6 ? '#ffd36a' : '#9fd3ff']);
+      }
     }
     if (S.battery && st.soc <= 0) w.push(['BATTERY EMPTY', '#ff6157']);
     else if (S.battery && st.vb / AC.batt.cells < (AC.batt.chem === 'liion' ? 3.1 : 3.45) && st.n > 0.05) w.push(['LOW BATTERY', '#ff9d42']);
@@ -3726,7 +4062,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     if (S.iceCue && !st.crashed) { // not something a real aircraft tells you; turn it off to practise spotting the signs
       const ii = iceInfo();
       if (ii.lift > 0.08) w.push([`ICE −${Math.round(ii.lift * 100)}% LIFT`, '#9fd3ff']);
-      if (ii.prop > 0.08) w.push([`${AC.kind === 'heli' ? 'BLADE' : 'PROP'} ICE −${Math.round(ii.prop * 100)}% THRUST`, '#9fd3ff']);
+      if (ii.prop > 0.08) w.push([`${ROTOR(AC) ? 'BLADE' : 'PROP'} ICE −${Math.round(ii.prop * 100)}% THRUST`, '#9fd3ff']);
     }
     if (S.stallCue && Math.max(st.tele.stallL, st.tele.stallR) > 0.25 && blink % 1 < 0.6) {
       const side = st.tele.stallL - st.tele.stallR > 0.15 ? ' L' : st.tele.stallR - st.tele.stallL > 0.15 ? ' R' : '';
@@ -4155,7 +4491,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     const K0 = { wing: [120, 520, 1.5], conventional: [70, 260, 2], quad: [170, 950, 1.5], vtol: [170, 1100, 1.5], heli: [0, 0, 2] }[AC.kind] || [120, 520, 1.5];
     let f = K0[0] + K0[1] * st.n;
     if (AC.motor) f *= 0.127 / AC.motor.D; // bigger props turn slower: lower note
-    if (AC.kind === 'heli') { f = (st.om / (2 * Math.PI)) * 2; g = S.sound && !paused && !st.crashed ? 0.015 + 0.04 * (st.om / AC.rotor.om0) : 0; } // blade pass
+    if (ROTOR(AC)) { f = (st.om / (2 * Math.PI)) * AC.rotor.blades; g = S.sound && !paused && !st.crashed ? 0.015 + 0.04 * (st.om / AC.rotor.om0) : 0; } // blade pass
     if (S.view !== 'fpv') {
       g /= 1 + losDist / 45;
       // Doppler for fly-bys (pilot at the origin)
@@ -4322,8 +4658,8 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       const Vs = stallVsCache.Vs, Vc = clamp(1.9 * Vs, 12, 22);
       return { kind: 'plane', home: homeNE(), rtlAlt: S.rtlAlt.plane, Vcruise: Vc, Vmin: 1.35 * Vs, Vmax: Math.min(28, 3 * Vs), loiterR: Math.max(30, (Vc * Vc) / (9.81 * Math.tan(30 * D2R))), aTrim: 2 * D2R, thrTrim: AC.kind === 'wing' ? 0.45 : 0.5 };
     }
-    const heli = AC.kind === 'heli';
-    return { kind: AC.kind, home: homeNE(), rtlAlt: S.rtlAlt.rotary, hover: heli ? AC.hoverThrCurve[S.curve] : AC.hoverThr, curveK: S.curve === '3d' ? 0.18 : 0.3,
+    const heli = ROTOR(AC);
+    return { kind: AC.kind, home: homeNE(), rtlAlt: S.rtlAlt.rotary, hover: COLL(AC) ? AC.hoverThrCurve[S.curve] : AC.hoverThr, curveK: S.curve === '3d' ? 0.18 : 0.3,
       base0: heli ? 0 : AC.motor.idle + AC.hoverThr * (1 - AC.motor.idle), idle: heli ? 0 : AC.motor.idle };
   }
   let lastSrc = 'baro';
@@ -4351,7 +4687,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   function controls() {
     const inp = heldInp; // the receiver's view of your sticks: frozen while packets are being lost
     if (ROTARY(AC)) {
-      const cut = cutOn || cutHeld, heli = AC.kind === 'heli';
+      const cut = holdNow(), heli = ROTOR(AC);
       // heli: the throttle stick is collective, live even with the motor held; hold stops the motor only
       return { thr: armed || heli ? inp.thr : 0, a: inp.a, e: inp.e, r: inp.r, armed: armed && !cut, hold: cut, curve: S.curve,
         fwd: fwdCmd, mode: { manual: 'acro', horizon: 'horizon', trainer: 'trainer', stab: 'angle' }[S.mode] || 'acro', lim: limNow() };
@@ -4468,7 +4804,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   const tutOn = () => !!tut.run;
   const bestKey = (c, l) => `${c}/${l}`;
   const bestOf = (c, l) => S.tut.best[bestKey(c, l)] || null;
-  const KIND_NEEDS = { quad: 'a quad', heli: 'a helicopter', wing: 'a flying wing', conventional: 'a plane', vtol: 'a tail-sitter' };
+  const KIND_NEEDS = { quad: 'a quad', heli: 'a helicopter', gyro: 'an autogyro', wing: 'a flying wing', conventional: 'a plane', vtol: 'a tail-sitter' };
   const coursesFor = (kind) => Object.values(COURSES).filter((c) => c.kinds.includes(kind));
 
   // where the pilot stands and what the ground is under him: the datum every
@@ -4580,7 +4916,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     if (tut.run.done || tut.run.failed) return;
     const before = tut.run.step;
     for (const [kind, arg] of TUT.tick(tut.run, tutSnap(), dt)) {
-      if (kind === 'step') tutFlash('NEXT');
+      if (kind === 'step') tutFlash(tutCut() ? 'ENGINE OUT' : 'NEXT');
       else if (kind === 'crash') tutFlash(`CRASH ${arg} · −${TUT.CRASH_COST}`);
       else if (kind === 'lost') tutFlash('LOST IT — START THE HOLD AGAIN');
       else if (kind === 'out') tutFlash(`OUTSIDE THE ${Math.round(arg)} m BOX`);
@@ -5022,7 +5358,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
       while (acc >= DT && steps < 60) {
         let cc;
         if (apo && ROTARY(AC)) cc = Object.assign({}, c, apo, { thr: apo.thr, armed: c.armed && apo.armed !== false });
-        else if (apo) cc = FL.planeAssist('stab', { a: apo.bank / (apLim.bank * D2R), e: apo.pitch / (apLim.pitch * D2R) }, { thr: cutOn || cutHeld ? 0 : apo.thr, r: 0, a: 0, e: 0 }, st, AC, apLim);
+        else if (apo) cc = FL.planeAssist('stab', { a: apo.bank / (apLim.bank * D2R), e: apo.pitch / (apLim.pitch * D2R) }, { thr: holdNow() ? 0 : apo.thr, r: 0, a: 0, e: 0 }, st, AC, apLim);
         else cc = ROTARY(AC) || S.mode === 'manual' ? c : FL.planeAssist(S.mode, { a: c.sa, e: c.se }, c, st, AC, limNow());
         if (!ROTARY(AC) && cc !== c) { cc.f = c.f; cc.gear = c.gear; }
         FL.step(st, AC, cc, env, DT);
@@ -5087,5 +5423,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     // the keyboard's stick positions, so a test can fly the real control path
     sticks: kb, useKeys: () => { src = 'keys'; },
     // the camera mount, and the panels a smoke test needs to open
-    camTilt: () => camTiltNow(), camPair: () => camPair(AC), openCtl, closeCtl }; // debugging and tests
+    camTilt: () => camTiltNow(), camPair: () => camPair(AC), openCtl, closeCtl,
+    // the model notes: a page of generated HTML with a field for everything an aircraft might have
+    notes: () => notesHtml() }; // debugging and tests
 })();

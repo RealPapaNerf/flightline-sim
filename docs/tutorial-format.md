@@ -177,6 +177,31 @@ rather than on the settling.
 
 `say`, `tip` and `hold` (seconds before it clears; `0` clears at once).
 
+### `cut` — an engine failure, on any flying task
+
+| field | range | default | |
+|---|---|---|---|
+| `cut` | true / false | `false` | the rotor drive fails for the length of this task |
+
+Set it on a `zone`, `gate` or `land` task on a rotorcraft and the sim holds the
+rotor drive off for as long as that task is live — not as something to press,
+and with no warning, because a real failure does not wait until you are ready
+either. It comes back when the task is over, so each one is a single try.
+
+What goes off depends on the machine. A helicopter loses its motor and keeps
+its collective, which is what you autorotate on. An autogyro loses its engine,
+and nothing happens to its rotor because nothing was ever driving it. A
+gyrodyne tilts its head back, parks its collective and hands the throttle stick
+to its propellers, and is an autogyro until the task ends.
+
+**Leave room.** How far a machine goes for every metre it comes down is not a
+small difference between rotorcraft: a 450 glides about 1.4 to 1, a tip-driven
+rotor about 2, a gyrodyne over 3. A landing circle that one of them can make
+is one the others will float straight past or land short of, so an engine-out
+task wants a generous `r` and a lesson that is scored on getting down rather
+than on the spot. The built-in **Engine out** ladder is laid out that way, and
+`node test/tutorial_test.js` flies it on all three.
+
 ---
 
 ## Scoring
