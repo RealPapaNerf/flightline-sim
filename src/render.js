@@ -174,12 +174,21 @@ precision highp float;
 precision mediump float;
 #endif
 uniform sampler2D uTex; uniform float uUseTex; uniform float uTexScale; uniform float uUnlit; uniform float uAlpha;
-uniform float uFill;
+uniform float uFill; uniform float uDesat;
 uniform vec3 uTint; uniform vec3 uSun; uniform vec3 uSkyAmb; uniform vec3 uGndAmb;
 uniform vec3 uFog; uniform vec2 uFogRange; uniform float uFogOn; uniform float uFogK; uniform vec4 uMix; uniform vec3 uSunCol;
 varying vec3 vN; varying vec3 vC; varying vec2 vUV; varying float vDist;
 void main(){
-  vec3 c = vC * uTint;
+  /* An orthophoto carries the ground's real colour. The vertex colour is the
+     surface classifier's guess at it, and multiplying the two tints the
+     photograph with the guess: Notch Peak's NAIP image is tan desert
+     limestone, the classifier called 57% of the map brush and grass, and the
+     product was olive pasture. Over imagery the vertex colour keeps only its
+     brightness — the grain that gives close range its texture — and gives up
+     its hue to the photo. */
+  vec3 vc = vC;
+  if (uDesat > 0.0) vc = mix(vc, vec3(dot(vc, vec3(0.299, 0.587, 0.114))), uDesat);
+  vec3 c = vc * uTint;
   if (uUseTex > 0.5) c *= texture2D(uTex, vUV * uTexScale).rgb;
   c = mix(c, uMix.rgb, uMix.a); // snow cover, ice on the airframe
   if (uUnlit < 0.5) {
@@ -217,7 +226,7 @@ void main(){
     gl.useProgram(prog);
     const L = {};
     for (const n of ['aPos', 'aNrm', 'aCol', 'aUV']) L[n] = gl.getAttribLocation(prog, n);
-    for (const n of ['uModel', 'uVP', 'uCam', 'uWorldUV', 'uTex', 'uUseTex', 'uTexScale', 'uUnlit', 'uAlpha', 'uTint', 'uSun', 'uSkyAmb', 'uGndAmb', 'uFog', 'uFogRange', 'uFogOn', 'uFogK', 'uMix', 'uSunCol', 'uFill'])
+    for (const n of ['uModel', 'uVP', 'uCam', 'uWorldUV', 'uTex', 'uUseTex', 'uTexScale', 'uUnlit', 'uAlpha', 'uTint', 'uSun', 'uSkyAmb', 'uGndAmb', 'uFog', 'uFogRange', 'uFogOn', 'uFogK', 'uMix', 'uSunCol', 'uFill', 'uDesat'])
       L[n] = gl.getUniformLocation(prog, n);
     for (const n of ['aPos', 'aNrm', 'aCol', 'aUV']) if (L[n] >= 0) gl.enableVertexAttribArray(L[n]);
     const aniso = gl.getExtension('EXT_texture_filter_anisotropic') || gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic');
@@ -281,6 +290,7 @@ void main(){
     gl.uniform1f(L.uWorldUV, o.worldUV ? 1 : 0);
     gl.uniform1f(L.uUnlit, o.unlit ? 1 : 0);
     gl.uniform1f(L.uFill, o.fill || 0);
+    gl.uniform1f(L.uDesat, o.desat || 0);
     gl.uniform1f(L.uAlpha, o.alpha == null ? 1 : o.alpha);
     gl.uniform3fv(L.uTint, o.tint || ONE);
     gl.uniform4fv(L.uMix, o.mix || NOMIX);

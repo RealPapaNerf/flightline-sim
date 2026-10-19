@@ -3899,7 +3899,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
          is still readable when you are diving it. Without imagery the
          shading is the only thing describing the shape, so there is no fill
          and the full range stays. */
-      const o = colorTex ? { tex: colorTex.tex, mix: snowMix, fill: 0.5 } : { mix: snowMix };
+      const o = colorTex ? { tex: colorTex.tex, mix: snowMix, fill: 0.5, desat: 1 } : { mix: snowMix };
       for (const ch of chunks) {
         if (!ch.mesh || !chunkAhead(ch, cam)) continue;
         GLR.draw(R, ch.mesh, I, o);
