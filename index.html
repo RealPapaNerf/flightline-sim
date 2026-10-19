@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<!-- built by tools/build.py from src/ (cbf7214c); edit the sources, not this file -->
+<!-- built by tools/build.py from src/ (b2face24); edit the sources, not this file -->
 <title>Flightline RC Sim</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Browser RC flight trainer: Nano Goblin and trainer flight models, line of sight, FPV and split view, USB transmitter support.">
@@ -5369,6 +5369,7 @@ precision highp float;
 precision mediump float;
 #endif
 uniform sampler2D uTex; uniform float uUseTex; uniform float uTexScale; uniform float uUnlit; uniform float uAlpha;
+uniform float uFill;
 uniform vec3 uTint; uniform vec3 uSun; uniform vec3 uSkyAmb; uniform vec3 uGndAmb;
 uniform vec3 uFog; uniform vec2 uFogRange; uniform float uFogOn; uniform float uFogK; uniform vec4 uMix; uniform vec3 uSunCol;
 varying vec3 vN; varying vec3 vC; varying vec2 vUV; varying float vDist;
@@ -5381,7 +5382,12 @@ void main(){
     if (!gl_FrontFacing) n = -n;
     float d = max(dot(n, uSun), 0.0);
     vec3 amb = mix(uGndAmb, uSkyAmb, n.y * 0.5 + 0.5);
-    c *= amb + d * uSunCol;
+    // uFill is a fill light: it lifts the shaded side toward the sunlit one
+    // and leaves a fully sunlit face exactly as it was, so nothing is ever
+    // darkened by it. An orthophoto already contains the light it was flown
+    // in, and shading it again multiplies two shadows together until a
+    // north-facing wall is unreadable.
+    c *= amb + mix(d, 1.0, uFill) * uSunCol;
   }
   // haze (linear) or weather (exponential extinction: 2% contrast left at the visibility distance)
   float f = uFogOn * max(clamp((vDist - uFogRange.x) / (uFogRange.y - uFogRange.x), 0.0, 1.0), 1.0 - exp(-uFogK * vDist));
@@ -5406,7 +5412,7 @@ void main(){
     gl.useProgram(prog);
     const L = {};
     for (const n of ['aPos', 'aNrm', 'aCol', 'aUV']) L[n] = gl.getAttribLocation(prog, n);
-    for (const n of ['uModel', 'uVP', 'uCam', 'uWorldUV', 'uTex', 'uUseTex', 'uTexScale', 'uUnlit', 'uAlpha', 'uTint', 'uSun', 'uSkyAmb', 'uGndAmb', 'uFog', 'uFogRange', 'uFogOn', 'uFogK', 'uMix', 'uSunCol'])
+    for (const n of ['uModel', 'uVP', 'uCam', 'uWorldUV', 'uTex', 'uUseTex', 'uTexScale', 'uUnlit', 'uAlpha', 'uTint', 'uSun', 'uSkyAmb', 'uGndAmb', 'uFog', 'uFogRange', 'uFogOn', 'uFogK', 'uMix', 'uSunCol', 'uFill'])
       L[n] = gl.getUniformLocation(prog, n);
     for (const n of ['aPos', 'aNrm', 'aCol', 'aUV']) if (L[n] >= 0) gl.enableVertexAttribArray(L[n]);
     const aniso = gl.getExtension('EXT_texture_filter_anisotropic') || gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic');
@@ -5469,6 +5475,7 @@ void main(){
     gl.uniform1f(L.uTexScale, o.texScale || 1);
     gl.uniform1f(L.uWorldUV, o.worldUV ? 1 : 0);
     gl.uniform1f(L.uUnlit, o.unlit ? 1 : 0);
+    gl.uniform1f(L.uFill, o.fill || 0);
     gl.uniform1f(L.uAlpha, o.alpha == null ? 1 : o.alpha);
     gl.uniform3fv(L.uTint, o.tint || ONE);
     gl.uniform4fv(L.uMix, o.mix || NOMIX);
@@ -6128,6 +6135,13 @@ const TERRAIN = (function () {
       starts: (json.starts || []).map((s) => ({
         id: s.id || 'start', name: s.name || s.id || 'Start',
         n: +s.n, e: +s.e, yawDeg: +(s.yawDeg || 0), aglM: +(s.aglM || 0), speedMs: +(s.speedMs || 0),
+        anchor: startAnchor(s, json),
+      })),
+      /* Places you can stand, beyond the one the document calls `pilot`.
+         A site is only a position: what it means to stand there is worked
+         out from the terrain, so a map adds one by naming a point. */
+      sites: (json.sites || []).map((s) => ({
+        id: s.id || 'site', name: s.name || s.id || 'Site', n: +s.n, e: +s.e,
       })),
       obstacles: json.obstacles || [],
       gates: json.gates || [],
@@ -6145,6 +6159,29 @@ const TERRAIN = (function () {
       if (i >= 0 && i < out.length) Object.assign(out[i], over[k]);
     }
     return out;
+  }
+
+  /* Does this start move when the pilot moves?
+
+     Once you can stand somewhere other than where the document put you, a
+     start has to say whether it is a place on the map or a position relative
+     to you. "On the runway" is a place and must not move. "In your hand" is
+     you, and must. Maps written before this say nothing, so it is read off
+     the pad list instead of guessed from a distance: a start standing on a
+     declared pad is that pad's, and everything else was derived from the
+     pilot spot, which is exactly how the builder writes them. */
+  function startAnchor(s, json) {
+    if (s.anchor === 'map' || s.anchor === 'pilot') return s.anchor;
+    const n = +s.n, e = +s.e;
+    for (const p of json.pads || []) {
+      const yaw = (+p.yawDeg || 0) * Math.PI / 180;
+      const c = Math.cos(yaw), si = Math.sin(yaw);
+      const dn = n - (+p.n || 0), de = e - (+p.e || 0);
+      // into the pad's own frame: u along it, v across it
+      const u = dn * c + de * si, v = -dn * si + de * c;
+      if (Math.abs(u) <= (+p.lengthM || 10) / 2 && Math.abs(v) <= (+p.widthM || 10) / 2) return 'map';
+    }
+    return 'pilot';
   }
 
   function fillPoint(p, T) {

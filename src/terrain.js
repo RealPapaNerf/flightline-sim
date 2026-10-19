@@ -620,6 +620,13 @@ const TERRAIN = (function () {
       starts: (json.starts || []).map((s) => ({
         id: s.id || 'start', name: s.name || s.id || 'Start',
         n: +s.n, e: +s.e, yawDeg: +(s.yawDeg || 0), aglM: +(s.aglM || 0), speedMs: +(s.speedMs || 0),
+        anchor: startAnchor(s, json),
+      })),
+      /* Places you can stand, beyond the one the document calls `pilot`.
+         A site is only a position: what it means to stand there is worked
+         out from the terrain, so a map adds one by naming a point. */
+      sites: (json.sites || []).map((s) => ({
+        id: s.id || 'site', name: s.name || s.id || 'Site', n: +s.n, e: +s.e,
       })),
       obstacles: json.obstacles || [],
       gates: json.gates || [],
@@ -637,6 +644,29 @@ const TERRAIN = (function () {
       if (i >= 0 && i < out.length) Object.assign(out[i], over[k]);
     }
     return out;
+  }
+
+  /* Does this start move when the pilot moves?
+
+     Once you can stand somewhere other than where the document put you, a
+     start has to say whether it is a place on the map or a position relative
+     to you. "On the runway" is a place and must not move. "In your hand" is
+     you, and must. Maps written before this say nothing, so it is read off
+     the pad list instead of guessed from a distance: a start standing on a
+     declared pad is that pad's, and everything else was derived from the
+     pilot spot, which is exactly how the builder writes them. */
+  function startAnchor(s, json) {
+    if (s.anchor === 'map' || s.anchor === 'pilot') return s.anchor;
+    const n = +s.n, e = +s.e;
+    for (const p of json.pads || []) {
+      const yaw = (+p.yawDeg || 0) * Math.PI / 180;
+      const c = Math.cos(yaw), si = Math.sin(yaw);
+      const dn = n - (+p.n || 0), de = e - (+p.e || 0);
+      // into the pad's own frame: u along it, v across it
+      const u = dn * c + de * si, v = -dn * si + de * c;
+      if (Math.abs(u) <= (+p.lengthM || 10) / 2 && Math.abs(v) <= (+p.widthM || 10) / 2) return 'map';
+    }
+    return 'pilot';
   }
 
   function fillPoint(p, T) {

@@ -41,18 +41,26 @@ function serve() {
   const browser = await chromium.launch({
     args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-gpu-sandbox', '--no-sandbox'],
   });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
   const errors = [];
-  page.on('pageerror', (e) => errors.push(String(e)));
 
   let fail = 0;
   const ok = (cond, what, got) => { if (cond) console.log(`  ok    ${what}${got === undefined ? '' : `  (${got})`}`); else { fail++; console.log(`  FAIL  ${what}  (${got})`); } };
 
-  await page.goto(`http://127.0.0.1:${PORT}/index.html`, { waitUntil: 'load' });
-  await page.waitForFunction('!!window.__flightline', null, { timeout: 30000 });
-  await page.evaluate(() => document.querySelector('#wFly') && document.querySelector('#wFly').click());
-  await page.waitForTimeout(800);
+  /* A fresh page per map. Ten maps at 2048 px of imagery and 144 chunks each
+     is more than the software rasteriser will carry in one session — it took
+     the whole browser down on the seventh — and a map that only works
+     because a previous one warmed something up is not a map that works. */
+  const freshPage = async () => {
+    const pg = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
+    pg.on('pageerror', (e) => errors.push(String(e)));
+    await pg.goto(`http://127.0.0.1:${PORT}/index.html`, { waitUntil: 'load' });
+    await pg.waitForFunction('!!window.__flightline', null, { timeout: 30000 });
+    await pg.evaluate(() => document.querySelector('#wFly') && document.querySelector('#wFly').click());
+    await pg.waitForTimeout(400);
+    return pg;
+  };
 
+  let page = await freshPage();
   const lib = await page.evaluate(async () => {
     const l = await window.__flightline.MAPS.fetchLibrary('library/');
     return { name: l.name, maps: l.maps.map((m) => ({ id: m.id, kind: m.kind || 'terrain' })) };
@@ -62,6 +70,8 @@ function serve() {
   const terrain = lib.maps.filter((m) => m.kind === 'terrain');
   for (const entry of terrain) {
     console.log(`\n-- ${entry.id} --`);
+    await page.close();
+    page = await freshPage();
     const r = await page.evaluate(async (id) => {
       const F = window.__flightline;
       const l = await F.MAPS.fetchLibrary('library/');
