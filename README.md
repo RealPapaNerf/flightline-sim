@@ -52,6 +52,7 @@ GitHub Pages is switched on under Repo → Settings → Pages → Deploy from a 
 | **Tip-prop heli** | 1.5 m rotor driven by two props out on the blades. No tail rotor; the pedal is a motor on the mast. Derotated camera on the hub | 6S 5000 LiPo |
 | **Autogyro** | 1.7 m rotor nobody drives, mast raked 9° back, pusher prop, prerotator | 6S 6000 LiPo |
 | **Gyrodyne** | shaft-driven rotor, no tail rotor, two reversing-pitch props on stub booms. Throttle hold turns it into an autogyro | 12S 8000 LiPo |
+| **Prandtl-D** | 3.75 m bell-spanload flying wing, no fin at all; yaws *into* its own roll | 4S 3000 LiPo |
 
 Plus whatever you load: the [`aircraft/`](aircraft/) folder here — which has the
 Goblin with an ArduPilot stack, three of the quads, a 2 m camera plane, a
@@ -71,6 +72,45 @@ stall–spin.
 **The heli.** Throttle hold (`H`) stops the motor and leaves the collective live. Lower
 the collective and the air coming up through the disc keeps the rotor turning. Flare and
 cushion with the stored headspeed. Leave the collective up and the rotor dies.
+
+### The Prandtl-D, and a wing that yaws the right way
+
+A bell spanload — Prandtl's 1933 distribution, `Γ ∝ (1−η²)^{3/2}` — is the one
+that costs least induced drag for a given **root bending moment** rather than
+for a given span. The ellipse wins on span; the bell wins on what the spar
+weighs, and it has one other property. Its induced flow is
+`w/V = 2·A₁·(1−2η²)`: downwash inboard, and **upwash** outboard of η = 1/√2. A
+section in upwash has its lift tilted forward and makes induced *thrust*, so
+the wing that rolls up yaws into the turn. No fin, no rudder, no adverse yaw.
+
+None of that is special-cased in the sim. The accurate model solves circulation
+strip by strip and charges each strip `CL·(w/V)`, which simply goes negative
+where the flow comes up — so the behaviour falls out of the physics. **The
+lightweight model cannot show it at all**, because its induced drag is `k·CL²`
+and can never be thrust: turn on Sim rules → *Accurate aerodynamics* or you are
+flying a different aircraft.
+
+`node test/prandtl_test.js [span] [rootChord] [sweep] [speed] [mass]` derives
+the washout in closed form for whatever planform you give it, solves the CG for
+a zero-elevon trim, and prints the spanload, the span efficiency, where the
+downwash changes sign, and the yaw it produces per unit roll — then sweeps span,
+chord, sweep and design CL. On the 3.75 m baseline it lands on theory: the
+circulation within 0.2% of Γ₀, the crossover at η 0.703 against 1/√2 = 0.7071,
+span efficiency 0.749 against the series' exact 0.750, and an untwisted wing of
+the same planform putting its lift centroid at 0.424 — which is 4/(3π), the
+elliptical value, arrived at from the other direction.
+
+What the sweep says about **small** ones: the bell holds its shape almost
+anywhere, but the yaw it produces scales with aspect ratio and lift
+coefficient, so a 1 m version yaws about a seventh as hard as the 3.75 m one.
+What actually breaks it is asking too much lift of it — wind the design CL up
+and the root reaches its own stall first, the load spills outboard, and the
+distribution relaxes back towards an ellipse, taking the proverse yaw with it.
+
+The shipped aircraft carries 5° of dihedral that the real one does not have.
+Without it this model spirals off in under half a minute: a finless plank has
+nothing else to hold a bank, and that is the one number in the file chosen to
+make it fly rather than derived.
 
 ### Rotors that are not helicopters
 

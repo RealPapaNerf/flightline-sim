@@ -375,6 +375,7 @@ somewhere clear by default.
 | `surfaces[].dihedral` | -60 … 60 | *optional* | degrees up from the root to the tip |
 | `surfaces[].inc0` | -15 … 15 | *optional* | incidence at the root, degrees |
 | `surfaces[].inc1` | -15 … 15 | *optional* | incidence at the tip; less than inc0 is washout |
+| `surfaces[].twist` | 2 … 12 × (-90 … 90) | *optional* | incidence at evenly spaced stations root to tip, degrees, interpolated between — a washout *law* rather than a straight line. Replaces `inc0`/`inc1` on that surface. See [Spanloads that are not elliptical](#spanloads-that-are-not-elliptical) |
 | `surfaces[].sweepLoad` | -1 … 1 | *optional* | how much sweep pushes the lift outboard (0.25 on a swept plank) |
 | `surfaces[].foil.a` | 0.5 … 7 | **required** | lift-curve slope for this surface's aspect ratio, per radian |
 | `surfaces[].foil.CL0` | -1 … 1 | **required** | lift coefficient at zero angle of attack (camber) |
@@ -535,6 +536,7 @@ to the surfaces has the deflection to fly it with.
 | `surfaces[].dihedral` | -60 … 60 | *optional* | degrees up from the root to the tip |
 | `surfaces[].inc0` | -15 … 15 | *optional* | incidence at the root, degrees |
 | `surfaces[].inc1` | -15 … 15 | *optional* | incidence at the tip; less than inc0 is washout |
+| `surfaces[].twist` | 2 … 12 × (-90 … 90) | *optional* | incidence at evenly spaced stations root to tip, degrees, interpolated between — a washout *law* rather than a straight line. Replaces `inc0`/`inc1` on that surface. See [Spanloads that are not elliptical](#spanloads-that-are-not-elliptical) |
 | `surfaces[].sweepLoad` | -1 … 1 | *optional* | how much sweep pushes the lift outboard (0.25 on a swept plank) |
 | `surfaces[].foil.a` | 0.5 … 7 | **required** | lift-curve slope for this surface's aspect ratio, per radian |
 | `surfaces[].foil.CL0` | -1 … 1 | **required** | lift coefficient at zero angle of attack (camber) |
@@ -657,6 +659,51 @@ to the surfaces has the deflection to fly it with.
 | `look.rear` | 3 × (0…1) | *optional* | quad: rear props |
 | `look.frame` | 3 × (0…1) | *optional* | quad: arms and plates |
 | `look.wrap` | 3 × (0…1) | *optional* | quad: battery wrap |
+
+## Spanloads that are not elliptical
+
+`inc0` → `inc1` is a straight line, and a straight line is all a wing on a
+fuselage has ever needed here. `twist` is a list instead: incidence in degrees
+at evenly spaced stations from root to tip, interpolated between, replacing
+`inc0`/`inc1` on that surface.
+
+It exists because a lift distribution is a *shape*, and some of the useful ones
+cannot be made with a straight line. The one worth knowing is Prandtl's bell:
+
+```
+Γ(η) ∝ (1 − η²)^{3/2},   η = 2y/b
+```
+
+which is the minimum induced drag for a given **root bending moment** rather
+than for a given span — a different and more useful thing to be good at, since
+bending moment is what the spar weighs. Written as a Fourier series it is
+A₃ = −A₁/3, and the induced flow of that series is
+
+```
+w(η)/V = 2·A₁·(1 − 2η²)
+```
+
+— downwash inboard and **upwash** outboard of η = 1/√2. A section sitting in
+upwash has its lift vector tilted forward and makes induced *thrust*, so the
+wing that rolls up yaws into the turn. Proverse yaw, with no fin involved.
+
+None of that is special-cased anywhere in the sim. The accurate model solves
+circulation strip by strip and charges each strip `CL·(w/V)` of induced drag
+from the induced velocity the solve found, so a strip in upwash is charged a
+negative number and the yawing moment follows from where the force is applied.
+**The lightweight model cannot show any of it** — its induced drag is `k·CL²`
+per strip, which is positive whatever the flow is doing. A bell-spanload wing
+needs Sim rules → Accurate aerodynamics to be the aircraft it is.
+
+The twist that produces a bell is derived rather than guessed, and it depends
+on the planform *and* on the design lift coefficient — change the weight or the
+cruise speed and the same washout is the wrong washout.
+[`test/prandtl_test.js`](../test/prandtl_test.js) does the derivation in closed
+form for any planform, solves the CG for a zero-elevon trim, and then measures
+what came out: on the 3.75 m baseline it reproduces the circulation to 0.2% of
+Γ₀, the upwash crossover at η 0.703 against 1/√2 = 0.7071, and a span
+efficiency of 0.749 against the bell series' exact 0.750. Run it with a span, a
+root chord, a sweep angle, a speed and a mass to see what a different wing does.
 
 ## Three ways to turn a rotor
 

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<!-- built by tools/build.py from src/ (18ef790a); edit the sources, not this file -->
+<!-- built by tools/build.py from src/ (0d42b22d); edit the sources, not this file -->
 <title>Flightline RC Sim</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Browser RC flight trainer: Nano Goblin and trainer flight models, line of sight, FPV and split view, USB transmitter support.">
@@ -1074,6 +1074,27 @@ const FL = (function () {
     },
   };
 
+  /* The incidence of one station along a surface, root to tip.
+
+     `inc0`/`inc1` is a straight line between two numbers and is all a wing on a
+     fuselage has ever needed. `twist` is a list of incidences at evenly spaced
+     stations instead, interpolated between, and it is there because some
+     spanloads cannot be made with a straight line — a bell spanload needs the
+     washout to grow faster than linearly towards the tip, and the whole point
+     of the shape is what that does to the *distribution*, not to the total.
+
+     It has to live on one surface rather than being approximated by several
+     panels, because the lifting line solves a surface at a time: four panels
+     would be four separate wings, each with its own tip vortices, and the
+     spanload across the join is exactly the thing being measured. */
+  function twistAt(sf, fm) {
+    const T = sf.twist;
+    if (!T || T.length < 2) return lerp(sf.inc0 || 0, sf.inc1 || 0, fm);
+    const x = clamp(fm, 0, 1) * (T.length - 1);
+    const i = Math.min(T.length - 2, Math.floor(x));
+    return lerp(T[i], T[i + 1], x - i);
+  }
+
   /* Cut every lifting surface into strips and push them onto ac.strips.
      Shared by the planes, the tail-sitters and — since a quad may now carry a
      lifting body — by the multirotors too, which is why it is a function
@@ -1125,7 +1146,7 @@ const FL = (function () {
           const y = sf.y0 + fm * half;
           const chord = lerp(sf.c0, sf.c1, fm);
           const xLE = lerp(sf.xLE0, sf.xLE1, fm);
-          const inc = lerp(sf.inc0 || 0, sf.inc1 || 0, fm) * D2R;
+          const inc = twistAt(sf, fm) * D2R;
           const width = (fmAt((i + 1) / nS) - fmAt(i / nS)) * half;
           let r, n0;
           const c0 = [1, 0, 0];
@@ -2979,6 +3000,10 @@ const ACF = (function (FL) {
        props by thirty or forty degrees, and clamping that to 15 would quietly
        turn an exported aircraft into a different one. */
     dihedral: opt(n(-60, 60)), inc0: opt(n(-90, 90)), inc1: opt(n(-90, 90)), sweepLoad: opt(n(-1, 1)),
+    /* Incidence at evenly spaced stations from root to tip, degrees, instead of
+       the straight line inc0 → inc1. A spanload that is not elliptical needs a
+       washout law that is not linear. */
+    twist: opt(a(12, n(-90, 90))),
     foil: FOIL, flaps: a(6, FLAP, []),
   });
   const POINT = o({

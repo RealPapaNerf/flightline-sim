@@ -630,6 +630,27 @@ const FL = (function () {
     },
   };
 
+  /* The incidence of one station along a surface, root to tip.
+
+     `inc0`/`inc1` is a straight line between two numbers and is all a wing on a
+     fuselage has ever needed. `twist` is a list of incidences at evenly spaced
+     stations instead, interpolated between, and it is there because some
+     spanloads cannot be made with a straight line — a bell spanload needs the
+     washout to grow faster than linearly towards the tip, and the whole point
+     of the shape is what that does to the *distribution*, not to the total.
+
+     It has to live on one surface rather than being approximated by several
+     panels, because the lifting line solves a surface at a time: four panels
+     would be four separate wings, each with its own tip vortices, and the
+     spanload across the join is exactly the thing being measured. */
+  function twistAt(sf, fm) {
+    const T = sf.twist;
+    if (!T || T.length < 2) return lerp(sf.inc0 || 0, sf.inc1 || 0, fm);
+    const x = clamp(fm, 0, 1) * (T.length - 1);
+    const i = Math.min(T.length - 2, Math.floor(x));
+    return lerp(T[i], T[i + 1], x - i);
+  }
+
   /* Cut every lifting surface into strips and push them onto ac.strips.
      Shared by the planes, the tail-sitters and — since a quad may now carry a
      lifting body — by the multirotors too, which is why it is a function
@@ -681,7 +702,7 @@ const FL = (function () {
           const y = sf.y0 + fm * half;
           const chord = lerp(sf.c0, sf.c1, fm);
           const xLE = lerp(sf.xLE0, sf.xLE1, fm);
-          const inc = lerp(sf.inc0 || 0, sf.inc1 || 0, fm) * D2R;
+          const inc = twistAt(sf, fm) * D2R;
           const width = (fmAt((i + 1) / nS) - fmAt(i / nS)) * half;
           let r, n0;
           const c0 = [1, 0, 0];
@@ -1103,32 +1124,75 @@ const FL = (function () {
 
     /* A tail-sitter stands on its tail with the nose straight up, and in the
        air it is already flying horizontally. */
-    if (ac.kind === 'vtol' && !(where && typeof where === 'object')) {
-      const hov = Math.sqrt((ac.mass * G) / (4 * ac.motor.Tmax));
-      if (where === 'air') {
+    if (ac.kind === 'vtol') {
+      /* A tail-sitter stands on its tail with the nose straight up, and in
+         the air it is already flying horizontally.
+
+         The standing half has to run for a map's start too. It used to be
+         skipped for anything out of a map file, which left a blown wing
+         lying on its side on the pad of every terrain map. A start that is
+         already in the air, or already moving, is left to the general path
+         below, which describes it exactly as given — including a speed of
+         zero, which is a prop hang and not an absence of information. */
+      const o = where && typeof where === 'object' ? where : null;
+      const standing = o ? (+o.aglM || 0) <= 0.05 && !(+o.speedMs || 0) : where !== 'air';
+      if (!o && where === 'air') {
+        const hov = Math.sqrt((ac.mass * G) / (4 * ac.motor.Tmax));
         s.fwd = 1;
         const V = ac.trans.vAir;
         s.p = [60, 40, -up(60, 40) - 60];
         s.q = quatFromEuler(0, ac.trans.pitch, -Math.PI / 2);
         s.v = mulMV(quatToMat(s.q), [V, 0, 0]);
         s.mot = [hov, hov, hov, hov];
-      } else {
-        // on its tail on the pad, nose at the sky
-        s.q = quatFromEuler(0, Math.PI / 2, 0);
+        return;
+      }
+      if (standing) {
+        // on its tail, nose at the sky, wherever the start puts it
+        const n = o ? +o.n || 0 : 8, e = o ? +o.e || 0 : 1.5;
+        const psi = o ? (+o.yawDeg || 0) * D2R : 0;
+        s.q = quatFromEuler(0, Math.PI / 2, psi);
         const R0 = quatToMat(s.q);
         const zr = Math.max(...ac.points.map((pt) => mulMV(R0, pt.p)[2]));
-        s.p = [8, 1.5, -up(8, 1.5) - zr - 0.001];
+        s.p = [n, e, -up(n, e) - zr - 0.001];
         s.v = [0, 0, 0];
+        return;
       }
-      return;
     }
 
     // a start position out of a map file: put it where the map says
     if (where && typeof where === 'object') {
       const n = +where.n || 0, e = +where.e || 0, agl = +where.aglM || 0;
       const psi = (+where.yawDeg || 0) * D2R;
-      // on the ground means the lowest contact point touching, not the CG on the ground
-      const zr = agl > 0.05 ? 0 : Math.max(0, ...[...ac.points, ...ac.wheels].map((pt) => pt.p[2])) + 0.001;
+
+      /* A start the map calls a hand launch is HELD, exactly as the built-in
+         field's 'launch' is. Without this the object path read 1.7 m of agl
+         as "already flying", spun the motor up and never set `held`, so the
+         throw key did nothing and no hand-launch model could be launched on
+         a map at all. */
+      if (where.held != null ? where.held : where.id === 'launch') {
+        s.p = [n, e, -up(n, e) - (agl || 1.7)];
+        s.q = quatFromEuler(0, 10 * D2R, psi);
+        s.v = [0, 0, 0];
+        s.held = true;
+        return;
+      }
+
+      /* On the ground, clearance has to be measured under every contact
+         point and not under the centre. With a single sample the downhill
+         legs start below the surface on any real slope, and the model is
+         either shoved out of the hill or tips over before you touch it.
+         It still sits level rather than along the slope: a stance on a
+         hillside wants the contact solver, not the spawn. */
+      let zr = 0;
+      if (agl <= 0.05) {
+        const R0 = quatToMat(quatFromEuler(0, 0, psi));
+        const g0 = up(n, e);
+        for (const pt of [...ac.points, ...ac.wheels]) {
+          const w = mulMV(R0, pt.p);
+          zr = Math.max(zr, up(n + w[0], e + w[1]) - g0 + w[2]);
+        }
+        zr += 0.001;
+      }
       s.p = [n, e, -up(n, e) - agl - zr];
       s.q = quatFromEuler(0, agl > 0.05 ? 0.02 : 0, psi);
       const V = +where.speedMs || 0;

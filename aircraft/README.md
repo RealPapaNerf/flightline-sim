@@ -17,6 +17,7 @@ installed app, download a `.json` from here and use **Import aircraft file**.
 | `tip-prop-heli.json` | 1.5 m rotor driven by two props at the blades, no tail rotor, derotated hub camera, 2.6 kg |
 | `autogyro.json` | 1.7 m rotor nobody drives, mast raked 9° back, pusher prop and a prerotator, 3.2 kg |
 | `gyrodyne.json` | shaft rotor with no tail rotor, two reversing-pitch props on booms; throttle hold makes it an autogyro, 4.5 kg |
+| `prandtl-d.json` | 3.75 m bell-spanload flying wing, no fin; proverse yaw. **Needs Sim rules → Accurate aerodynamics** |
 
 **These are starting points, not measurements.** Each one was built from
 published frame, motor and cell figures plus a weight estimate, and each file

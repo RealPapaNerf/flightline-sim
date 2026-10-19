@@ -1,0 +1,308 @@
+{
+  "format": "flightline-aircraft/1",
+  "author": "Flightline",
+  "version": "1",
+  "source": "derived in test/prandtl_test.js, 18 Oct 2026",
+  "def": {
+    "id": "prandtl-d",
+    "name": "Prandtl-D",
+    "blurb": "3.75 m bell-spanload flying wing with no fin at all. The washout is derived, not guessed: the outer 30% of the span flies in upwash and makes induced thrust, so it yaws into its own roll instead of away from it. Turn on Sim rules \u2192 Accurate aerodynamics or none of that is there.",
+    "notes": "A bell spanload \u2014 Prandtl's 1933 minimum-induced-drag-for-a-given-bending-moment distribution, \u0393 \u221d (1\u2212\u03b7\u00b2)^1.5 \u2014 not a measurement of NASA's aircraft. The twist is solved in closed form for this planform at CL 0.29 (2.2 kg at 11 m/s) and comes out at 4.7\u00b0 of washout; change the weight or the cruise speed and it is the wrong twist, because the design CL is what sets it. node test/prandtl_test.js rebuilds it for any planform and prints the spanload, the span efficiency and the yaw it produces. In the accurate model it reproduces the theory closely: span efficiency 0.749 against the bell series' exact 0.750, and downwash changing to upwash at \u03b7 0.703 against 1/\u221a2. The lightweight model cannot show any of it \u2014 its induced drag is a positive term per strip and can never become thrust. It is shipped with 5\u00b0 of dihedral, which the real aircraft does not have: without it this model spirals off in under half a minute, because a finless plank has nothing else to hold a bank. The dihedral is the only number here chosen to make it fly rather than derived.",
+    "mass": 2.2,
+    "I": [
+      1.314844,
+      0.174262,
+      1.340195
+    ],
+    "body": {
+      "r": [
+        0.075,
+        0,
+        0.0375
+      ],
+      "CdA": [
+        0.0251,
+        0.06454,
+        0.09774
+      ],
+      "fin": 0
+    },
+    "batt": {
+      "chem": "lipo",
+      "cells": 4,
+      "mAh": 3000,
+      "R": 0.035,
+      "Imax": 19.7,
+      "Iidle": 0.48,
+      "Vref": 15.2,
+      "label": "4S 3,000 LiPo",
+      "cool": [
+        0.131,
+        0.052
+      ]
+    },
+    "wheels": [],
+    "points": [
+      {
+        "p": [
+          -0.9017,
+          0,
+          0
+        ],
+        "name": "prop",
+        "impact": 2.5,
+        "slide": 7,
+        "prop": true
+      },
+      {
+        "p": [
+          -1.3265,
+          -1.875,
+          0
+        ],
+        "name": "left wingtip",
+        "impact": 2.5,
+        "slide": 7
+      },
+      {
+        "p": [
+          -1.3265,
+          1.875,
+          0
+        ],
+        "name": "right wingtip",
+        "impact": 2.5,
+        "slide": 7
+      },
+      {
+        "p": [
+          -0.8317,
+          0,
+          0.1295
+        ],
+        "name": "trailing edge",
+        "impact": 3,
+        "slide": 99
+      },
+      {
+        "p": [
+          -0.5317,
+          0,
+          -0.488
+        ],
+        "name": "fin",
+        "impact": 1.5,
+        "slide": 2
+      },
+      {
+        "p": [
+          -0.5617,
+          0,
+          0.1295
+        ],
+        "name": "belly",
+        "impact": 3.5,
+        "slide": 25
+      },
+      {
+        "p": [
+          -0.3617,
+          0,
+          -0.02
+        ],
+        "name": "wing",
+        "impact": 1.5,
+        "slide": 2
+      },
+      {
+        "p": [
+          -0.4417,
+          -0.9375,
+          0.012
+        ],
+        "name": "left elevon",
+        "impact": 3.5,
+        "slide": 25
+      },
+      {
+        "p": [
+          -0.4417,
+          0.9375,
+          0.012
+        ],
+        "name": "right elevon",
+        "impact": 3.5,
+        "slide": 25
+      }
+    ],
+    "contact": {
+      "kW": 4180,
+      "cW": 59.4,
+      "kB": 5580,
+      "cB": 70.4,
+      "muRoll": 0.05,
+      "muLat": 0.9,
+      "muBody": 0.45
+    },
+    "crash": {
+      "wheelImpact": 99
+    },
+    "starts": [
+      "launch",
+      "air"
+    ],
+    "fpvCam": [
+      0,
+      0,
+      -0.148
+    ],
+    "camTilt": 0,
+    "colR": 1.388,
+    "kind": "wing",
+    "staticMargin": 0.318,
+    "surfaces": [
+      {
+        "name": "wing",
+        "role": "wing",
+        "mirror": true,
+        "n": 14,
+        "y0": 0,
+        "y1": 1.875,
+        "xLE0": 0,
+        "xLE1": -0.8348,
+        "c0": 0.4,
+        "c1": 0.14,
+        "z0": 0,
+        "dihedral": 5,
+        "sweepLoad": 0.25,
+        "twist": [
+          0,
+          0.167,
+          0.192,
+          0.056,
+          -0.263,
+          -0.787,
+          -1.533,
+          -2.506,
+          -3.664,
+          -4.71
+        ],
+        "foil": {
+          "a": 5.165,
+          "CL0": 0.03,
+          "CLmax": 0.95,
+          "CLmin": -0.65,
+          "M": 30,
+          "CD0": 0.015,
+          "e": 0.85,
+          "Cm0": 0.012,
+          "CN90": 1.6
+        },
+        "flaps": [
+          {
+            "y0": 0.3188,
+            "y1": 1.8375,
+            "chord": 0.021,
+            "a": -1,
+            "e": -1,
+            "side": "mirror"
+          }
+        ]
+      }
+    ],
+    "defl": {
+      "a": 0.1571,
+      "e": 0.2094,
+      "r": 0,
+      "flapMax": 0.3665
+    },
+    "flexQ": 1200,
+    "servoRate": 8,
+    "prop": {
+      "r": [
+        -0.46,
+        0,
+        0
+      ],
+      "T0": 22.2,
+      "Vp": 29,
+      "D": 0.5994,
+      "tau": 0.17,
+      "Tmin": -0.888,
+      "torque": -0.06,
+      "wash": false,
+      "eta": 0.5
+    },
+    "steerMax": 0,
+    "shape": {
+      "fuseW": 0.323,
+      "fuseH": 0.259,
+      "wheelR": 0.0728
+    },
+    "trim": {
+      "a": 0,
+      "e": 0,
+      "r": 0
+    },
+    "stab": {
+      "kRoll": 3,
+      "dRoll": 0.3,
+      "kPitch": 2.01,
+      "dPitch": 0.251,
+      "turn": 1
+    },
+    "look": {
+      "top": [
+        1,
+        0.52,
+        0.12
+      ],
+      "bottom": [
+        0.16,
+        0.17,
+        0.2
+      ],
+      "side": [
+        0.85,
+        0.42,
+        0.1
+      ],
+      "tip": [
+        0.55,
+        0.95,
+        0.25
+      ],
+      "accent": [
+        0.05,
+        0.05,
+        0.06
+      ],
+      "fuse": [
+        0.93,
+        0.93,
+        0.91
+      ],
+      "fuseBottom": [
+        0.12,
+        0.3,
+        0.68
+      ],
+      "canopy": [
+        0.1,
+        0.16,
+        0.24
+      ],
+      "dark": [
+        0.09,
+        0.09,
+        0.11
+      ],
+      "metal": [
+        0.72,
+        0.74,
+        0.78
+      ],
+      "blades": 2
+    }
+  }
+}

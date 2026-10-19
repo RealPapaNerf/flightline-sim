@@ -135,6 +135,10 @@ const ACF = (function (FL) {
        props by thirty or forty degrees, and clamping that to 15 would quietly
        turn an exported aircraft into a different one. */
     dihedral: opt(n(-60, 60)), inc0: opt(n(-90, 90)), inc1: opt(n(-90, 90)), sweepLoad: opt(n(-1, 1)),
+    /* Incidence at evenly spaced stations from root to tip, degrees, instead of
+       the straight line inc0 → inc1. A spanload that is not elliptical needs a
+       washout law that is not linear. */
+    twist: opt(a(12, n(-90, 90))),
     foil: FOIL, flaps: a(6, FLAP, []),
   });
   const POINT = o({
