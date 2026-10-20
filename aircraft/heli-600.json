@@ -1,0 +1,283 @@
+{
+  "format": "whirligig-aircraft/1",
+  "name": "Heli 600 DD",
+  "author": "whirligig",
+  "version": "1",
+  "notes": "A 600-size electric helicopter, DIRECT DRIVE by the owner's preference: a huge slow outrunner (40 kV on 12S) bolted straight to the head, no gearbox anywhere - which is also exactly what the drivetrain model does. The tail rotor is a separate small brushless motor, as on the owner's real builds, so it keeps authority when the main motor is cut: convenient in the autorotation test and true to the aircraft. Two-blade head with a small flap-hinge offset and spring, so cyclic feels like an RC head rather than a teetering seesaw.",
+  "parts": [
+    {
+      "type": "mass",
+      "name": "frame",
+      "position": [
+        0,
+        0,
+        0.05
+      ],
+      "mass": 1.1,
+      "size": [
+        0.6,
+        0.12,
+        0.16
+      ]
+    },
+    {
+      "type": "battery",
+      "name": "pack",
+      "position": [
+        0.08,
+        0,
+        0.05
+      ],
+      "cells": 12,
+      "chemistry": "lipo",
+      "capacity": 5,
+      "resistance": 0.02,
+      "bus": "main",
+      "mass": 1.5
+    },
+    {
+      "type": "rotor",
+      "name": "head",
+      "position": [
+        0,
+        0,
+        -0.18
+      ],
+      "axis": [
+        0,
+        0,
+        -1
+      ],
+      "spin": 1,
+      "diameter": 1.35,
+      "blades": 2,
+      "rootChord": 0.06,
+      "tipChord": 0.055,
+      "collective": 0,
+      "twist": 0,
+      "mass": 0.42,
+      "elements": 10,
+      "flap": {
+        "hinge": 0.04,
+        "spring": 25,
+        "damping": 1.5
+      },
+      "collectiveChannel": "col",
+      "collectiveRange": 0.21,
+      "cyclic": {
+        "rollChannel": "cycRoll",
+        "pitchChannel": "cycPitch",
+        "range": 0.14,
+        "phase": 0.227
+      }
+    },
+    {
+      "type": "motor",
+      "name": "mainMotor",
+      "position": [
+        0,
+        0,
+        -0.08
+      ],
+      "shaft": "head",
+      "channel": "esc",
+      "kv": 40,
+      "resistance": 0.08,
+      "idleCurrent": 0.5,
+      "maxCurrent": 80,
+      "bus": "main",
+      "mass": 0.85,
+      "slew": 0.18
+    },
+    {
+      "type": "prop",
+      "name": "tailRotor",
+      "position": [
+        -0.78,
+        0,
+        -0.14
+      ],
+      "axis": [
+        0,
+        1,
+        0
+      ],
+      "spin": 1,
+      "diameter": 0.26,
+      "pitch": 0.12,
+      "blades": 2,
+      "mass": 0.008
+    },
+    {
+      "type": "motor",
+      "name": "tailMotor",
+      "position": [
+        -0.76,
+        0,
+        -0.14
+      ],
+      "shaft": "tailRotor",
+      "channel": "tail",
+      "kv": 320,
+      "resistance": 0.09,
+      "idleCurrent": 0.4,
+      "maxCurrent": 25,
+      "bus": "main",
+      "mass": 0.06
+    },
+    {
+      "type": "drag",
+      "name": "fuselage drag",
+      "position": [
+        0,
+        0,
+        0.02
+      ],
+      "area": 0.012
+    },
+    {
+      "type": "gear",
+      "name": "skidFL",
+      "position": [
+        0.16,
+        -0.14,
+        0.17
+      ],
+      "stiffness": 8000,
+      "damping": 150,
+      "gearType": "skid"
+    },
+    {
+      "type": "gear",
+      "name": "skidFR",
+      "position": [
+        0.16,
+        0.14,
+        0.17
+      ],
+      "stiffness": 8000,
+      "damping": 150,
+      "gearType": "skid"
+    },
+    {
+      "type": "gear",
+      "name": "skidRL",
+      "position": [
+        -0.16,
+        -0.14,
+        0.17
+      ],
+      "stiffness": 8000,
+      "damping": 150,
+      "gearType": "skid"
+    },
+    {
+      "type": "gear",
+      "name": "skidRR",
+      "position": [
+        -0.16,
+        0.14,
+        0.17
+      ],
+      "stiffness": 8000,
+      "damping": 150,
+      "gearType": "skid"
+    },
+    {
+      "type": "gear",
+      "name": "tailSkid",
+      "position": [
+        -0.75,
+        0,
+        0.1
+      ],
+      "stiffness": 4000,
+      "damping": 80,
+      "gearType": "skid"
+    },
+    {
+      "type": "wing",
+      "name": "fin",
+      "position": [
+        -0.74,
+        0,
+        -0.02
+      ],
+      "span": 0.14,
+      "rootChord": 0.11,
+      "tipChord": 0.07,
+      "dihedral": 1.5708,
+      "airfoil": "symmetric",
+      "elements": 3,
+      "mass": 0.02
+    },
+    {
+      "type": "wing",
+      "name": "hstab",
+      "position": [
+        -0.6,
+        0,
+        0.0
+      ],
+      "span": 0.09,
+      "rootChord": 0.08,
+      "mirror": true,
+      "airfoil": "symmetric",
+      "elements": 3,
+      "mass": 0.01
+    }
+  ],
+  "mixer": {
+    "rules": [
+      {
+        "input": "throttle",
+        "channel": "col",
+        "gain": 2,
+        "offset": -1
+      },
+      {
+        "input": "throttle",
+        "channel": "esc",
+        "gain": 0,
+        "offset": 0.85
+      },
+      {
+        "input": "roll",
+        "channel": "cycRoll",
+        "gain": 1
+      },
+      {
+        "input": "pitch",
+        "channel": "cycPitch",
+        "gain": 1
+      },
+      {
+        "input": "yaw",
+        "channel": "tail",
+        "gain": -0.45,
+        "offset": 0.27
+      }
+    ]
+  },
+  "stabilizer": {
+    "mode": "angle",
+    "maxRate": 3,
+    "maxAngle": 0.5,
+    "angleP": 4,
+    "roll": {
+      "p": 0.45,
+      "i": 0.08,
+      "d": 0.025
+    },
+    "pitch": {
+      "p": 0.45,
+      "i": 0.08,
+      "d": 0.025
+    },
+    "yaw": {
+      "p": 0.35,
+      "i": 0.4,
+      "d": 0
+    }
+  }
+}

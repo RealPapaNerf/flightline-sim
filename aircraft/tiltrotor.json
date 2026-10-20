@@ -1,0 +1,415 @@
+{
+  "format": "whirligig-aircraft/1",
+  "name": "Tiltrotor",
+  "author": "whirligig",
+  "version": "1",
+  "notes": "A tandem-wing quad tiltrotor (PLAN Phase 5): four props on tilt servos at the wing tips, straight up at mode 0 and straight ahead at mode 1, all on ONE aux slider. In hover it is a quad (the quad-x template, tagged to the hover side of the crossfade); wingborne it is an airplane (throttle to all four, ailerons on the front wing, elevator on the rear, differential motors for yaw). The conversion corridor is nothing but the crossfade sliding one set of rules out and the other in while the tilt servos swing - no scripting engine anywhere (PLAN 5.9).",
+  "parts": [
+    {
+      "type": "mass",
+      "name": "fuselage",
+      "position": [
+        0,
+        0,
+        0.01
+      ],
+      "mass": 0.42,
+      "size": [
+        0.55,
+        0.08,
+        0.09
+      ]
+    },
+    {
+      "type": "battery",
+      "name": "pack",
+      "position": [
+        0.05,
+        0,
+        0.01
+      ],
+      "cells": 4,
+      "chemistry": "lipo",
+      "capacity": 2.2,
+      "resistance": 0.02,
+      "bus": "main",
+      "mass": 0.21
+    },
+    {
+      "type": "wing",
+      "name": "frontWing",
+      "position": [
+        0.32,
+        0.04,
+        0
+      ],
+      "span": 0.42,
+      "rootChord": 0.14,
+      "incidence": 0.04,
+      "airfoil": "clark-y",
+      "elements": 5,
+      "mirror": true,
+      "mass": 0.035,
+      "control": {
+        "channel": "ail",
+        "fraction": 0.3,
+        "throw": 0.4,
+        "mirrorSign": -1
+      }
+    },
+    {
+      "type": "wing",
+      "name": "rearWing",
+      "position": [
+        -0.3,
+        0.04,
+        -0.02
+      ],
+      "span": 0.5,
+      "rootChord": 0.16,
+      "incidence": 0.045,
+      "airfoil": "clark-y",
+      "elements": 5,
+      "mirror": true,
+      "mass": 0.045,
+      "control": {
+        "channel": "elev",
+        "fraction": 0.3,
+        "throw": 0.4,
+        "mirrorSign": 1
+      }
+    },
+    {
+      "type": "wing",
+      "name": "fin",
+      "position": [
+        -0.42,
+        0,
+        -0.02
+      ],
+      "span": 0.1,
+      "rootChord": 0.09,
+      "dihedral": 1.5708,
+      "airfoil": "symmetric",
+      "elements": 3,
+      "mass": 0.012
+    },
+    {
+      "type": "prop",
+      "name": "p1",
+      "position": [
+        0.32,
+        0.5,
+        -0.02
+      ],
+      "axis": [
+        0,
+        0,
+        -1
+      ],
+      "spin": 1,
+      "diameter": 0.178,
+      "pitch": 0.0889,
+      "blades": 2,
+      "mass": 0.006,
+      "tilt": {
+        "channel": "tiltQ",
+        "axis": [
+          0,
+          -1,
+          0
+        ],
+        "range": 1.5708,
+        "rate": 1.2
+      }
+    },
+    {
+      "type": "prop",
+      "name": "p2",
+      "position": [
+        0.32,
+        -0.5,
+        -0.02
+      ],
+      "axis": [
+        0,
+        0,
+        -1
+      ],
+      "spin": -1,
+      "diameter": 0.178,
+      "pitch": 0.0889,
+      "blades": 2,
+      "mass": 0.006,
+      "tilt": {
+        "channel": "tiltQ",
+        "axis": [
+          0,
+          -1,
+          0
+        ],
+        "range": 1.5708,
+        "rate": 1.2
+      }
+    },
+    {
+      "type": "prop",
+      "name": "p3",
+      "position": [
+        -0.3,
+        -0.6,
+        -0.02
+      ],
+      "axis": [
+        0,
+        0,
+        -1
+      ],
+      "spin": 1,
+      "diameter": 0.178,
+      "pitch": 0.0889,
+      "blades": 2,
+      "mass": 0.006,
+      "tilt": {
+        "channel": "tiltQ",
+        "axis": [
+          0,
+          -1,
+          0
+        ],
+        "range": 1.5708,
+        "rate": 1.2
+      }
+    },
+    {
+      "type": "prop",
+      "name": "p4",
+      "position": [
+        -0.3,
+        0.6,
+        -0.02
+      ],
+      "axis": [
+        0,
+        0,
+        -1
+      ],
+      "spin": -1,
+      "diameter": 0.178,
+      "pitch": 0.0889,
+      "blades": 2,
+      "mass": 0.006,
+      "tilt": {
+        "channel": "tiltQ",
+        "axis": [
+          0,
+          -1,
+          0
+        ],
+        "range": 1.5708,
+        "rate": 1.2
+      }
+    },
+    {
+      "type": "motor",
+      "name": "m1",
+      "position": [
+        0.32,
+        0.5,
+        0
+      ],
+      "shaft": "p1",
+      "channel": "m1",
+      "kv": 1300,
+      "resistance": 0.08,
+      "idleCurrent": 0.6,
+      "maxCurrent": 30,
+      "bus": "main",
+      "mass": 0.032
+    },
+    {
+      "type": "motor",
+      "name": "m2",
+      "position": [
+        0.32,
+        -0.5,
+        0
+      ],
+      "shaft": "p2",
+      "channel": "m2",
+      "kv": 1300,
+      "resistance": 0.08,
+      "idleCurrent": 0.6,
+      "maxCurrent": 30,
+      "bus": "main",
+      "mass": 0.032
+    },
+    {
+      "type": "motor",
+      "name": "m3",
+      "position": [
+        -0.3,
+        -0.6,
+        0
+      ],
+      "shaft": "p3",
+      "channel": "m3",
+      "kv": 1300,
+      "resistance": 0.08,
+      "idleCurrent": 0.6,
+      "maxCurrent": 30,
+      "bus": "main",
+      "mass": 0.032
+    },
+    {
+      "type": "motor",
+      "name": "m4",
+      "position": [
+        -0.3,
+        0.6,
+        0
+      ],
+      "shaft": "p4",
+      "channel": "m4",
+      "kv": 1300,
+      "resistance": 0.08,
+      "idleCurrent": 0.6,
+      "maxCurrent": 30,
+      "bus": "main",
+      "mass": 0.032
+    },
+    {
+      "type": "drag",
+      "name": "frame drag",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "area": 0.004
+    },
+    {
+      "type": "gear",
+      "name": "legFL",
+      "position": [
+        0.3,
+        -0.12,
+        0.09
+      ],
+      "stiffness": 4000,
+      "damping": 50
+    },
+    {
+      "type": "gear",
+      "name": "legFR",
+      "position": [
+        0.3,
+        0.12,
+        0.09
+      ],
+      "stiffness": 4000,
+      "damping": 50
+    },
+    {
+      "type": "gear",
+      "name": "legRL",
+      "position": [
+        -0.28,
+        -0.12,
+        0.09
+      ],
+      "stiffness": 4000,
+      "damping": 50
+    },
+    {
+      "type": "gear",
+      "name": "legRR",
+      "position": [
+        -0.28,
+        0.12,
+        0.09
+      ],
+      "stiffness": 4000,
+      "damping": 50
+    }
+  ],
+  "mixer": {
+    "template": "quad-x",
+    "templateMode": "hover",
+    "crossfade": {
+      "input": "mode",
+      "from": "hover",
+      "to": "cruise"
+    },
+    "rules": [
+      {
+        "input": "mode",
+        "channel": "tiltQ",
+        "gain": 1
+      },
+      {
+        "mode": "cruise",
+        "input": "throttle",
+        "channel": "m1",
+        "gain": 0.95
+      },
+      {
+        "mode": "cruise",
+        "input": "throttle",
+        "channel": "m2",
+        "gain": 0.95
+      },
+      {
+        "mode": "cruise",
+        "input": "throttle",
+        "channel": "m3",
+        "gain": 0.95
+      },
+      {
+        "mode": "cruise",
+        "input": "throttle",
+        "channel": "m4",
+        "gain": 0.95
+      },
+      {
+        "mode": "cruise",
+        "input": "roll",
+        "channel": "ail",
+        "gain": -1
+      },
+      {
+        "mode": "cruise",
+        "input": "pitch",
+        "channel": "elev",
+        "gain": -1
+      },
+      {
+        "mode": "cruise",
+        "input": "yaw",
+        "channel": "m2",
+        "gain": 0.2
+      },
+      {
+        "mode": "cruise",
+        "input": "yaw",
+        "channel": "m3",
+        "gain": 0.2
+      },
+      {
+        "mode": "cruise",
+        "input": "yaw",
+        "channel": "m1",
+        "gain": -0.2
+      },
+      {
+        "mode": "cruise",
+        "input": "yaw",
+        "channel": "m4",
+        "gain": -0.2
+      }
+    ]
+  },
+  "stabilizer": {
+    "mode": "angle"
+  }
+}

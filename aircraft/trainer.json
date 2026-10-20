@@ -1,0 +1,109 @@
+{
+  "format": "whirligig-aircraft/1",
+  "name": "Trainer 1.2m",
+  "author": "whirligig",
+  "version": "1",
+  "notes": "A conventional 1.2 m high-wing trainer, the reference article for Phase 1. Nothing exotic: a cambered Clark-Y-ish wing with dihedral and washout, a symmetric tailplane with a generous elevator, and a fin. It exists to prove that ordinary aeroplane behaviour falls out of the element model before anything strange is attempted — it should trim where a trainer trims, glide at L/D 8-12, and drop its nose at the stall without being told to. A 1000 kV motor on three cells swings a 10x4 propeller on the nose; its torque reaction rolls the aircraft left, as a single-engine model really does. The fuselage itself is a single `drag` point of 0.0035 m^2 equivalent flat-plate area standing in for the body, the struts and two exposed wheels until `body` lofts arrive in Phase 6. Datum is the wing quarter chord: +x forward, +y right, +z down. The CG lands about 29% of chord, roughly 9 mm aft of the datum, giving a static margin in the high teens.",
+  "parts": [
+    {
+      "type": "mass",
+      "name": "fuselage",
+      "position": [-0.15, 0, 0],
+      "mass": 0.40,
+      "size": [1.05, 0.07, 0.09]
+    },
+    { "type": "mass", "name": "radio-gear", "position": [0.00, 0, 0.01], "mass": 0.08, "size": [0.08, 0.05, 0.03] },
+
+    {
+      "type": "battery",
+      "name": "pack",
+      "position": [0.29, 0, 0.02],
+      "cells": 3,
+      "chemistry": "lipo",
+      "capacity": 2.2,
+      "resistance": 0.030,
+      "mass": 0.185
+    },
+    {
+      "type": "motor",
+      "name": "motor",
+      "position": [0.40, 0, 0],
+      "kv": 780,
+      "resistance": 0.11,
+      "idleCurrent": 0.7,
+      "maxCurrent": 40,
+      "bus": "main",
+      "channel": "throttle",
+      "shaft": "prop",
+      "mass": 0.080
+    },
+    {
+      "type": "prop",
+      "name": "prop",
+      "position": [0.44, 0, 0],
+      "axis": [1, 0, 0],
+      "spin": 1,
+      "diameter": 0.254,
+      "pitch": 0.1016,
+      "blades": 2,
+      "mass": 0.016,
+      "shaft": "prop"
+    },
+
+    {
+      "type": "wing",
+      "name": "wing",
+      "position": [0, 0.02, -0.02],
+      "span": 0.58,
+      "rootChord": 0.22,
+      "tipChord": 0.22,
+      "dihedral": 0.0873,
+      "incidence": 0.0349,
+      "twist": -0.0262,
+      "airfoil": "clark-y",
+      "elements": 8,
+      "mirror": true,
+      "mass": 0.09,
+      "control": { "channel": "aileron", "fraction": 0.22, "throw": 0.35, "from": 0.5, "to": 1.0, "mirrorSign": -1 }
+    },
+    {
+      "type": "wing",
+      "name": "tailplane",
+      "position": [-0.60, 0.015, -0.01],
+      "span": 0.195,
+      "rootChord": 0.13,
+      "tipChord": 0.13,
+      "airfoil": "symmetric",
+      "elements": 6,
+      "mirror": true,
+      "mass": 0.025,
+      "control": { "channel": "elevator", "fraction": 0.40, "throw": 0.44, "from": 0.0, "to": 1.0, "mirrorSign": 1 }
+    },
+    {
+      "type": "wing",
+      "name": "fin",
+      "position": [-0.58, 0, -0.02],
+      "span": 0.15,
+      "rootChord": 0.14,
+      "tipChord": 0.10,
+      "dihedral": 1.5708,
+      "sweep": 0.35,
+      "airfoil": "symmetric",
+      "elements": 5,
+      "mirror": false,
+      "mass": 0.02,
+      "control": { "channel": "rudder", "fraction": 0.40, "throw": 0.44, "from": 0.0, "to": 1.0, "mirrorSign": 1 }
+    },
+
+    {
+      "type": "drag",
+      "name": "fuselage-and-gear",
+      "position": [-0.05, 0, 0.01],
+      "area": 0.0035
+    },
+
+    { "type": "gear", "name": "main-left",  "position": [0.08, -0.14, 0.12], "stiffness": 4000, "damping": 80, "friction": 0.8, "gearType": "wheel", "mass": 0.015 },
+    { "type": "gear", "name": "main-right", "position": [0.08,  0.14, 0.12], "stiffness": 4000, "damping": 80, "friction": 0.8, "gearType": "wheel", "mass": 0.015 },
+    { "type": "gear", "name": "tailwheel",  "position": [-0.60, 0, 0.02],    "stiffness": 2000, "damping": 50, "friction": 0.9, "rollingFriction": 0.04, "gearType": "wheel", "mass": 0.01 }
+  ]
+}

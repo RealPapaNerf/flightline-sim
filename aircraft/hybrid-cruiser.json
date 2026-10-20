@@ -1,0 +1,281 @@
+{
+  "format": "whirligig-aircraft/1",
+  "name": "Hybrid Cruiser",
+  "author": "whirligig",
+  "version": "1",
+  "notes": "A series hybrid: a small petrol engine turns a generator, the generator feeds an electrical bus, and a brushless motor on that bus turns the propeller. The engine never touches the propeller. Nothing in the engine knows it is part of a hybrid \u2014 it is the same `engine` that drives a propeller directly in the glow trainer, bolted to a shaft that happens to have a generator on it instead. The generator is the same `motor` machine as everywhere else, simply spun faster than its own back-EMF so its current comes out negative and flows the other way. The supercapacitor is the point of the layout: the engine is sized for the CRUISE load, not the climb load, and the capacitor covers the difference for the half-minute a climb lasts, then the engine refills it. Watch the bus voltage sag on the capacitor and recover. Datum is the wing quarter chord.",
+  "parts": [
+    {
+      "type": "mass",
+      "name": "fuselage",
+      "position": [
+        -0.14,
+        0,
+        0
+      ],
+      "mass": 0.72,
+      "size": [
+        1.3,
+        0.11,
+        0.13
+      ]
+    },
+    {
+      "type": "mass",
+      "name": "avionics",
+      "position": [
+        0.02,
+        0,
+        0.01
+      ],
+      "mass": 0.1,
+      "size": [
+        0.1,
+        0.07,
+        0.04
+      ]
+    },
+    {
+      "type": "tank",
+      "name": "petrol",
+      "position": [
+        0.08,
+        0,
+        0.03
+      ],
+      "capacity": 0.42,
+      "fill": 1,
+      "energyDensity": 43000000,
+      "mass": 0.07
+    },
+    {
+      "type": "engine",
+      "name": "engine",
+      "position": [
+        0.14,
+        0,
+        0.01
+      ],
+      "peakTorque": 0.45,
+      "peakTorqueRpm": 8000,
+      "maxRpm": 16000,
+      "idleFraction": 0.1,
+      "bsfc": 9.8e-08,
+      "fuel": "petrol",
+      "channel": "genset",
+      "shaft": "genset",
+      "mass": 0.62,
+      "inertia": 8e-05
+    },
+    {
+      "type": "generator",
+      "name": "alternator",
+      "position": [
+        0.08,
+        0,
+        0.01
+      ],
+      "kv": 385,
+      "resistance": 0.15,
+      "idleCurrent": 0.5,
+      "maxCurrent": 35,
+      "bus": "main",
+      "shaft": "genset",
+      "mass": 0.26
+    },
+    {
+      "type": "capacitor",
+      "name": "supercap",
+      "position": [
+        -0.22,
+        0,
+        0.03
+      ],
+      "capacitance": 28,
+      "resistance": 0.012,
+      "maxVoltage": 27,
+      "stateOfCharge": 1,
+      "bus": "main",
+      "mass": 0.22
+    },
+    {
+      "type": "battery",
+      "name": "buffer",
+      "position": [
+        -0.3,
+        0,
+        0.03
+      ],
+      "cells": 6,
+      "chemistry": "liion",
+      "capacity": 1.2,
+      "resistance": 0.1,
+      "maxChargeRate": 2,
+      "stateOfCharge": 0.7,
+      "bus": "main",
+      "mass": 0.21
+    },
+    {
+      "type": "motor",
+      "name": "motor",
+      "position": [
+        0.44,
+        0,
+        0
+      ],
+      "kv": 420,
+      "resistance": 0.17,
+      "idleCurrent": 0.6,
+      "maxCurrent": 40,
+      "bus": "main",
+      "channel": "throttle",
+      "shaft": "prop",
+      "mass": 0.17
+    },
+    {
+      "type": "prop",
+      "name": "prop",
+      "position": [
+        0.49,
+        0,
+        0
+      ],
+      "axis": [
+        1,
+        0,
+        0
+      ],
+      "spin": 1,
+      "diameter": 0.33,
+      "pitch": 0.152,
+      "blades": 2,
+      "mass": 0.028,
+      "shaft": "prop"
+    },
+    {
+      "type": "wing",
+      "name": "wing",
+      "position": [
+        0,
+        0.02,
+        -0.03
+      ],
+      "span": 0.76,
+      "rootChord": 0.24,
+      "tipChord": 0.19,
+      "dihedral": 0.07,
+      "incidence": 0.0262,
+      "twist": -0.0262,
+      "airfoil": "clark-y",
+      "elements": 9,
+      "mirror": true,
+      "mass": 0.17,
+      "control": {
+        "channel": "aileron",
+        "fraction": 0.22,
+        "throw": 0.33,
+        "from": 0.5,
+        "to": 1.0,
+        "mirrorSign": -1
+      }
+    },
+    {
+      "type": "wing",
+      "name": "tailplane",
+      "position": [
+        -0.72,
+        0.015,
+        -0.01
+      ],
+      "span": 0.23,
+      "rootChord": 0.15,
+      "airfoil": "symmetric",
+      "elements": 6,
+      "mirror": true,
+      "mass": 0.035,
+      "control": {
+        "channel": "elevator",
+        "fraction": 0.4,
+        "throw": 0.42,
+        "mirrorSign": 1
+      }
+    },
+    {
+      "type": "wing",
+      "name": "fin",
+      "position": [
+        -0.7,
+        0,
+        -0.02
+      ],
+      "span": 0.18,
+      "rootChord": 0.16,
+      "tipChord": 0.11,
+      "dihedral": 1.5708,
+      "sweep": 0.35,
+      "airfoil": "symmetric",
+      "elements": 5,
+      "mirror": false,
+      "mass": 0.025,
+      "control": {
+        "channel": "rudder",
+        "fraction": 0.4,
+        "throw": 0.42,
+        "mirrorSign": 1
+      }
+    },
+    {
+      "type": "drag",
+      "name": "airframe",
+      "position": [
+        -0.06,
+        0,
+        0.01
+      ],
+      "area": 0.0052
+    },
+    {
+      "type": "gear",
+      "name": "main-left",
+      "position": [
+        0.1,
+        -0.16,
+        0.14
+      ],
+      "stiffness": 6000,
+      "damping": 130,
+      "friction": 0.8,
+      "gearType": "wheel",
+      "mass": 0.02
+    },
+    {
+      "type": "gear",
+      "name": "main-right",
+      "position": [
+        0.1,
+        0.16,
+        0.14
+      ],
+      "stiffness": 6000,
+      "damping": 130,
+      "friction": 0.8,
+      "gearType": "wheel",
+      "mass": 0.02
+    },
+    {
+      "type": "gear",
+      "name": "tailwheel",
+      "position": [
+        -0.72,
+        0,
+        0.03
+      ],
+      "stiffness": 2500,
+      "damping": 60,
+      "friction": 0.9,
+      "rollingFriction": 0.04,
+      "gearType": "wheel",
+      "mass": 0.012
+    }
+  ]
+}

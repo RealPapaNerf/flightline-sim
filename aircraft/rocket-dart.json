@@ -1,0 +1,40 @@
+{
+  "format": "whirligig-aircraft/1",
+  "name": "Rocket Dart",
+  "author": "whirligig",
+  "version": "1",
+  "notes": "A fin-stabilised rocket dart on a solid motor: 1.1 kg on the pad, 420 g of which is propellant that leaves in two and a half seconds. Everything interesting here is in the mass. The rocket gets lighter as it burns, so its acceleration climbs even though the thrust is constant; the centre of gravity walks forward as the propellant at the back disappears, which is why the fins get MORE effective as the burn goes on; and because the thrust is specified against a sea-level specific impulse, the motor gains a little as it climbs out of the air that was pushing back on its nozzle. A solid motor cannot be throttled and cannot be shut down once lit, and the model refuses to pretend otherwise — `throttleable` is false, so the throttle channel is an igniter, not a lever. Datum is the nose.",
+  "parts": [
+    { "type": "mass", "name": "nosecone",  "position": [-0.06, 0, 0], "mass": 0.09, "size": [0.12, 0.04, 0.04] },
+    { "type": "mass", "name": "airframe",  "position": [-0.46, 0, 0], "mass": 0.34, "size": [0.80, 0.05, 0.05] },
+    { "type": "mass", "name": "recovery",  "position": [-0.26, 0, 0], "mass": 0.12, "size": [0.14, 0.04, 0.04] },
+
+    {
+      "type": "tank", "name": "grain", "position": [-0.78, 0, 0],
+      "capacity": 0.42, "fill": 1, "energyDensity": 5000000, "mass": 0.10
+    },
+    {
+      "type": "rocket", "name": "motor", "position": [-0.92, 0, 0], "axis": [1, 0, 0],
+      "thrust": 240, "isp": 118, "nozzleArea": 0.00045,
+      "throttleable": false, "propellant": "grain", "channel": "throttle", "mass": 0.06
+    },
+
+    {
+      "type": "wing", "name": "fin", "position": [-0.86, 0.022, 0],
+      "span": 0.095, "rootChord": 0.13, "tipChord": 0.06, "sweep": 0.62,
+      "airfoil": "flat-plate", "elements": 4, "mirror": true, "mass": 0.012
+    },
+    {
+      "type": "wing", "name": "fin-vertical", "position": [-0.86, 0, -0.022],
+      "span": 0.095, "rootChord": 0.13, "tipChord": 0.06, "sweep": 0.62,
+      "dihedral": 1.5708, "airfoil": "flat-plate", "elements": 4, "mirror": false, "mass": 0.012
+    },
+    {
+      "type": "wing", "name": "fin-ventral", "position": [-0.86, 0, 0.022],
+      "span": 0.095, "rootChord": 0.13, "tipChord": 0.06, "sweep": 0.62,
+      "dihedral": -1.5708, "airfoil": "flat-plate", "elements": 4, "mirror": false, "mass": 0.012
+    },
+
+    { "type": "drag", "name": "body", "position": [-0.45, 0, 0], "area": 0.00085 }
+  ]
+}

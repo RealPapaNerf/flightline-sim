@@ -1,314 +1,428 @@
 {
-  "format": "flightline-aircraft/1",
-  "author": "Flightline",
+  "format": "whirligig-aircraft/1",
+  "name": "Gyrodyne",
+  "author": "whirligig",
   "version": "1",
-  "source": "designed in the sim, 18 Oct 2026; see notes",
-  "def": {
-    "id": "gyrodyne",
-    "name": "Gyrodyne",
-    "blurb": "4.5 kg helicopter–autogyro hybrid: a 1.7 m shaft-driven rotor, no tail rotor, and two reversing-pitch tractor props on stub wings countering the torque between them. Throttle hold starts the transition: the props pull it up to 12 m/s with the rotor still driven, then the drive lets go and it is an autogyro. Let the switch off and it is a helicopter again.",
-    "notes": "The Fairey Gyrodyne idea at model scale: a shaft-driven rotor with no tail rotor, countered by two reversing-pitch propellers on stub booms. In the hover they sit at plus and minus three newtons, so the torque is cancelled at zero net thrust and it hovers straight. Throttle hold thrown slow starts a transition — the props run up to a strong fixed pull while the stick is still collective and the rotor is still driven — and at vAuto (12 m/s) the drive lets go, the head rakes back 7°, the collective parks at 2.5°, and the stick becomes engine power: the same airframe is an autogyro at 46% headspeed. Correct the all-up weight and the propeller thrust first.",
-    "mass": 4.5,
-    "I": [
-      0.42,
-      0.55,
-      0.55
-    ],
-    "body": {
-      "r": [
+  "notes": "The Phase 4 capstone: a big lightly-loaded rotor that is DRIVEN in heli mode and FREE in autogyro mode, stub wings whose tip propellers balance the rotor torque in the hover (differentially) and push it along in cruise, and ONE aux slider - the mode crossfade - carrying the whole heli<->autogyro conversion. No scripting engine anywhere: the crossfade slides mode-tagged mixer rules in and out (PLAN 5.9), the rotor's motor dies away, and autorotation takes over because the physics has nowhere else to go. Tractor motors are 3115-class (95 g, 55 A, 900 kV on 10x5s) per the owner: the originals were tail-rotor-sized and could not pull the conversion.",
+  "parts": [
+    {
+      "type": "mass",
+      "name": "frame",
+      "position": [
+        0.01,
         0,
-        0,
-        0
+        0.03
       ],
-      "CdA": [
-        0.045,
-        0.14,
-        0.22
-      ],
-      "fin": 0.035,
-      "finX": -0.95
-    },
-    "batt": {
-      "chem": "lipo",
-      "cells": 12,
-      "mAh": 8000,
-      "R": 0.03,
-      "Imax": 0,
-      "Iidle": 1.5,
-      "Vref": 44.4,
-      "label": "12S 8000 LiPo"
-    },
-    "wheels": [],
-    "points": [
-      {
-        "p": [
-          0.2,
-          0.17,
-          0.28
-        ],
-        "name": "skid",
-        "impact": 3.5,
-        "slide": 99,
-        "foot": true
-      },
-      {
-        "p": [
-          0.2,
-          -0.17,
-          0.28
-        ],
-        "name": "skid",
-        "impact": 3.5,
-        "slide": 99,
-        "foot": true
-      },
-      {
-        "p": [
-          -0.2,
-          0.17,
-          0.28
-        ],
-        "name": "skid",
-        "impact": 3.5,
-        "slide": 99,
-        "foot": true
-      },
-      {
-        "p": [
-          -0.2,
-          -0.17,
-          0.28
-        ],
-        "name": "skid",
-        "impact": 3.5,
-        "slide": 99,
-        "foot": true
-      },
-      {
-        "p": [
-          -0.9,
-          0,
-          -0.02
-        ],
-        "name": "V-tail",
-        "impact": 2,
-        "slide": 4
-      },
-      {
-        "p": [
-          0.45,
-          0,
-          0
-        ],
-        "name": "nose",
-        "impact": 2.5,
-        "slide": 6
-      },
-      {
-        "p": [
-          0,
-          0,
-          -0.5
-        ],
-        "name": "rotor head",
-        "impact": 1.5,
-        "slide": 2
-      },
-      {
-        "p": [
-          0.06,
-          0.78,
-          -0.02
-        ],
-        "name": "boom",
-        "impact": 2,
-        "slide": 3
-      },
-      {
-        "p": [
-          0.06,
-          -0.78,
-          -0.02
-        ],
-        "name": "boom",
-        "impact": 2,
-        "slide": 3
-      }
-    ],
-    "contact": {
-      "kW": 0,
-      "cW": 0,
-      "kB": 3600,
-      "cB": 55,
-      "muRoll": 0,
-      "muLat": 0,
-      "muBody": 0.6
-    },
-    "crash": {
-      "wheelImpact": 99
-    },
-    "starts": [
-      "pad",
-      "air"
-    ],
-    "fpvCam": [
-      0.48,
-      0,
-      -0.08
-    ],
-    "camTilt": 8,
-    "colR": 0.85,
-    "pid": {
-      "roll": [
-        20,
-        110,
-        0.3,
-        2.2,
-        0.01
-      ],
-      "pitch": [
-        20,
-        110,
-        0.3,
-        2.2,
-        0.01
-      ],
-      "yaw": [
-        14,
-        60,
-        0.3,
-        1.4,
-        0
+      "mass": 1.05,
+      "size": [
+        0.6,
+        0.1,
+        0.12
       ]
     },
-    "angle": {
-      "max": 45,
-      "k": 5,
-      "rate": 240
-    },
-    "rates": {
-      "roll": {
-        "c": 70,
-        "m": 220,
-        "e": 0
-      },
-      "pitch": {
-        "c": 70,
-        "m": 220,
-        "e": 0
-      },
-      "yaw": {
-        "c": 60,
-        "m": 180,
-        "e": 0
-      }
-    },
-    "kind": "heli",
-    "rotor": {
-      "R": 0.85,
-      "chord": 0.065,
-      "blades": 2,
-      "a": 5.7,
-      "Cd0": 0.013,
-      "kInd": 1.15,
-      "CLmax": 1,
-      "om0": 150,
-      "J": 0.16,
-      "Pmax": 2000,
-      "govK": 0.03,
-      "spool": 0.2,
-      "friction": 0.0004,
-      "h": 0.4,
-      "Kh": 90,
-      "tauF": 0.025,
-      "maxCyc": 0.22,
-      "blowback": 2.5,
-      "lt": 0,
-      "TtMax": 0,
-      "tauT": 0.04,
-      "spin": -1,
-      "curves": {
-        "normal": [
-          -4,
-          3.5,
-          10
-        ],
-        "3d": [
-          -9,
-          0,
-          10
-        ]
-      },
-      "drive": "shaft",
-      "autoPitch": 2.5,
-      "vAuto": 12,
-      "rake": 0,
-      "rakeFree": 7,
-      "tauRake": 1.2,
-      "hFlare": 2,
-      "vane": {
-        "area": 0.05,
-        "arm": 1,
-        "k": 0.5
-      }
-    },
-    "thrusters": [
-      {
-        "p": [
-          0.06,
-          0.62,
-          -0.02
-        ],
-        "Tmax": 18,
-        "Tmin": -14,
-        "tau": 0.1,
-        "Vp": 40,
-        "D": 0.3,
-        "yaw": true
-      },
-      {
-        "p": [
-          0.06,
-          -0.62,
-          -0.02
-        ],
-        "Tmax": 18,
-        "Tmin": -14,
-        "tau": 0.1,
-        "Vp": 40,
-        "D": 0.3,
-        "yaw": true
-      }
-    ],
-    "cruise": 26,
-    "steerMax": 0,
-    "hubCam": [
-      0.02,
-      0,
-      -0.5
-    ],
-    "look": {
-      "front": [
-        0.26,
-        0.3,
-        0.38
-      ],
-      "rear": [
-        0.82,
-        0.84,
-        0.88
-      ],
-      "frame": [
+    {
+      "type": "battery",
+      "name": "pack",
+      "position": [
         0.16,
-        0.17,
-        0.2
+        0,
+        0.02
       ],
-      "wrap": [
-        0.3,
-        0.33,
-        0.4
+      "cells": 6,
+      "chemistry": "lipo",
+      "capacity": 4,
+      "resistance": 0.015,
+      "bus": "main",
+      "mass": 0.62
+    },
+    {
+      "type": "rotor",
+      "name": "head",
+      "position": [
+        0,
+        0,
+        -0.17
       ],
-      "blades": 2
+      "axis": [
+        0,
+        0,
+        -1
+      ],
+      "spin": 1,
+      "diameter": 1.8,
+      "blades": 2,
+      "rootChord": 0.08,
+      "tipChord": 0.065,
+      "collective": 0,
+      "twist": 0,
+      "mass": 0.38,
+      "elements": 10,
+      "flap": {
+        "hinge": 0.03,
+        "spring": 18,
+        "damping": 0.8
+      },
+      "collectiveChannel": "col",
+      "collectiveRange": 0.17,
+      "cyclic": {
+        "rollChannel": "cycRoll",
+        "pitchChannel": "cycPitch",
+        "range": 0.15,
+        "phase": 0.15
+      }
+    },
+    {
+      "type": "motor",
+      "name": "liftMotor",
+      "position": [
+        0,
+        0,
+        -0.09
+      ],
+      "shaft": "head",
+      "channel": "liftEsc",
+      "kv": 30,
+      "resistance": 0.15,
+      "idleCurrent": 0.5,
+      "maxCurrent": 45,
+      "bus": "main",
+      "mass": 0.45,
+      "slew": 0.2,
+      "freewheel": true
+    },
+    {
+      "type": "wing",
+      "name": "stubWing",
+      "position": [
+        0.02,
+        0.06,
+        0.01
+      ],
+      "span": 0.5,
+      "rootChord": 0.17,
+      "tipChord": 0.13,
+      "incidence": 0.05,
+      "airfoil": "clark-y",
+      "elements": 5,
+      "mirror": true,
+      "mass": 0.07,
+      "control": {
+        "channel": "ail",
+        "fraction": 0.3,
+        "throw": 0.45,
+        "mirrorSign": -1
+      }
+    },
+    {
+      "type": "prop",
+      "name": "pL",
+      "position": [
+        0.05,
+        -0.56,
+        0
+      ],
+      "axis": [
+        1,
+        0,
+        0
+      ],
+      "spin": 1,
+      "diameter": 0.254,
+      "pitch": 0.127,
+      "blades": 2,
+      "mass": 0.016
+    },
+    {
+      "type": "prop",
+      "name": "pR",
+      "position": [
+        0.05,
+        0.56,
+        0
+      ],
+      "axis": [
+        1,
+        0,
+        0
+      ],
+      "spin": -1,
+      "diameter": 0.254,
+      "pitch": 0.127,
+      "blades": 2,
+      "mass": 0.016
+    },
+    {
+      "type": "motor",
+      "name": "mL",
+      "position": [
+        0.02,
+        -0.56,
+        0
+      ],
+      "shaft": "pL",
+      "channel": "escL",
+      "kv": 900,
+      "resistance": 0.035,
+      "idleCurrent": 0.9,
+      "maxCurrent": 55,
+      "bus": "main",
+      "mass": 0.095
+    },
+    {
+      "type": "motor",
+      "name": "mR",
+      "position": [
+        0.02,
+        0.56,
+        0
+      ],
+      "shaft": "pR",
+      "channel": "escR",
+      "kv": 900,
+      "resistance": 0.035,
+      "idleCurrent": 0.9,
+      "maxCurrent": 55,
+      "bus": "main",
+      "mass": 0.095
+    },
+    {
+      "type": "wing",
+      "name": "fin",
+      "position": [
+        -0.62,
+        0,
+        -0.03
+      ],
+      "span": 0.16,
+      "rootChord": 0.13,
+      "tipChord": 0.08,
+      "dihedral": 1.5708,
+      "airfoil": "symmetric",
+      "elements": 3,
+      "mass": 0.025
+    },
+    {
+      "type": "wing",
+      "name": "hstab",
+      "position": [
+        -0.58,
+        0,
+        0.02
+      ],
+      "span": 0.2,
+      "rootChord": 0.12,
+      "mirror": true,
+      "incidence": 0.015,
+      "airfoil": "symmetric",
+      "elements": 3,
+      "mass": 0.015
+    },
+    {
+      "type": "drag",
+      "name": "frame drag",
+      "position": [
+        0.01,
+        0,
+        0.01
+      ],
+      "area": 0.009
+    },
+    {
+      "type": "gear",
+      "name": "skidFL",
+      "position": [
+        0.14,
+        -0.16,
+        0.15
+      ],
+      "stiffness": 6000,
+      "damping": 110,
+      "gearType": "skid"
+    },
+    {
+      "type": "gear",
+      "name": "skidFR",
+      "position": [
+        0.14,
+        0.16,
+        0.15
+      ],
+      "stiffness": 6000,
+      "damping": 110,
+      "gearType": "skid"
+    },
+    {
+      "type": "gear",
+      "name": "skidRL",
+      "position": [
+        -0.2,
+        -0.16,
+        0.15
+      ],
+      "stiffness": 6000,
+      "damping": 110,
+      "gearType": "skid"
+    },
+    {
+      "type": "gear",
+      "name": "skidRR",
+      "position": [
+        -0.2,
+        0.16,
+        0.15
+      ],
+      "stiffness": 6000,
+      "damping": 110,
+      "gearType": "skid"
+    },
+    {
+      "type": "gear",
+      "name": "tailSkid",
+      "position": [
+        -0.62,
+        0,
+        0.09
+      ],
+      "stiffness": 3000,
+      "damping": 50,
+      "gearType": "skid"
     }
+  ],
+  "mixer": {
+    "crossfade": {
+      "input": "mode",
+      "from": "heli",
+      "to": "auto"
+    },
+    "rules": [
+      {
+        "input": "roll",
+        "channel": "cycRoll",
+        "gain": 1
+      },
+      {
+        "input": "pitch",
+        "channel": "cycPitch",
+        "gain": 1
+      },
+      {
+        "input": "yaw",
+        "channel": "escL",
+        "gain": 1.0
+      },
+      {
+        "input": "yaw",
+        "channel": "escR",
+        "gain": -1.0
+      },
+      {
+        "mode": "heli",
+        "input": "throttle",
+        "channel": "col",
+        "gain": 2,
+        "offset": -1
+      },
+      {
+        "mode": "heli",
+        "input": "throttle",
+        "channel": "liftEsc",
+        "gain": 0,
+        "offset": 0.85
+      },
+      {
+        "mode": "heli",
+        "input": "throttle",
+        "channel": "escL",
+        "gain": 0,
+        "offset": 0.05
+      },
+      {
+        "mode": "heli",
+        "input": "throttle",
+        "channel": "escR",
+        "gain": 0,
+        "offset": 0.14
+      },
+      {
+        "mode": "auto",
+        "input": "throttle",
+        "channel": "col",
+        "gain": 0,
+        "offset": 0.12
+      },
+      {
+        "mode": "auto",
+        "input": "throttle",
+        "channel": "liftEsc",
+        "gain": 0,
+        "offset": 0
+      },
+      {
+        "mode": "auto",
+        "input": "cruise",
+        "channel": "escL",
+        "gain": 0.5,
+        "offset": 0
+      },
+      {
+        "mode": "auto",
+        "input": "cruise",
+        "channel": "escR",
+        "gain": 0.5,
+        "offset": 0
+      },
+      {
+        "mode": "auto",
+        "input": "throttle",
+        "channel": "pitchTrim",
+        "gain": 0,
+        "offset": 0.18
+      },
+      {
+        "mode": "auto",
+        "input": "throttle",
+        "channel": "escL",
+        "gain": 0,
+        "offset": 0.35
+      },
+      {
+        "mode": "auto",
+        "input": "throttle",
+        "channel": "escR",
+        "gain": 0,
+        "offset": 0.35
+      },
+      {
+        "mode": "auto",
+        "input": "roll",
+        "channel": "ail",
+        "gain": -1
+      }
+    ]
+  },
+  "stabilizer": {
+    "mode": "angle",
+    "maxRate": 2.5,
+    "maxAngle": 0.45,
+    "angleP": 3.5,
+    "roll": {
+      "p": 0.55,
+      "i": 0.1,
+      "d": 0.03
+    },
+    "pitch": {
+      "p": 0.45,
+      "i": 0.08,
+      "d": 0.025
+    },
+    "yaw": {
+      "p": 0.35,
+      "i": 0.5,
+      "d": 0
+    },
+    "trimChannels": {
+      "pitch": "pitchTrim"
+    },
+    "maxYawRate": 1.2
   }
 }

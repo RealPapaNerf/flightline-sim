@@ -1,0 +1,30 @@
+{
+  "format": "whirligig-aircraft/1",
+  "name": "Quad 7in",
+  "author": "whirligig",
+  "version": "1",
+  "notes": "The Phase 3 baseline: a 725 g 7-inch quad in X layout, 4S Li-ion, 7x3.5 props. Nothing in the engine knows it is a quadcopter: the mixer template reads the motor layout off the geometry and the stabilizer's rate PIDs do the rest. Diagonal pairs spin together (FR+RL positive, FL+RR negative) so yaw comes from unbalancing the drive reactions.",
+  "parts": [
+    { "type": "mass", "name": "frame", "position": [0, 0, 0], "mass": 0.30, "size": [0.28, 0.28, 0.04] },
+    { "type": "battery", "name": "pack", "position": [0, 0, -0.015], "cells": 4, "chemistry": "liion", "capacity": 3.0, "resistance": 0.035, "bus": "main", "mass": 0.26 },
+
+    { "type": "prop", "name": "pFR", "position": [0.125, 0.125, -0.02], "axis": [0, 0, -1], "spin": 1, "diameter": 0.1778, "pitch": 0.0889, "blades": 2, "mass": 0.006 },
+    { "type": "prop", "name": "pFL", "position": [0.125, -0.125, -0.02], "axis": [0, 0, -1], "spin": -1, "diameter": 0.1778, "pitch": 0.0889, "blades": 2, "mass": 0.006 },
+    { "type": "prop", "name": "pRL", "position": [-0.125, -0.125, -0.02], "axis": [0, 0, -1], "spin": 1, "diameter": 0.1778, "pitch": 0.0889, "blades": 2, "mass": 0.006 },
+    { "type": "prop", "name": "pRR", "position": [-0.125, 0.125, -0.02], "axis": [0, 0, -1], "spin": -1, "diameter": 0.1778, "pitch": 0.0889, "blades": 2, "mass": 0.006 },
+
+    { "type": "motor", "name": "m1", "position": [0.125, 0.125, -0.01], "shaft": "pFR", "channel": "m1", "kv": 1300, "resistance": 0.08, "idleCurrent": 0.7, "maxCurrent": 40, "bus": "main", "mass": 0.035 },
+    { "type": "motor", "name": "m2", "position": [0.125, -0.125, -0.01], "shaft": "pFL", "channel": "m2", "kv": 1300, "resistance": 0.08, "idleCurrent": 0.7, "maxCurrent": 40, "bus": "main", "mass": 0.035 },
+    { "type": "motor", "name": "m3", "position": [-0.125, -0.125, -0.01], "shaft": "pRL", "channel": "m3", "kv": 1300, "resistance": 0.08, "idleCurrent": 0.7, "maxCurrent": 40, "bus": "main", "mass": 0.035 },
+    { "type": "motor", "name": "m4", "position": [-0.125, 0.125, -0.01], "shaft": "pRR", "channel": "m4", "kv": 1300, "resistance": 0.08, "idleCurrent": 0.7, "maxCurrent": 40, "bus": "main", "mass": 0.035 },
+
+    { "type": "drag", "name": "frame drag", "position": [0, 0, 0], "area": 0.004 },
+
+    { "type": "gear", "name": "legFR", "position": [0.125, 0.125, 0.045], "stiffness": 5000, "damping": 40 },
+    { "type": "gear", "name": "legFL", "position": [0.125, -0.125, 0.045], "stiffness": 5000, "damping": 40 },
+    { "type": "gear", "name": "legRL", "position": [-0.125, -0.125, 0.045], "stiffness": 5000, "damping": 40 },
+    { "type": "gear", "name": "legRR", "position": [-0.125, 0.125, 0.045], "stiffness": 5000, "damping": 40 }
+  ],
+  "mixer": { "template": "quad-x" },
+  "stabilizer": { "mode": "angle" }
+}

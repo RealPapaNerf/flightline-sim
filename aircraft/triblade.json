@@ -1,0 +1,63 @@
+{
+  "format": "whirligig-aircraft/1",
+  "name": "Tri-blade",
+  "author": "whirligig",
+  "version": "1",
+  "notes": "The Nick Rehm craft (PLAN §0): three WINGS that are also rotor blades, each carrying its own propeller and motor mid-span. The props drive the rotor the tip-jet way - thrust along the blades' travel, near-zero reaction on the pod. The party trick, asserted in its test: kill two of the three motors mid-hover and the dead props WINDMILL in the blades' own slipstream, the rotor keeps turning (one live prop plus autorotative inflow), and the craft descends under control instead of falling.",
+  "parts": [
+    { "type": "mass", "name": "pod", "position": [0, 0, 0.08], "mass": 0.55, "size": [0.2, 0.2, 0.14] },
+    { "type": "battery", "name": "pack", "position": [0, 0, 0.06], "cells": 6, "chemistry": "lipo", "capacity": 2.2, "resistance": 0.02, "bus": "main", "mass": 0.35 },
+
+    { "type": "rotor", "name": "wings", "position": [0, 0, -0.08], "axis": [0, 0, -1], "spin": 1,
+      "diameter": 1.5, "blades": 3, "rootChord": 0.17, "tipChord": 0.12,
+      "collective": 0, "twist": 0, "mass": 0.45, "elements": 9,
+      "flap": { "hinge": 0.04, "spring": 14, "damping": 0.8 },
+      "collectiveChannel": "col", "collectiveRange": 0.17,
+      "cyclic": { "rollChannel": "cycRoll", "pitchChannel": "cycPitch", "range": 0.13, "phase": 0.35 } },
+
+    { "type": "prop", "name": "tp0", "axis": [0, 1, 0], "spin": 1,
+      "diameter": 0.178, "pitch": 0.0889, "blades": 2, "mass": 0.008,
+      "mount": { "rotor": "wings", "blade": 0, "radius": 0.72 } },
+    { "type": "prop", "name": "tp1", "axis": [0, 1, 0], "spin": 1,
+      "diameter": 0.178, "pitch": 0.0889, "blades": 2, "mass": 0.008,
+      "mount": { "rotor": "wings", "blade": 1, "radius": 0.72 } },
+    { "type": "prop", "name": "tp2", "axis": [0, 1, 0], "spin": 1,
+      "diameter": 0.178, "pitch": 0.0889, "blades": 2, "mass": 0.008,
+      "mount": { "rotor": "wings", "blade": 2, "radius": 0.72 } },
+
+    { "type": "motor", "name": "tm0", "shaft": "tp0", "channel": "m1",
+      "kv": 1300, "resistance": 0.08, "idleCurrent": 0.5, "maxCurrent": 28, "bus": "main", "mass": 0.035,
+      "mount": { "rotor": "wings", "blade": 0, "radius": 0.72 } },
+    { "type": "motor", "name": "tm1", "shaft": "tp1", "channel": "m2",
+      "kv": 1300, "resistance": 0.08, "idleCurrent": 0.5, "maxCurrent": 28, "bus": "main", "mass": 0.035,
+      "mount": { "rotor": "wings", "blade": 1, "radius": 0.72 } },
+    { "type": "motor", "name": "tm2", "shaft": "tp2", "channel": "m3",
+      "kv": 1300, "resistance": 0.08, "idleCurrent": 0.5, "maxCurrent": 28, "bus": "main", "mass": 0.035,
+      "mount": { "rotor": "wings", "blade": 2, "radius": 0.72 } },
+
+    { "type": "drag", "name": "pod drag", "position": [0, 0, 0.06], "area": 0.006 },
+
+    { "type": "gear", "name": "legA", "position": [0.12, 0, 0.18], "stiffness": 4000, "damping": 70 },
+    { "type": "gear", "name": "legB", "position": [-0.06, 0.1, 0.18], "stiffness": 4000, "damping": 70 },
+    { "type": "gear", "name": "legC", "position": [-0.06, -0.1, 0.18], "stiffness": 4000, "damping": 70 }
+  ],
+  "mixer": {
+    "rules": [
+      { "input": "throttle", "channel": "col", "gain": 2, "offset": -1 },
+      { "input": "tips", "channel": "m1", "gain": 1 },
+      { "input": "tips", "channel": "m2", "gain": 1 },
+      { "input": "tips", "channel": "m3", "gain": 1 },
+      { "input": "roll", "channel": "cycRoll", "gain": 1 },
+      { "input": "pitch", "channel": "cycPitch", "gain": 1 }
+    ]
+  },
+  "stabilizer": {
+    "mode": "angle",
+    "maxRate": 2.5,
+    "maxAngle": 0.4,
+    "angleP": 3.5,
+    "roll": { "p": 0.5, "i": 0.08, "d": 0.04 },
+    "pitch": { "p": 0.5, "i": 0.08, "d": 0.04 },
+    "yaw": { "p": 0, "i": 0, "d": 0 }
+  }
+}

@@ -1,0 +1,399 @@
+{
+  "format": "whirligig-aircraft/1",
+  "name": "Stop-rotor",
+  "author": "whirligig",
+  "version": "1",
+  "notes": "The stopped-rotor machine (PLAN \u00a70, Phase 5): a tip-prop rotor lifts it like the tipjet; slide the mode and the tip props die, the park controller brakes the head and indexes the blades spanwise, and the same two blades are now the WING - collective is wing incidence, pitch cyclic is the ailerons (at a 90-degree park, cyclic pitch is differential left/right blade incidence), the tailplane's elevator takes over pitch, and a pusher drives it. Slide back and the tip props spin the wing into a rotor again. Transition lift gap is real (it killed the X-50): convert high and fast.",
+  "parts": [
+    {
+      "type": "mass",
+      "name": "fuselage",
+      "position": [
+        0.02,
+        0,
+        0.05
+      ],
+      "mass": 1.0,
+      "size": [
+        0.6,
+        0.12,
+        0.13
+      ]
+    },
+    {
+      "type": "battery",
+      "name": "pack",
+      "position": [
+        0.12,
+        0,
+        0.04
+      ],
+      "cells": 6,
+      "chemistry": "lipo",
+      "capacity": 3.5,
+      "resistance": 0.015,
+      "bus": "main",
+      "mass": 0.55
+    },
+    {
+      "type": "rotor",
+      "name": "head",
+      "position": [
+        0,
+        0,
+        -0.16
+      ],
+      "axis": [
+        0,
+        0,
+        -1
+      ],
+      "spin": 1,
+      "diameter": 1.5,
+      "blades": 2,
+      "rootChord": 0.15,
+      "tipChord": 0.12,
+      "collective": 0,
+      "twist": 0,
+      "mass": 0.4,
+      "elements": 9,
+      "flap": {
+        "hinge": 0.04,
+        "spring": 22,
+        "damping": 1.2
+      },
+      "collectiveChannel": "col",
+      "collectiveRange": 0.17,
+      "cyclic": {
+        "rollChannel": "cycRoll",
+        "pitchChannel": "cycPitch",
+        "range": 0.18,
+        "phase": 0.35
+      },
+      "park": {
+        "channel": "park",
+        "azimuth": 1.5708,
+        "torque": 8,
+        "rate": 2
+      }
+    },
+    {
+      "type": "prop",
+      "name": "tp0",
+      "axis": [
+        0,
+        1,
+        0
+      ],
+      "spin": 1,
+      "diameter": 0.152,
+      "pitch": 0.1,
+      "blades": 2,
+      "mass": 0.01,
+      "mount": {
+        "rotor": "head",
+        "blade": 0,
+        "radius": 0.9
+      }
+    },
+    {
+      "type": "prop",
+      "name": "tp1",
+      "axis": [
+        0,
+        1,
+        0
+      ],
+      "spin": -1,
+      "diameter": 0.152,
+      "pitch": 0.1,
+      "blades": 2,
+      "mass": 0.01,
+      "mount": {
+        "rotor": "head",
+        "blade": 1,
+        "radius": 0.9
+      }
+    },
+    {
+      "type": "motor",
+      "name": "tm0",
+      "shaft": "tp0",
+      "channel": "tips",
+      "kv": 1400,
+      "resistance": 0.08,
+      "idleCurrent": 0.4,
+      "maxCurrent": 24,
+      "bus": "main",
+      "mass": 0.03,
+      "mount": {
+        "rotor": "head",
+        "blade": 0,
+        "radius": 0.9
+      }
+    },
+    {
+      "type": "motor",
+      "name": "tm1",
+      "shaft": "tp1",
+      "channel": "tips",
+      "kv": 1400,
+      "resistance": 0.08,
+      "idleCurrent": 0.4,
+      "maxCurrent": 24,
+      "bus": "main",
+      "mass": 0.03,
+      "mount": {
+        "rotor": "head",
+        "blade": 1,
+        "radius": 0.9
+      }
+    },
+    {
+      "type": "prop",
+      "name": "pusher",
+      "position": [
+        -0.55,
+        0,
+        0.01
+      ],
+      "axis": [
+        1,
+        0,
+        0
+      ],
+      "spin": 1,
+      "diameter": 0.229,
+      "pitch": 0.1524,
+      "blades": 2,
+      "mass": 0.014
+    },
+    {
+      "type": "motor",
+      "name": "pm",
+      "position": [
+        -0.5,
+        0,
+        0.01
+      ],
+      "shaft": "pusher",
+      "channel": "pusherEsc",
+      "kv": 950,
+      "resistance": 0.06,
+      "idleCurrent": 0.6,
+      "maxCurrent": 40,
+      "bus": "main",
+      "mass": 0.07
+    },
+    {
+      "type": "wing",
+      "name": "fin",
+      "position": [
+        -0.58,
+        0,
+        -0.03
+      ],
+      "span": 0.15,
+      "rootChord": 0.12,
+      "tipChord": 0.07,
+      "dihedral": 1.5708,
+      "airfoil": "symmetric",
+      "elements": 3,
+      "mass": 0.022
+    },
+    {
+      "type": "wing",
+      "name": "hstab",
+      "position": [
+        -0.56,
+        0,
+        0.02
+      ],
+      "span": 0.2,
+      "rootChord": 0.12,
+      "mirror": true,
+      "incidence": 0,
+      "airfoil": "symmetric",
+      "elements": 3,
+      "mass": 0.018,
+      "control": {
+        "channel": "elev",
+        "fraction": 0.4,
+        "throw": 0.6,
+        "mirrorSign": 1
+      }
+    },
+    {
+      "type": "drag",
+      "name": "fuselage drag",
+      "position": [
+        0.02,
+        0,
+        0.03
+      ],
+      "area": 0.01
+    },
+    {
+      "type": "gear",
+      "name": "skidFL",
+      "position": [
+        0.14,
+        -0.15,
+        0.17
+      ],
+      "stiffness": 6000,
+      "damping": 110,
+      "gearType": "skid"
+    },
+    {
+      "type": "gear",
+      "name": "skidFR",
+      "position": [
+        0.14,
+        0.15,
+        0.17
+      ],
+      "stiffness": 6000,
+      "damping": 110,
+      "gearType": "skid"
+    },
+    {
+      "type": "gear",
+      "name": "skidRL",
+      "position": [
+        -0.16,
+        -0.15,
+        0.17
+      ],
+      "stiffness": 6000,
+      "damping": 110,
+      "gearType": "skid"
+    },
+    {
+      "type": "gear",
+      "name": "skidRR",
+      "position": [
+        -0.16,
+        0.15,
+        0.17
+      ],
+      "stiffness": 6000,
+      "damping": 110,
+      "gearType": "skid"
+    },
+    {
+      "type": "gear",
+      "name": "tailSkid",
+      "position": [
+        -0.58,
+        0,
+        0.1
+      ],
+      "stiffness": 3000,
+      "damping": 50,
+      "gearType": "skid"
+    }
+  ],
+  "mixer": {
+    "crossfade": {
+      "input": "mode",
+      "from": "heli",
+      "to": "wing"
+    },
+    "rules": [
+      {
+        "input": "cruise",
+        "channel": "pusherEsc",
+        "gain": 0.95
+      },
+      {
+        "mode": "heli",
+        "input": "throttle",
+        "channel": "col",
+        "gain": 2,
+        "offset": -1
+      },
+      {
+        "mode": "heli",
+        "input": "tips",
+        "channel": "tips",
+        "gain": 1,
+        "offset": 0
+      },
+      {
+        "mode": "heli",
+        "input": "roll",
+        "channel": "cycRoll",
+        "gain": 1
+      },
+      {
+        "mode": "heli",
+        "input": "pitch",
+        "channel": "cycPitch",
+        "gain": 1
+      },
+      {
+        "mode": "wing",
+        "input": "throttle",
+        "channel": "cycPitch",
+        "gain": 1.1,
+        "offset": 0
+      },
+      {
+        "mode": "wing",
+        "input": "roll",
+        "channel": "col",
+        "gain": 1.0
+      },
+      {
+        "mode": "wing",
+        "input": "throttle",
+        "channel": "col",
+        "gain": 0,
+        "offset": 0.0
+      },
+      {
+        "mode": "wing",
+        "input": "pitch",
+        "channel": "elev",
+        "gain": -1
+      },
+      {
+        "mode": "wing",
+        "input": "throttle",
+        "channel": "pitchTrim",
+        "gain": 0,
+        "offset": 0.1
+      },
+      {
+        "input": "parkCmd",
+        "channel": "park",
+        "gain": 1
+      }
+    ]
+  },
+  "stabilizer": {
+    "mode": "angle",
+    "maxRate": 2.5,
+    "maxAngle": 0.42,
+    "angleP": 3.5,
+    "roll": {
+      "p": 0.55,
+      "i": 0.08,
+      "d": 0.04
+    },
+    "pitch": {
+      "p": 0.5,
+      "i": 0.08,
+      "d": 0.04
+    },
+    "yaw": {
+      "p": 0,
+      "i": 0,
+      "d": 0
+    },
+    "trimChannels": {
+      "pitch": "pitchTrim"
+    }
+  }
+}
