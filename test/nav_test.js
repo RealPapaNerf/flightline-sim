@@ -140,3 +140,30 @@ line('\n== RC failsafe ==');
   }
   line(`ELRS 2.4 behind a building (−18 dB) with +20 dB interference, 20 m up: ${lq.join(' | ')} → failsafe at ${tFs === null ? '—' : (tFs / 1000).toFixed(2) + ' km'}`);
 }
+
+line('\n== The antenna is where you stand, not at the map origin ==');
+{ /* Found on the public maps: fly 2 km down the canyon, press B to stand by
+     the aircraft, and the video was still snow — link() measured range from
+     NED (0,0) whatever the stand point did. The antenna position now rides in
+     opt.pilot, so an aircraft 50 m from YOU must read like 50 m, not 2 km. */
+  const at = (sp, pilot) => {
+    const nav = NAV.make(), s = FL.makeState();
+    s.p = sp;
+    let k;
+    for (let f = 0; f < 120; f++) k = NAV.link(nav, s, { rc: 'elrs24', vtx: 'a600', pilot }, FRAME);
+    return k;
+  };
+  // the same 50 m / 20 m-up geometry, at the origin and 2 km out
+  const home = at([50, 0, -20], [0, 0, -1.5]);
+  const far = at([2050, 0, -20], [2000, 0, -1.5]);
+  const drift = Math.abs(far.rcRssi - home.rcRssi);
+  const okNear = drift < 6 && far.vidQ > 0.9; // fading is random ±; the old bug was ~32 dB down and vidQ 0
+  line(`50 m away, 20 m up: RSSI ${home.rcRssi.toFixed(0)} dBm at the origin, ${far.rcRssi.toFixed(0)} dBm standing 2 km out (Δ ${drift.toFixed(1)} dB), video ${far.vidQ.toFixed(2)}`);
+  line(okNear ? '  ok    the link follows the stand point' : '  FAIL  the link is still measured from the origin');
+  if (!okNear) process.exitCode = 1;
+  // and with no pilot passed, the old built-in-field behaviour stands
+  const legacy = at([50, 0, -20], undefined);
+  const okLegacy = Math.abs(legacy.rcRssi - home.rcRssi) < 6;
+  line(okLegacy ? '  ok    no opt.pilot still means the origin (built-in field)' : '  FAIL  default antenna moved');
+  if (!okLegacy) process.exitCode = 1;
+}

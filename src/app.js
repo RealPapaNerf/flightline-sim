@@ -4649,7 +4649,12 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     return { rc: loss(rcF), vid: loss(NAV.VTXS[S.vtx].f), trees, bldg, terr: terrainDiffraction(rcF) };
   }
   // noise floor rise: the interference slider (up to 30 dB) plus the power line's corona hiss nearby
-  const noiseRise = () => 0.3 * S.rfNoise + (Math.abs(st.p[0] - 330) < 30 ? 6 : 0);
+  // (the power line is the built-in field's — a terrain map's n=330 is just ground)
+  const noiseRise = () => 0.3 * S.rfNoise + (!mapInfo && Math.abs(st.p[0] - 330) < 30 ? 6 : 0);
+  // your antenna, NED: 1.5 m over the ground at the CURRENT stand point. This is
+  // what link() measures range from — leaving it at the origin was the bug where
+  // the radio faded as if you never moved from the centre of the map.
+  const antennaNED = () => (mapInfo ? [mapInfo.pilot.n, mapInfo.pilot.e, -(mapInfo.pilot.up + 1.5)] : [0, 0, -1.5]);
   let stallVsCache = { k: '', Vs: 10 };
   function apCfg() {
     if (!ROTARY(AC)) {
@@ -4668,7 +4673,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     NAV.sensors(nav, st, { lidar: S.lidar, surface: surfaceAt, beta: (env.wx && env.wx.visM < 25000 ? 3.912 / env.wx.visM : 0), precipR: P.R, snowing: !P.liquid && atmo.Tc <= 2, V: st.tele.V }, dt);
     if (nav.est.src !== lastSrc) { if (apMode()) flash(nav.est.src === 'lidar' ? 'RANGEFINDER' : 'BARO ALT'); lastSrc = nav.est.src; }
     obsT -= dt; if (obsT <= 0) { obsT = 0.1; obs = obstruction(); }
-    NAV.link(nav, st, { rc: S.rcLink, vtx: S.vtx, obsRc: obs.rc, obsVid: obs.vid, noise: noiseRise() }, dt);
+    NAV.link(nav, st, { rc: S.rcLink, vtx: S.vtx, obsRc: obs.rc, obsVid: obs.vid, noise: noiseRise(), pilot: antennaNED() }, dt);
     if (nav.link.fresh) heldInp = { thr: inp.thr, a: inp.a, e: inp.e, r: inp.r };
     // RC failsafe: a second without packets → RTL; when the link returns, you take over with a mode switch
     if (nav.link.rcFs && !fsActive) { fsActive = true; if (armed && !st.held && !st.wow) { NAV.enter(nav, 'rtl', st); } flash('RC FAILSAFE'); refreshBar(); }

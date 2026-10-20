@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<!-- built by tools/build.py from src/ (c365a373); edit the sources, not this file -->
+<!-- built by tools/build.py from src/ (38b44314); edit the sources, not this file -->
 <title>Flightline RC Sim</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Browser RC flight trainer: Nano Goblin and trainer flight models, line of sight, FPV and split view, USB transmitter support.">
@@ -5125,8 +5125,14 @@ const NAV = (function () {
      opt: { rc, vtx (catalogue keys), obsRc, obsVid (dB of obstruction), noise (dB rise of the noise floor) } */
   function link(nav, s, opt, dt) {
     const k = nav.link, rc = RCLINKS[opt.rc] || RCLINKS.elrs24, vt = VTXS[opt.vtx] || VTXS.a600;
-    const pilot = [0, 0, -1.5], d = Math.hypot(s.p[0] - pilot[0], s.p[1] - pilot[1], s.p[2] - pilot[2]);
-    const elev = Math.atan2(-(s.p[2] - pilot[2]), Math.hypot(s.p[0], s.p[1])), hAir = Math.max(0.3, -s.p[2]);
+    /* Your antenna is where YOU are, not at the map's origin. On the built-in
+       field those are the same place; on a terrain map the document puts the
+       pilot wherever it likes and the stand point can then move again (B, or
+       the site picker), so the caller passes the antenna's NED position. The
+       range loss, ground bounce and the overhead null all measure from it —
+       the obstruction losses in opt already do. */
+    const pilot = opt.pilot || [0, 0, -1.5], d = Math.hypot(s.p[0] - pilot[0], s.p[1] - pilot[1], s.p[2] - pilot[2]);
+    const elev = Math.atan2(-(s.p[2] - pilot[2]), Math.hypot(s.p[0] - pilot[0], s.p[1] - pilot[1])), hAir = Math.max(0.3, -s.p[2]);
     k.fadeRc = gm(k.fadeRc, 0.25, 2.5, dt); k.fadeVid = gm(k.fadeVid, 0.25, 2.5, dt);
     k.obsRc = opt.obsRc || 0; k.obsVid = opt.obsVid || 0;
     k.rcRssi = received(rc, d, hAir, elev, k.obsRc) + k.fadeRc;
@@ -11705,7 +11711,12 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     return { rc: loss(rcF), vid: loss(NAV.VTXS[S.vtx].f), trees, bldg, terr: terrainDiffraction(rcF) };
   }
   // noise floor rise: the interference slider (up to 30 dB) plus the power line's corona hiss nearby
-  const noiseRise = () => 0.3 * S.rfNoise + (Math.abs(st.p[0] - 330) < 30 ? 6 : 0);
+  // (the power line is the built-in field's — a terrain map's n=330 is just ground)
+  const noiseRise = () => 0.3 * S.rfNoise + (!mapInfo && Math.abs(st.p[0] - 330) < 30 ? 6 : 0);
+  // your antenna, NED: 1.5 m over the ground at the CURRENT stand point. This is
+  // what link() measures range from — leaving it at the origin was the bug where
+  // the radio faded as if you never moved from the centre of the map.
+  const antennaNED = () => (mapInfo ? [mapInfo.pilot.n, mapInfo.pilot.e, -(mapInfo.pilot.up + 1.5)] : [0, 0, -1.5]);
   let stallVsCache = { k: '', Vs: 10 };
   function apCfg() {
     if (!ROTARY(AC)) {
@@ -11724,7 +11735,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     NAV.sensors(nav, st, { lidar: S.lidar, surface: surfaceAt, beta: (env.wx && env.wx.visM < 25000 ? 3.912 / env.wx.visM : 0), precipR: P.R, snowing: !P.liquid && atmo.Tc <= 2, V: st.tele.V }, dt);
     if (nav.est.src !== lastSrc) { if (apMode()) flash(nav.est.src === 'lidar' ? 'RANGEFINDER' : 'BARO ALT'); lastSrc = nav.est.src; }
     obsT -= dt; if (obsT <= 0) { obsT = 0.1; obs = obstruction(); }
-    NAV.link(nav, st, { rc: S.rcLink, vtx: S.vtx, obsRc: obs.rc, obsVid: obs.vid, noise: noiseRise() }, dt);
+    NAV.link(nav, st, { rc: S.rcLink, vtx: S.vtx, obsRc: obs.rc, obsVid: obs.vid, noise: noiseRise(), pilot: antennaNED() }, dt);
     if (nav.link.fresh) heldInp = { thr: inp.thr, a: inp.a, e: inp.e, r: inp.r };
     // RC failsafe: a second without packets → RTL; when the link returns, you take over with a mode switch
     if (nav.link.rcFs && !fsActive) { fsActive = true; if (armed && !st.held && !st.wow) { NAV.enter(nav, 'rtl', st); } flash('RC FAILSAFE'); refreshBar(); }

@@ -145,8 +145,14 @@ const NAV = (function () {
      opt: { rc, vtx (catalogue keys), obsRc, obsVid (dB of obstruction), noise (dB rise of the noise floor) } */
   function link(nav, s, opt, dt) {
     const k = nav.link, rc = RCLINKS[opt.rc] || RCLINKS.elrs24, vt = VTXS[opt.vtx] || VTXS.a600;
-    const pilot = [0, 0, -1.5], d = Math.hypot(s.p[0] - pilot[0], s.p[1] - pilot[1], s.p[2] - pilot[2]);
-    const elev = Math.atan2(-(s.p[2] - pilot[2]), Math.hypot(s.p[0], s.p[1])), hAir = Math.max(0.3, -s.p[2]);
+    /* Your antenna is where YOU are, not at the map's origin. On the built-in
+       field those are the same place; on a terrain map the document puts the
+       pilot wherever it likes and the stand point can then move again (B, or
+       the site picker), so the caller passes the antenna's NED position. The
+       range loss, ground bounce and the overhead null all measure from it —
+       the obstruction losses in opt already do. */
+    const pilot = opt.pilot || [0, 0, -1.5], d = Math.hypot(s.p[0] - pilot[0], s.p[1] - pilot[1], s.p[2] - pilot[2]);
+    const elev = Math.atan2(-(s.p[2] - pilot[2]), Math.hypot(s.p[0] - pilot[0], s.p[1] - pilot[1])), hAir = Math.max(0.3, -s.p[2]);
     k.fadeRc = gm(k.fadeRc, 0.25, 2.5, dt); k.fadeVid = gm(k.fadeVid, 0.25, 2.5, dt);
     k.obsRc = opt.obsRc || 0; k.obsVid = opt.obsVid || 0;
     k.rcRssi = received(rc, d, hAir, elev, k.obsRc) + k.fadeRc;
