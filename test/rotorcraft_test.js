@@ -164,38 +164,51 @@ if (want('gyrodyne')) {
     fly(ac, s, { thr: H, r: 1 }, 3, (s) => { r = Math.max(r, s.w[2]); });
     line(`full right pedal in the hover: peak ${(r * R2D).toFixed(0)}°/s on differential thrust`); }
 
-  /* The switch the whole machine exists for, thrown in flight and thrown back. */
-  { const s = at(ac, 120);
+  /* The switch the whole machine exists for — thrown in a hover, which is the
+     hard case. A free rotor in still air is a dead stick, so the drive must
+     hold on through a transition: the propellers go to a strong fixed pull,
+     the stick stays collective, and the head is only let go once the air over
+     the disc has reached vAuto. */
+  { const s = at(ac, 60);
     const snap = (tag) => `${tag}: ${s.tele.V.toFixed(1)} m/s, ${rpm(s.om).toFixed(0)} rpm (${(100 * s.om / Ro.om0).toFixed(0)}%), rake ${(s.rk * R2D).toFixed(1)}°, collective ${(s.coll * R2D).toFixed(1)}°, props ${s.tp.map((x) => x.toFixed(1)).join('/')} N, stick is the ${s.tele.stickIsEngine ? 'engine' : 'collective'}`;
     fly(ac, s, { thr: H }, 6); line('  ' + snap('helicopter, hovering'));
-    const omHeli = s.om;
-    fly(ac, s, { thr: 0.9, hold: true }, 20); line('  ' + snap('throttle hold on, 20 s later'));
+    const omHeli = s.om, h0 = -s.p[2];
+    let vFree = null, omFree = 0, hFree = 0;
+    fly(ac, s, { thr: H, hold: true }, 15, (st) => {
+      if (vFree === null && st.tele.free) { vFree = Math.hypot(st.v[0], st.v[1]); omFree = st.om; hFree = -st.p[2]; }
+    });
+    line('  ' + snap('hold thrown in the hover, 15 s later'));
+    ok(vFree !== null && vFree >= Ro.vAuto - 0.5, 'the drive holds on until the props have pulled it to vAuto', `let go at ${vFree === null ? '—' : vFree.toFixed(1)} m/s against vAuto ${Ro.vAuto}, ${rpm(omFree).toFixed(0)} rpm banked in the head`);
+    ok(vFree !== null && h0 - hFree < 8, 'and the transition is flown on the collective, not fallen through', `${(h0 - hFree).toFixed(1)} m given up on the way`);
     const omGyro = s.om;
     fly(ac, s, { thr: 1, e: 0.1, hold: true }, 20); line('  ' + snap('autogyro, full power'));
     fly(ac, s, { thr: H }, 15); line('  ' + snap('throttle hold off, 15 s later'));
-    ok(!s.crashed, 'the mode switch can be thrown in flight and thrown back', s.crashMsg || 'throttle hold is the whole switch');
+    ok(!s.crashed, 'the mode switch can be thrown in flight and thrown back', s.crashMsg || 'hold transitions out, and re-engages the drive at once on the way back');
     ok(omGyro < 0.7 * omHeli && s.om > 0.9 * omHeli, 'and the rotor slows to a free speed and comes back', `${rpm(omHeli).toFixed(0)} → ${rpm(omGyro).toFixed(0)} → ${rpm(s.om).toFixed(0)} rpm`); }
 
-  /* The contract the app leans on: in autogyro mode `armed` stays true and `hold`
-     alone frees the rotor. Send armed:false instead and the propellers die with
-     the drive — a dead-stick autorotation, which is not a mode anyone asked for. */
+  /* The contract the app leans on: the pilot's hold is sent with `armed` still
+     true, and already at speed it takes effect at once — the propellers stay
+     live and the stick is their power. A lesson's engine failure is the other
+     thing entirely: it is sent disarmed, and everything goes quiet together. */
   { const s = at(ac, 120, 15);
     fly(ac, s, { thr: 1, hold: true }, 10);
     ok(s.tp[0] > 2 && s.tp[1] > 2, 'on hold the propellers stay live: a powered autogyro, not a dead stick', `${s.tp.map((x) => x.toFixed(1)).join('/')} N at full stick`);
     const d = at(ac, 120, 15);
     fly(ac, d, { thr: 1, hold: true, armed: false }, 10);
-    ok(Math.abs(d.tp[0]) < 0.05 && Math.abs(d.tp[1]) < 0.05, 'disarmed they are not — hold must be sent with armed still true', `${d.tp.map((x) => x.toFixed(1)).join('/')} N`); }
+    ok(Math.abs(d.tp[0]) < 0.05 && Math.abs(d.tp[1]) < 0.05, 'disarmed they are not — which is what a lesson\'s engine failure sends', `${d.tp.map((x) => x.toFixed(1)).join('/')} N`); }
 
+  /* A real engine failure — disarmed, so the propellers are as dead as the
+     drive. The pilot's hold switch would keep them; a flat pack does not. */
   { const s = at(ac, 80, 10); let g = null, td = null;
     fly(ac, s, (s) => {
       const h = -s.p[2];
-      if (h > 2) return { thr: 0.3, e: -0.15, hold: true };
-      return { thr: 0.1, e: 0.45, hold: true };
+      if (h > 2) return { thr: 0.3, e: -0.15, armed: false };
+      return { thr: 0.1, e: 0.45, armed: false };
     }, 50, (s, t) => {
       if (!g && t > 8) g = { vz: s.v[2], vx: s.v[0], om: s.om, fl: s.tele.flare };
       if (s.wow || s.crashed) { td = { vz: s.v[2], vh: Math.hypot(s.v[0], s.v[1]) }; return false; }
     });
-    line(`engine out from 80 m, flown as an autogyro: glide ${g.vx.toFixed(1)} m/s forward, ${g.vz.toFixed(1)} m/s down at ${rpm(g.om).toFixed(0)} rpm, ${(g.fl * 100).toFixed(0)}% flare margin; touchdown ${td ? td.vz.toFixed(2) + ' m/s down, ' + td.vh.toFixed(1) + ' forward' : '—'} — ${s.crashed ? s.crashMsg : 'landed'}`);
+    line(`engine out from 80 m, dead stick: glide ${g.vx.toFixed(1)} m/s forward, ${g.vz.toFixed(1)} m/s down at ${rpm(g.om).toFixed(0)} rpm, ${(g.fl * 100).toFixed(0)}% flare margin; touchdown ${td ? td.vz.toFixed(2) + ' m/s down, ' + td.vh.toFixed(1) + ' forward' : '—'} — ${s.crashed ? s.crashMsg : 'landed'}`);
     ok(!s.crashed, 'and it can be put down on its skids without the rotor drive', s.crashMsg || 'flared at 2 m: heavier, faster and on skids, so the window is tighter than the autogyro\'s'); }
 }
 

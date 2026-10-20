@@ -130,7 +130,9 @@ function measureGlide(ac, V) {
   for (let i = 0; i < 400 * 20; i++) {
     const vb = FL.mulMtV(FL.quatToMat(st.q), st.v);
     const e = clamp(-0.1 * (V - vb[0]), -0.7, 0.12);
-    FL.step(st, ac, { thr: 0, a: 0, e, r: 0, armed: true, hold: true, mode: 'angle', curve: 'normal' }, env, DT);
+    // disarmed, not held: a lesson's cut is an engine failure, and on a gyrodyne the pilot's
+    // own hold switch now starts a powered transition instead of letting the head go
+    FL.step(st, ac, { thr: 0, a: 0, e, r: 0, armed: false, hold: true, mode: 'angle', curve: 'normal' }, env, DT);
   }
   return clamp(Math.hypot(st.v[0], st.v[1]) / Math.max(0.3, st.v[2]), 0.6, 8);
 }
@@ -189,7 +191,9 @@ function glideIn(p, snap, w, dt) {
   if (snap.wow) thr = 0; // a landing is not over until the collective is down
   return {
     thr, a: bank, e, r: clamp(1.0 * wrapPi(brg - snap.yaw), -0.6, 0.6),
-    armed: true, hold: true, mode: 'angle', lim: { bank: 35, pitch: 35, tBank: 60, tPitch: 60 },
+    // armed: false is what the app sends for a cut task — an engine failure, not the pilot's
+    // hold switch, which on a gyrodyne would start a powered transition rather than fail anything
+    armed: false, hold: true, mode: 'angle', lim: { bank: 35, pitch: 35, tBank: 60, tPitch: 60 },
   };
 }
 // where the live task wants the aircraft to be, and which way round

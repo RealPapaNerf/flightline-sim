@@ -6,8 +6,8 @@
   "def": {
     "id": "gyrodyne",
     "name": "Gyrodyne",
-    "blurb": "4.5 kg helicopter–autogyro hybrid: a 1.7 m shaft-driven rotor, no tail rotor, and two reversing-pitch tractor props on stub wings countering the torque between them. Throttle hold tilts the head back and it becomes an autogyro; let it off and it is a helicopter again.",
-    "notes": "The Fairey Gyrodyne idea at model scale: a shaft-driven rotor with no tail rotor, countered by two reversing-pitch propellers on stub booms. In the hover they sit at plus and minus three newtons, so the torque is cancelled at zero net thrust and it hovers straight. Throttle hold rakes the head back 7°, parks the collective at 2.5° and hands the stick to the propellers, and the same airframe is an autogyro at 46% headspeed. Correct the all-up weight and the propeller thrust first.",
+    "blurb": "4.5 kg helicopter–autogyro hybrid: a 1.7 m shaft-driven rotor, no tail rotor, and two reversing-pitch tractor props on stub wings countering the torque between them. Throttle hold starts the transition: the props pull it up to 12 m/s with the rotor still driven, then the drive lets go and it is an autogyro. Let the switch off and it is a helicopter again.",
+    "notes": "The Fairey Gyrodyne idea at model scale: a shaft-driven rotor with no tail rotor, countered by two reversing-pitch propellers on stub booms. In the hover they sit at plus and minus three newtons, so the torque is cancelled at zero net thrust and it hovers straight. Throttle hold thrown slow starts a transition — the props run up to a strong fixed pull while the stick is still collective and the rotor is still driven — and at vAuto (12 m/s) the drive lets go, the head rakes back 7°, the collective parks at 2.5°, and the stick becomes engine power: the same airframe is an autogyro at 46% headspeed. Correct the all-up weight and the propeller thrust first.",
     "mass": 4.5,
     "I": [
       0.42,
@@ -241,6 +241,7 @@
       },
       "drive": "shaft",
       "autoPitch": 2.5,
+      "vAuto": 12,
       "rake": 0,
       "rakeFree": 7,
       "tauRake": 1.2,

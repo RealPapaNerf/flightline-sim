@@ -2971,7 +2971,7 @@
         seg('aircraft', 'Model', Object.values(ACS).map((a) => [a.id, a.name]), AC.blurb, () => S.aircraft, (v) => setAircraft(v)),
         seg('start', 'Reset puts you', AC.starts.map((s) => [s, START_LABEL[s]]), AC.kind === 'wing' ? 'Hand launch: arm with throttle down, then push throttle above 70% and the model is thrown once the motor is wound up (or press L to throw at any throttle). Real technique applies: full power, and maybe a touch of up elevator.' : '', () => startOf(AC.id), (v) => { S.start[AC.id] = v; doReset(); refreshBar(); }),
         ...(COLL(AC) ? [seg('curve', 'Pitch curve', [['normal', 'Normal'], ['3d', '3D (idle up)']],
-          `Normal: ${AC.rotor.curves.normal.join('° / ')}° at the bottom, middle and top of the stick; hover is at about ${Math.round(AC.hoverThrCurve.normal * 100)}%. 3D: ${AC.rotor.curves['3d'].join('° / ')}°, with zero pitch at mid stick so you can fly inverted; hover is at about ${Math.round(AC.hoverThrCurve['3d'] * 100)}%. The governor holds ${Math.round((AC.rotor.om0 * 60) / (2 * Math.PI))} rpm in both. ${AC.thrusters && AC.thrusters.length ? 'Throttle hold (H, or a controller channel) is the helicopter ⇄ autogyro switch: the rotor drive stops, the head rakes back, the collective parks, and the throttle stick becomes propeller power. Let it off and it is a helicopter again.' : 'Throttle hold (H, or a controller channel) stops the motor and leaves the collective live, for autorotations.'}`,
+          `Normal: ${AC.rotor.curves.normal.join('° / ')}° at the bottom, middle and top of the stick; hover is at about ${Math.round(AC.hoverThrCurve.normal * 100)}%. 3D: ${AC.rotor.curves['3d'].join('° / ')}°, with zero pitch at mid stick so you can fly inverted; hover is at about ${Math.round(AC.hoverThrCurve['3d'] * 100)}%. The governor holds ${Math.round((AC.rotor.om0 * 60) / (2 * Math.PI))} rpm in both. ${AC.thrusters && AC.thrusters.length ? `Throttle hold (H, or a controller channel) is the helicopter ⇄ autogyro switch. Thrown slow, it starts the transition — the props run up to a strong pull while the stick is still collective and the rotor is still driven (TRANSITION on the OSD) — and at ${AC.rotor.vAuto} m/s the drive lets go, the head rakes back, and the throttle stick becomes propeller power. Let the switch off and it is a helicopter again at once, at any speed.` : 'Throttle hold (H, or a controller channel) stops the motor and leaves the collective live, for autorotations.'}`,
           () => S.curve, (v) => setCurve(v))] : []),
         seg('mode', 'Flight mode', MODES.map((m) => [m, baseName(m)]), ROTARY(AC)
           ? 'Acro: sticks command rotation rates. Horizon: levels near centre stick and becomes acro at full stick, so hard stick means a flip. Acro trainer: acro, but stopped at the trainer limits. Angle: sticks command bank and pitch.'
@@ -4027,7 +4027,7 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     if (st.held && !armed) w.push(['THROTTLE DOWN TO ARM', '#ffd36a']);
     else if (st.held) w.push(['THROTTLE UP TO LAUNCH', '#ffd36a']);
     else if (!armed) w.push(['THROTTLE DOWN TO ARM', '#ffd36a']);
-    if (holdNow()) w.push([HOLD_LABEL(AC), '#ff9d42']);
+    if (holdNow()) w.push([st.tele.trans ? 'TRANSITION' : HOLD_LABEL(AC), '#ff9d42']);
     if (fsActive && blink % 1 < 0.65) w.push([apMode() === 'rtl' ? 'RC FAILSAFE · RTL' : 'RC FAILSAFE', '#ff6157']);
     else if (!fsActive && nav.link.rcLq < 60) w.push([`RC LINK ${Math.round(nav.link.rcLq)}%`, '#ff9d42']);
     if (apMode() === 'rtl' && !fsActive) w.push([`RTL · ${({ climb: 'CLIMBING', return: 'RETURNING', land: 'LANDING', loiter: 'CIRCLING HOME' })[nav.ap.phase] || ''}`, '#ffd36a']);
@@ -4692,12 +4692,15 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
   function controls() {
     const inp = heldInp; // the receiver's view of your sticks: frozen while packets are being lost
     if (ROTARY(AC)) {
-      const cut = holdNow(), heli = ROTOR(AC);
+      const fail = tutCut(), cut = cutOn || cutHeld || fail, heli = ROTOR(AC);
       /* heli: the throttle stick is collective, live even with the motor held; hold stops the motor only.
-         The rotor steppers read `hold` themselves and must stay armed through it — a gyrodyne on hold
-         is an autogyro flying on its propellers, not a dead stick (test/rotorcraft_test.js pins this).
-         Quads and tail-sitters have no hold of their own, so for them cut disarms the motors. */
-      return { thr: armed || heli ? inp.thr : 0, a: inp.a, e: inp.e, r: inp.r, armed: heli ? armed : armed && !cut, hold: cut, curve: S.curve,
+         The rotor steppers read `hold` themselves and stay armed through the pilot's hold — a gyrodyne
+         on hold transitions and then flies on its propellers, not a dead stick (test/rotorcraft_test.js
+         pins this). A lesson's cut is not the pilot's switch: it is an engine failure, so it disarms
+         and everything the pack feeds goes quiet together — on the gyrodyne too, where the pilot's own
+         switch would instead start a powered transition. Quads and tail-sitters have no hold of their
+         own, so for them any cut disarms the motors. */
+      return { thr: armed || heli ? inp.thr : 0, a: inp.a, e: inp.e, r: inp.r, armed: armed && (heli ? !fail : !cut), hold: cut, curve: S.curve,
         fwd: fwdCmd, mode: { manual: 'acro', horizon: 'horizon', trainer: 'trainer', stab: 'angle' }[S.mode] || 'acro', lim: limNow() };
     }
     const ex = (x, e) => { const k = e / 100; return x * (k * x * x + 1 - k); };

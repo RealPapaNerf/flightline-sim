@@ -571,16 +571,19 @@ const FL = (function () {
        pulls, which is why it can hold a hover straight instead of charging
        forward at whatever thrust its anti-torque happens to need.
 
-       Put the rotor drive on hold and the head tilts back seven degrees, the
-       collective parks low, the throttle stick becomes engine power to the
-       propellers, and the same airframe is an autogyro. Put it back on and it
-       is a helicopter again. Throttle hold is the whole switch — and because
-       the rotor keeps turning either way, it is a switch you can throw in
-       flight and throw back. */
+       Throttle hold is the mode switch, and thrown in a hover it starts a
+       transition rather than letting the head go into still air: the
+       propellers run up to a strong fixed pull while the stick is still the
+       collective and the rotor is still driven, and at vAuto the drive lets
+       go, the head tilts back seven degrees, the collective parks low, and
+       the throttle stick becomes engine power to the propellers — an
+       autogyro. Put the switch back and it is a helicopter again at once,
+       and because the rotor keeps turning either way, it is a switch you can
+       throw in flight and throw back. */
     gyrodyne: {
       id: 'gyrodyne',
       name: 'Gyrodyne',
-      blurb: '4.5 kg helicopter–autogyro hybrid: a 1.7 m shaft-driven rotor, no tail rotor, and two reversing-pitch tractor props on stub wings countering the torque between them. Throttle hold tilts the head back and it becomes an autogyro; let it off and it is a helicopter again.',
+      blurb: '4.5 kg helicopter–autogyro hybrid: a 1.7 m shaft-driven rotor, no tail rotor, and two reversing-pitch tractor props on stub wings countering the torque between them. Throttle hold starts the transition: the props pull it up to 12 m/s with the rotor still driven, then the drive lets go and it is an autogyro. Let the switch off and it is a helicopter again.',
       kind: 'heli',
       mass: 4.5,
       I: [0.42, 0.55, 0.55],
@@ -590,6 +593,7 @@ const FL = (function () {
         om0: 150, J: 0.16, Pmax: 2000, govK: 0.03, spool: 0.2, friction: 0.0004,
         rake: 0, rakeFree: 7,   // the head tilts back when the drive goes off, and that is the mode change
         autoPitch: 2.5,         // where the collective parks once it is an autogyro
+        vAuto: 12,              // the drive holds on until the props have pulled it this fast (m/s); below it, hold means transition
         vane: { area: 0.05, arm: 1.0, k: 0.5 }, // the V-tail's rudder
         h: 0.4, Kh: 90, tauF: 0.025, maxCyc: 0.22, blowback: 2.5,
         lt: 0, TtMax: 0, tauT: 0.04, spin: -1, // no tail rotor: the propellers do it
@@ -1100,7 +1104,7 @@ const FL = (function () {
       n: 0, sa: 0, se: 0, sr: 0, sf: 0, gear: 1, fwd: 0, soc: 1, mAh: 0, vb: 0, I: 0,
       crashed: false, crashMsg: '', wow: false, held: false, t: 0, clw: 0,
       mot: [0, 0, 0, 0], pidI: [0, 0, 0], spPrev: [0, 0, 0], ff: [0, 0, 0], buf: [0, 0], wPrev: [0, 0, 0], dF: [0, 0, 0], // flight controller
-      om: 0, coll: 0, gov: 0, tailI: 0, vi: 0, tilt: [0, 0], tt: 0, tipT: 0, tp: [], rk: 0, // rotor, tip props, airframe propellers, mast rake
+      om: 0, coll: 0, gov: 0, tailI: 0, vi: 0, tilt: [0, 0], tt: 0, tipT: 0, tp: [], rk: 0, auto: false, // rotor, tip props, airframe propellers, mast rake, the autogyro latch
       bT: 20, ice: null, iceProp: 0, iceLens: 0, iceMass: 0, iceGl: 0, shed: 0, // pack temperature (°C) and icing
       sep: null, gam: null, // accurate aero: per-strip separation lag and circulation (lazily sized)
       tele: { alpha: 0, beta: 0, V: 0, CL: 0, qbar: 0, T: 0, nz: 1, stallL: 0, stallR: 0 },
@@ -1119,7 +1123,7 @@ const FL = (function () {
     s.sep = null; s.gam = null;
     s.w = [0, 0, 0]; s.n = 0; s.sa = s.se = s.sr = s.sf = 0; s.gear = 1;
     s.crashed = false; s.crashMsg = ''; s.mAh = 0; s.soc = 1; s.t = 0; s.held = false; s.clw = 0;
-    s.mot = [0, 0, 0, 0]; s.pidI = [0, 0, 0]; s.spPrev = [0, 0, 0]; s.ff = [0, 0, 0]; s.buf = [0, 0]; s.wPrev = [0, 0, 0]; s.dF = [0, 0, 0]; s.om = 0; s.coll = 0; s.gov = 0; s.tailI = 0; s.vi = 0; s.tilt = [0, 0]; s.tt = 0; s.tipT = 0; s.tp = []; s.rk = ac.rotor ? ac.rotor.rakeR : 0;
+    s.mot = [0, 0, 0, 0]; s.pidI = [0, 0, 0]; s.spPrev = [0, 0, 0]; s.ff = [0, 0, 0]; s.buf = [0, 0]; s.wPrev = [0, 0, 0]; s.dF = [0, 0, 0]; s.om = 0; s.coll = 0; s.gov = 0; s.tailI = 0; s.vi = 0; s.tilt = [0, 0]; s.tt = 0; s.tipT = 0; s.tp = []; s.rk = ac.rotor ? ac.rotor.rakeR : 0; s.auto = false;
     s.fwd = 0;
 
     /* A tail-sitter stands on its tail with the nose straight up, and in the
@@ -2074,9 +2078,18 @@ const FL = (function () {
      And a gyrodyne — a shaft-driven rotor with a pair of reversing-pitch
      propellers on stub wings, which is what `thrusters` are for — flies as a
      helicopter on the collective, the propellers differentially countering the
-     shaft torque. Put the rotor drive on hold and the same airframe is an
-     autogyro: the stick becomes engine power and the rotor turns on air alone.
-     `ctl.hold` is the whole switch, and nothing else about it changes.
+     shaft torque. `ctl.hold` is the autogyro switch, but on a machine that
+     declares `rotor.vAuto` it is a request rather than an order: a free rotor
+     is driven by air coming up through the disc, and in a hover there is no
+     such air, so letting the head go at zero airspeed would be a dead-stick
+     descent, not a mode change. Thrown below vAuto, the switch starts a
+     transition — the propellers go to a strong fixed pull, the stick stays
+     collective so the height is still yours, the rotor stays driven and
+     governed — and only once the horizontal airspeed reaches vAuto does the
+     drive let go, with the disc already flying. Thrown back, it re-engages
+     at once, at any speed. Without vAuto (or on the ground) hold is
+     immediate, which is what autorotation practice and shutting down on the
+     pad both want.
 
      ctl: { thr (collective stick, or engine power once the rotor is free), a, e, r,
             mode, lim, armed, hold (rotor drive off), curve 'normal' | '3d' } */
@@ -2084,17 +2097,29 @@ const FL = (function () {
     const Ro = ac.rotor, B = ac.batt, I = ac.I, rho = env.rho, w = s.w;
     const drv = Ro.drive || 'shaft';
     const liveAc = !!ctl.armed && !s.crashed && !(env.battery && s.soc <= 0);
-    // the rotor drive: never on an autogyro, off on throttle hold, off on a flat pack
-    const rotorOn = drv !== 'none' && liveAc && !ctl.hold;
     const nT = ac.thrusters ? ac.thrusters.length : 0;
     if (s.tp.length !== nT) s.tp = new Array(nT).fill(0);
+    /* The autogyro latch (see the gyrodyne paragraph above). `s.auto` is where
+       hold has actually taken effect: immediate without `rotor.vAuto`, on the
+       ground, or already at speed; otherwise it waits for the propellers to
+       pull the machine up to vAuto first. It latches — an autogyro slowing
+       below vAuto is just an autogyro flying slowly, and re-driving the head
+       uncommanded would fight the pilot — and releases the moment hold does. */
+    const wind0 = env.wind || [0, 0, 0];
+    if (!ctl.hold) s.auto = false;
+    else if (!s.auto && (Ro.vAuto === undefined || drv === 'none' || s.wow
+      || Math.hypot(s.v[0] - wind0[0], s.v[1] - wind0[1]) >= Ro.vAuto)) s.auto = true;
+    // the rotor drive: never on an autogyro, off on throttle hold (once any transition is done), off on a flat pack
+    const rotorOn = drv !== 'none' && liveAc && !(ctl.hold && s.auto);
     /* Whose job the throttle stick has. On anything with a collective it is the
        collective, and it stays live with the drive held — that is what you
-       autorotate on. On an autogyro, and on a gyrodyne the moment its rotor
-       drive goes off, there is no collective worth flying and the stick becomes
-       engine power to the propellers instead. */
+       autorotate on, and what flies the height through a transition. On an
+       autogyro, and on a gyrodyne once its rotor drive has let go, there is no
+       collective worth flying and the stick becomes engine power to the
+       propellers instead. */
     const stickIsEngine = nT > 0 && (drv === 'none' || !rotorOn);
     const engineOn = nT > 0 && liveAc && (drv === 'none' ? !ctl.hold : true);
+    const trans = !!ctl.hold && !s.auto && engineOn && drv !== 'none'; // propellers pulling, rotor still driven, waiting on airspeed
     const x = clamp(ctl.thr, 0, 1);
 
     /* Collective, servo-rate limited. An autogyro's blades sit at one angle for
@@ -2212,7 +2237,10 @@ const FL = (function () {
     }
     let thrCap = 0, TcomEach = 0;
     if (nT) {
-      TcomEach = engineOn && stickIsEngine ? x * ac.thrMax : 0;
+      /* In a transition the pull is fixed, and deliberately not all of it: the
+         propellers are still the only thing cancelling the shaft torque, so a
+         quarter of the range stays behind as differential headroom. */
+      TcomEach = engineOn && stickIsEngine ? x * ac.thrMax : trans ? 0.75 * ac.thrMax : 0;
       for (const Th of ac.thrusters) if (Th.yaw) thrCap += Math.abs(Th.p[1]) * Math.max(0, Math.min(Th.Tmax - TcomEach, TcomEach - Th.Tmin));
     }
     const yawCap = TtMax * (Ro.lt || 0) + mastQ + vaneCap + thrCap;
@@ -2324,7 +2352,7 @@ const FL = (function () {
     t.V = Vn; t.qbar = 0.5 * rho * Vn * Vn; t.T = T; t.alpha = 0; t.beta = 0; t.CL = 0; t.stallL = 0; t.stallR = 0;
     t.nz = -(F[2] + Fcb[2]) / (ac.mass * G);
     t.coll = s.coll; t.vi = vi; t.vrs = vrs; t.Pm = Qm * s.om; t.bladeStall = bladeStall; t.bladeIce = bpen.dCL;
-    t.free = !rotorOn; t.stickIsEngine = stickIsEngine; t.Qaero = Qaero; t.Qmast = Qmast;
+    t.free = !rotorOn; t.stickIsEngine = stickIsEngine; t.trans = trans; t.Qaero = Qaero; t.Qmast = Qmast;
     t.Erot = Math.max(0, 0.5 * Ro.J * (s.om * s.om - ac.omMin * ac.omMin));
     t.Eneed = 0.5 * ac.mass * Math.max(0, s.v[2]) ** 2 + ac.mass * G * Ro.hFlare;
     t.Eair = 0.5 * ac.mass * Vh * Vh;
