@@ -92,6 +92,62 @@
       "kind": "wing",
       "blurb": "3.75 m bell-spanload flying wing with no fin at all. The washout is derived, not guessed: the outer 30% of the span flies in upwash and makes induced thrust, so it yaws into its own roll instead of away from it. Turn on Sim rules \u2192 Accurate aerodynamics or none of that is there.",
       "author": "Flightline"
+    },
+    {
+      "file": "heli-600.json",
+      "name": "Heli 600 DD",
+      "kind": "heli",
+      "blurb": "600-size electric helicopter, direct drive: a huge slow outrunner bolted straight to the head, no gearbox anywhere. Built part-by-part in Whirligig and exported; about 4 kg.",
+      "author": "Whirligig"
+    },
+    {
+      "file": "tipjet.json",
+      "name": "Tipjet",
+      "kind": "heli",
+      "blurb": "Tip-drive helicopter from Whirligig: the shaft is free \u2014 no motor on it anywhere \u2014 and the head is driven entirely by two small props out at 92% radius, so there is no torque to counter and no tail rotor.",
+      "author": "Whirligig"
+    },
+    {
+      "file": "triblade.json",
+      "name": "Tri-blade",
+      "kind": "heli",
+      "blurb": "The Nick Rehm machine from Whirligig: three wings that are also rotor blades, each carrying its own motor and prop mid-span, exported as a tip-drive heli.",
+      "author": "Whirligig"
+    },
+    {
+      "file": "stoprotor.json",
+      "name": "Stop-rotor",
+      "kind": "heli",
+      "blurb": "The helicopter half of Whirligig's stop-rotor machine: a tip-prop head and a pusher. The stop-the-rotor-and-fly-on-the-blades trick does not project onto Flightline, so here it stays a tip-drive heli.",
+      "author": "Whirligig"
+    },
+    {
+      "file": "whirligig-autogyro.json",
+      "name": "Whirligig autogyro",
+      "kind": "gyro",
+      "blurb": "Whirligig's 2 kg autogyro \u2014 smaller and lighter than Flightline's own: free teetering head on a 9\u00b0 raked mast, pusher prop, electric pre-rotator that drops out before the roll.",
+      "author": "Whirligig"
+    },
+    {
+      "file": "whirligig-gyrodyne.json",
+      "name": "Whirligig gyrodyne",
+      "kind": "heli",
+      "blurb": "Whirligig's gyrodyne capstone: driven rotor in heli mode, free in autogyro mode, tip props on stub wings holding the torque. Its mode crossfade is mapped onto Flightline's own heli\u2192autogyro transition.",
+      "author": "Whirligig"
+    },
+    {
+      "file": "quad-7in-whirligig.json",
+      "name": "Quad 7in",
+      "kind": "quad",
+      "blurb": "Whirligig's 725 g 7-inch baseline on 4S Li-ion, thrust estimated by momentum theory \u2014 worth flying against the native 7-inch quads to see how the two models compare.",
+      "author": "Whirligig"
+    },
+    {
+      "file": "tiltrotor.json",
+      "name": "Tiltrotor",
+      "kind": "quad",
+      "blurb": "Whirligig's tandem-wing quad tiltrotor, exported as a plain quad in hover trim \u2014 tilt servos do not translate, so the forward-flight half of its life stays in Whirligig.",
+      "author": "Whirligig"
     }
   ]
 }

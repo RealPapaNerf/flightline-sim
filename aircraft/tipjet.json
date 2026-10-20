@@ -1,296 +1,220 @@
 {
-  "format": "whirligig-aircraft/1",
+ "format": "flightline-aircraft/1",
+ "author": "whirligig",
+ "version": "1",
+ "source": "exported from Whirligig \"Tipjet\" on 2026-10-20",
+ "def": {
+  "kind": "heli",
+  "id": "whirligig-tipjet",
   "name": "Tipjet",
-  "author": "whirligig",
-  "version": "1",
-  "notes": "A tip-drive helicopter (PLAN Phase 5): the rotor shaft is FREE - no motor on it anywhere - and the head is driven entirely by two small propellers mounted at 92% radius on the blades, thrusting along the blades' direction of travel. Their torque enters the shaft as blade-frame force, never as shaft torque, so the airframe reaction is close to zero: NO TAIL ROTOR, and the hover test asserts the yaw barely drifts. The fin is for weathervaning in translation, not anti-torque.",
-  "parts": [
-    {
-      "type": "mass",
-      "name": "pod",
-      "position": [
-        0.02,
-        0,
-        0.05
-      ],
-      "mass": 0.85,
-      "size": [
-        0.45,
-        0.12,
-        0.14
-      ]
-    },
-    {
-      "type": "battery",
-      "name": "pack",
-      "position": [
-        0.1,
-        0,
-        0.04
-      ],
-      "cells": 6,
-      "chemistry": "lipo",
-      "capacity": 3,
-      "resistance": 0.015,
-      "bus": "main",
-      "mass": 0.5
-    },
-    {
-      "type": "rotor",
-      "name": "head",
-      "position": [
-        0,
-        0,
-        -0.2
-      ],
-      "axis": [
-        0,
-        0,
-        -1
-      ],
-      "spin": 1,
-      "diameter": 1.6,
-      "blades": 2,
-      "rootChord": 0.09,
-      "tipChord": 0.07,
-      "collective": 0,
-      "twist": 0,
-      "mass": 0.3,
-      "elements": 10,
-      "flap": {
-        "hinge": 0.03,
-        "spring": 10,
-        "damping": 0.6
-      },
-      "collectiveChannel": "col",
-      "collectiveRange": 0.17,
-      "cyclic": {
-        "rollChannel": "cycRoll",
-        "pitchChannel": "cycPitch",
-        "range": 0.15,
-        "phase": 0.35
-      }
-    },
-    {
-      "type": "prop",
-      "name": "tp0",
-      "axis": [
-        0,
-        1,
-        0
-      ],
-      "spin": 1,
-      "diameter": 0.152,
-      "pitch": 0.1,
-      "blades": 2,
-      "mass": 0.012,
-      "mount": {
-        "rotor": "head",
-        "blade": 0,
-        "radius": 0.92
-      }
-    },
-    {
-      "type": "prop",
-      "name": "tp1",
-      "axis": [
-        0,
-        1,
-        0
-      ],
-      "spin": -1,
-      "diameter": 0.152,
-      "pitch": 0.1,
-      "blades": 2,
-      "mass": 0.012,
-      "mount": {
-        "rotor": "head",
-        "blade": 1,
-        "radius": 0.92
-      }
-    },
-    {
-      "type": "motor",
-      "name": "tm0",
-      "shaft": "tp0",
-      "channel": "tips",
-      "kv": 1400,
-      "resistance": 0.08,
-      "idleCurrent": 0.4,
-      "maxCurrent": 22,
-      "bus": "main",
-      "mass": 0.03,
-      "mount": {
-        "rotor": "head",
-        "blade": 0,
-        "radius": 0.92
-      }
-    },
-    {
-      "type": "motor",
-      "name": "tm1",
-      "shaft": "tp1",
-      "channel": "tips",
-      "kv": 1400,
-      "resistance": 0.08,
-      "idleCurrent": 0.4,
-      "maxCurrent": 22,
-      "bus": "main",
-      "mass": 0.03,
-      "mount": {
-        "rotor": "head",
-        "blade": 1,
-        "radius": 0.92
-      }
-    },
-    {
-      "type": "wing",
-      "name": "fin",
-      "position": [
-        -0.48,
-        0,
-        -0.02
-      ],
-      "span": 0.12,
-      "rootChord": 0.1,
-      "tipChord": 0.06,
-      "dihedral": 1.5708,
-      "airfoil": "symmetric",
-      "elements": 3,
-      "mass": 0.02
-    },
-    {
-      "type": "wing",
-      "name": "hstab",
-      "position": [
-        -0.45,
-        0,
-        0.02
-      ],
-      "span": 0.09,
-      "rootChord": 0.08,
-      "mirror": true,
-      "incidence": 0.03,
-      "airfoil": "symmetric",
-      "elements": 3,
-      "mass": 0.01
-    },
-    {
-      "type": "drag",
-      "name": "pod drag",
-      "position": [
-        0.02,
-        0,
-        0.03
-      ],
-      "area": 0.008
-    },
-    {
-      "type": "gear",
-      "name": "skidFL",
-      "position": [
-        0.12,
-        -0.14,
-        0.16
-      ],
-      "stiffness": 5000,
-      "damping": 90,
-      "gearType": "skid"
-    },
-    {
-      "type": "gear",
-      "name": "skidFR",
-      "position": [
-        0.12,
-        0.14,
-        0.16
-      ],
-      "stiffness": 5000,
-      "damping": 90,
-      "gearType": "skid"
-    },
-    {
-      "type": "gear",
-      "name": "skidRL",
-      "position": [
-        -0.14,
-        -0.14,
-        0.16
-      ],
-      "stiffness": 5000,
-      "damping": 90,
-      "gearType": "skid"
-    },
-    {
-      "type": "gear",
-      "name": "skidRR",
-      "position": [
-        -0.14,
-        0.14,
-        0.16
-      ],
-      "stiffness": 5000,
-      "damping": 90,
-      "gearType": "skid"
-    },
-    {
-      "type": "gear",
-      "name": "tailSkid",
-      "position": [
-        -0.48,
-        0,
-        0.1
-      ],
-      "stiffness": 2500,
-      "damping": 40,
-      "gearType": "skid"
-    }
+  "blurb": "Exported from Whirligig (Tipjet).",
+  "notes": "A tip-drive helicopter (PLAN Phase 5): the rotor shaft is FREE - no motor on it anywhere - and the head is driven entirely by two small propellers mounted at 92% radius on the blades, thrusting along the blades' direction of travel. Their torque enters the shaft as blade-frame force, never as shaft torque, so the airframe reaction is close to zero: NO TAIL ROTOR, and the hover test asserts the yaw barely drifts. The fin is for weathervaning in translation, not anti-torque.\n\nEXPORT NOTES — contact spring numbers are Flightline-typical, not converted — the two contact models differ. drag CdA per axis estimated from the drag parts (x, 2x, 3x). head speed om0 set to 80 rad/s (typical for tip drive), not derived. tip drive: 2 props at 0.736 m, Tmax estimated 14.72 N each. no yaw device in the source; a 0.74 N·m mast motor added so the pedal works — Flightline's own tip-drive yaws the same way.",
+  "mass": 1.774,
+  "I": [
+   0.021,
+   0.092,
+   0.074
   ],
-  "mixer": {
-    "rules": [
-      {
-        "input": "throttle",
-        "channel": "col",
-        "gain": 2,
-        "offset": -1
-      },
-      {
-        "input": "throttle",
-        "channel": "tips",
-        "gain": 0,
-        "offset": 0.9
-      },
-      {
-        "input": "roll",
-        "channel": "cycRoll",
-        "gain": 1
-      },
-      {
-        "input": "pitch",
-        "channel": "cycPitch",
-        "gain": 1
-      }
-    ]
+  "body": {
+   "r": [
+    0,
+    0,
+    0
+   ],
+   "CdA": [
+    0.008,
+    0.016,
+    0.024
+   ],
+   "fin": 0.01,
+   "finX": -0.507
   },
-  "stabilizer": {
-    "mode": "angle",
-    "maxRate": 2.5,
-    "maxAngle": 0.45,
-    "angleP": 3.5,
-    "roll": {
-      "p": 0.5,
-      "i": 0.08,
-      "d": 0.04
-    },
-    "pitch": {
-      "p": 0.5,
-      "i": 0.08,
-      "d": 0.04
-    },
-    "yaw": {
-      "p": 0,
-      "i": 0,
-      "d": 0
-    }
+  "batt": {
+   "chem": "lipo",
+   "cells": 6,
+   "mAh": 3000,
+   "R": 0.015,
+   "Imax": 0,
+   "Iidle": 1,
+   "Vref": 22.2,
+   "label": "6S 3000 LiPo"
+  },
+  "wheels": [],
+  "points": [
+   {
+    "p": [
+     0.093,
+     -0.14,
+     0.169
+    ],
+    "name": "skidFL",
+    "impact": 3,
+    "slide": 20,
+    "foot": true
+   },
+   {
+    "p": [
+     0.093,
+     0.14,
+     0.169
+    ],
+    "name": "skidFR",
+    "impact": 3,
+    "slide": 20,
+    "foot": true
+   },
+   {
+    "p": [
+     -0.167,
+     -0.14,
+     0.169
+    ],
+    "name": "skidRL",
+    "impact": 3,
+    "slide": 20,
+    "foot": true
+   },
+   {
+    "p": [
+     -0.167,
+     0.14,
+     0.169
+    ],
+    "name": "skidRR",
+    "impact": 3,
+    "slide": 20,
+    "foot": true
+   },
+   {
+    "p": [
+     -0.507,
+     0,
+     0.109
+    ],
+    "name": "tailSkid",
+    "impact": 3,
+    "slide": 20,
+    "foot": true
+   }
+  ],
+  "contact": {
+   "kW": 12000,
+   "cW": 240,
+   "kB": 3600,
+   "cB": 55,
+   "muRoll": 0.03,
+   "muLat": 0.9,
+   "muBody": 0.6
+  },
+  "crash": {
+   "wheelImpact": 99
+  },
+  "starts": [
+   "pad",
+   "air"
+  ],
+  "fpvCam": [
+   0.073,
+   0,
+   -0.05
+  ],
+  "camTilt": 8,
+  "colR": 0.8,
+  "pid": {
+   "roll": [
+    20,
+    110,
+    0.3,
+    2.2,
+    0.01
+   ],
+   "pitch": [
+    20,
+    110,
+    0.3,
+    2.2,
+    0.01
+   ],
+   "yaw": [
+    14,
+    60,
+    0.3,
+    1.4,
+    0
+   ]
+  },
+  "angle": {
+   "max": 45,
+   "k": 5,
+   "rate": 240
+  },
+  "rates": {
+   "roll": {
+    "c": 70,
+    "m": 220,
+    "e": 0
+   },
+   "pitch": {
+    "c": 70,
+    "m": 220,
+    "e": 0
+   },
+   "yaw": {
+    "c": 60,
+    "m": 180,
+    "e": 0
+   }
+  },
+  "rotor": {
+   "R": 0.8,
+   "chord": 0.08,
+   "blades": 2,
+   "a": 5.9,
+   "Cd0": 0.012,
+   "kInd": 1.15,
+   "CLmax": 1.1,
+   "om0": 80,
+   "J": 0.11,
+   "Pmax": 799,
+   "govK": 0,
+   "spool": 0.4,
+   "friction": 0.0005,
+   "h": 0.191,
+   "Kh": 20,
+   "tauF": 0.03,
+   "maxCyc": 0.15,
+   "blowback": 3,
+   "lt": 0,
+   "TtMax": 0,
+   "tauT": 0.04,
+   "spin": 1,
+   "curves": {
+    "normal": [
+     -4.87,
+     3.41,
+     9.74
+    ],
+    "3d": [
+     -9.74,
+     0,
+     9.74
+    ]
+   },
+   "drive": "tip",
+   "rake": 0,
+   "hFlare": 2,
+   "tauRake": 1.2,
+   "tip": {
+    "n": 2,
+    "r": 0.736,
+    "Tmax": 14.72,
+    "Vp": 44.03,
+    "eta": 0.75,
+    "kD": 0.02
+   },
+   "mast": {
+    "Q": 0.74
+   }
   }
+ }
 }

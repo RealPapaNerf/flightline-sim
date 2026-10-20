@@ -1,0 +1,240 @@
+{
+ "format": "flightline-aircraft/1",
+ "author": "whirligig",
+ "version": "1",
+ "source": "exported from Whirligig \"Gyrodyne\" on 2026-10-20",
+ "def": {
+  "kind": "heli",
+  "id": "whirligig-gyrodyne",
+  "name": "Whirligig gyrodyne",
+  "blurb": "Exported from Whirligig (Gyrodyne).",
+  "notes": "The Phase 4 capstone: a big lightly-loaded rotor that is DRIVEN in heli mode and FREE in autogyro mode, stub wings whose tip propellers balance the rotor torque in the hover (differentially) and push it along in cruise, and ONE aux slider - the mode crossfade - carrying the whole heli<->autogyro conversion. No scripting engine anywhere: the crossfade slides mode-tagged mixer rules in and out (PLAN 5.9), the rotor's motor dies away, and autorotation takes over because the physics has nowhere else to go. Tractor motors are 3115-class (95 g, 55 A, 900 kV on 10x5s) per the owner: the originals were tail-rotor-sized and could not pull the conversion.\n\nEXPORT NOTES — contact spring numbers are Flightline-typical, not converted — the two contact models differ. drag CdA per axis estimated from the drag parts (x, 2x, 3x). 2 forward prop(s) exported as thrusters (Tmax estimated); differential yaw where they sit off-centre. mode crossfade mapped onto Flightline's own heli->autogyro transition (vAuto 12 m/s, rakeFree 6 deg, autoPitch 2 deg) — the mechanics differ, the idea matches.",
+  "mass": 2.917,
+  "I": [
+   0.102,
+   0.081,
+   0.152
+  ],
+  "body": {
+   "r": [
+    0,
+    0,
+    0
+   ],
+   "CdA": [
+    0.009,
+    0.018,
+    0.027
+   ],
+   "fin": 0.017,
+   "finX": -0.649
+  },
+  "batt": {
+   "chem": "lipo",
+   "cells": 6,
+   "mAh": 4000,
+   "R": 0.015,
+   "Imax": 0,
+   "Iidle": 1,
+   "Vref": 22.2,
+   "label": "6S 4000 LiPo"
+  },
+  "wheels": [],
+  "points": [
+   {
+    "p": [
+     0.111,
+     -0.16,
+     0.171
+    ],
+    "name": "skidFL",
+    "impact": 3,
+    "slide": 20,
+    "foot": true
+   },
+   {
+    "p": [
+     0.111,
+     0.16,
+     0.171
+    ],
+    "name": "skidFR",
+    "impact": 3,
+    "slide": 20,
+    "foot": true
+   },
+   {
+    "p": [
+     -0.229,
+     -0.16,
+     0.171
+    ],
+    "name": "skidRL",
+    "impact": 3,
+    "slide": 20,
+    "foot": true
+   },
+   {
+    "p": [
+     -0.229,
+     0.16,
+     0.171
+    ],
+    "name": "skidRR",
+    "impact": 3,
+    "slide": 20,
+    "foot": true
+   },
+   {
+    "p": [
+     -0.649,
+     0,
+     0.111
+    ],
+    "name": "tailSkid",
+    "impact": 3,
+    "slide": 20,
+    "foot": true
+   }
+  ],
+  "contact": {
+   "kW": 12000,
+   "cW": 240,
+   "kB": 3600,
+   "cB": 55,
+   "muRoll": 0.03,
+   "muLat": 0.9,
+   "muBody": 0.6
+  },
+  "crash": {
+   "wheelImpact": 99
+  },
+  "starts": [
+   "pad",
+   "air"
+  ],
+  "fpvCam": [
+   0.071,
+   0,
+   -0.05
+  ],
+  "camTilt": 8,
+  "colR": 0.9,
+  "pid": {
+   "roll": [
+    20,
+    110,
+    0.3,
+    2.2,
+    0.01
+   ],
+   "pitch": [
+    20,
+    110,
+    0.3,
+    2.2,
+    0.01
+   ],
+   "yaw": [
+    14,
+    60,
+    0.3,
+    1.4,
+    0
+   ]
+  },
+  "angle": {
+   "max": 45,
+   "k": 5,
+   "rate": 240
+  },
+  "rates": {
+   "roll": {
+    "c": 70,
+    "m": 220,
+    "e": 0
+   },
+   "pitch": {
+    "c": 70,
+    "m": 220,
+    "e": 0
+   },
+   "yaw": {
+    "c": 60,
+    "m": 180,
+    "e": 0
+   }
+  },
+  "rotor": {
+   "R": 0.9,
+   "chord": 0.073,
+   "blades": 2,
+   "a": 5.9,
+   "Cd0": 0.012,
+   "kInd": 1.15,
+   "CLmax": 1.1,
+   "om0": 59,
+   "J": 0.103,
+   "Pmax": 799,
+   "govK": 0.05,
+   "spool": 0.4,
+   "friction": 0.0005,
+   "h": 0.149,
+   "Kh": 36,
+   "tauF": 0.03,
+   "maxCyc": 0.15,
+   "blowback": 3,
+   "lt": 0,
+   "TtMax": 0,
+   "tauT": 0.04,
+   "spin": 1,
+   "curves": {
+    "normal": [
+     -4.87,
+     3.41,
+     9.74
+    ],
+    "3d": [
+     -9.74,
+     0,
+     9.74
+    ]
+   },
+   "drive": "shaft",
+   "rake": 0,
+   "hFlare": 2,
+   "tauRake": 1.2,
+   "vAuto": 12,
+   "rakeFree": 6,
+   "autoPitch": 2
+  },
+  "thrusters": [
+   {
+    "p": [
+     0.021,
+     -0.56,
+     0.021
+    ],
+    "Tmax": 38.19,
+    "Tmin": 0,
+    "tau": 0.08,
+    "Vp": 35.95,
+    "D": 0.254,
+    "yaw": true
+   },
+   {
+    "p": [
+     0.021,
+     0.56,
+     0.021
+    ],
+    "Tmax": 38.19,
+    "Tmin": 0,
+    "tau": 0.08,
+    "Vp": 35.95,
+    "D": 0.254,
+    "yaw": true
+   }
+  ]
+ }
+}

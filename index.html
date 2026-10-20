@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<!-- built by tools/build.py from src/ (a4cd4d42); edit the sources, not this file -->
+<!-- built by tools/build.py from src/ (20df5361); edit the sources, not this file -->
 <title>Flightline RC Sim</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Browser RC flight trainer: Nano Goblin and trainer flight models, line of sight, FPV and split view, USB transmitter support.">
@@ -3217,6 +3217,7 @@ const ACF = (function (FL) {
     drive: e(['shaft', 'tip', 'none'], 'shaft'),
     fixed: opt(n(-5, 15)),          // an autogyro's one blade angle, degrees
     autoPitch: opt(n(-10, 10)),     // where a collective parks once the drive is off, degrees
+    vAuto: opt(n(0.5, 60)),         // the drive holds on until this airspeed, m/s — a gyrodyne's mode change
     rake: n(0, 20, 0),              // degrees the mast leans back
     rakeFree: opt(n(0, 20)),        // the rake it takes up with the drive off, if that is different
     tauRake: n(0.1, 10, 1.2),       // how long the head takes to get there

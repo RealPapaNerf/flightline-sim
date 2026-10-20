@@ -1,63 +1,196 @@
 {
-  "format": "whirligig-aircraft/1",
+ "format": "flightline-aircraft/1",
+ "author": "whirligig",
+ "version": "1",
+ "source": "exported from Whirligig \"Tri-blade\" on 2026-10-20",
+ "def": {
+  "kind": "heli",
+  "id": "tri-blade",
   "name": "Tri-blade",
-  "author": "whirligig",
-  "version": "1",
-  "notes": "The Nick Rehm craft (PLAN §0): three WINGS that are also rotor blades, each carrying its own propeller and motor mid-span. The props drive the rotor the tip-jet way - thrust along the blades' travel, near-zero reaction on the pod. The party trick, asserted in its test: kill two of the three motors mid-hover and the dead props WINDMILL in the blades' own slipstream, the rotor keeps turning (one live prop plus autorotative inflow), and the craft descends under control instead of falling.",
-  "parts": [
-    { "type": "mass", "name": "pod", "position": [0, 0, 0.08], "mass": 0.55, "size": [0.2, 0.2, 0.14] },
-    { "type": "battery", "name": "pack", "position": [0, 0, 0.06], "cells": 6, "chemistry": "lipo", "capacity": 2.2, "resistance": 0.02, "bus": "main", "mass": 0.35 },
-
-    { "type": "rotor", "name": "wings", "position": [0, 0, -0.08], "axis": [0, 0, -1], "spin": 1,
-      "diameter": 1.5, "blades": 3, "rootChord": 0.17, "tipChord": 0.12,
-      "collective": 0, "twist": 0, "mass": 0.45, "elements": 9,
-      "flap": { "hinge": 0.04, "spring": 14, "damping": 0.8 },
-      "collectiveChannel": "col", "collectiveRange": 0.17,
-      "cyclic": { "rollChannel": "cycRoll", "pitchChannel": "cycPitch", "range": 0.13, "phase": 0.35 } },
-
-    { "type": "prop", "name": "tp0", "axis": [0, 1, 0], "spin": 1,
-      "diameter": 0.178, "pitch": 0.0889, "blades": 2, "mass": 0.008,
-      "mount": { "rotor": "wings", "blade": 0, "radius": 0.72 } },
-    { "type": "prop", "name": "tp1", "axis": [0, 1, 0], "spin": 1,
-      "diameter": 0.178, "pitch": 0.0889, "blades": 2, "mass": 0.008,
-      "mount": { "rotor": "wings", "blade": 1, "radius": 0.72 } },
-    { "type": "prop", "name": "tp2", "axis": [0, 1, 0], "spin": 1,
-      "diameter": 0.178, "pitch": 0.0889, "blades": 2, "mass": 0.008,
-      "mount": { "rotor": "wings", "blade": 2, "radius": 0.72 } },
-
-    { "type": "motor", "name": "tm0", "shaft": "tp0", "channel": "m1",
-      "kv": 1300, "resistance": 0.08, "idleCurrent": 0.5, "maxCurrent": 28, "bus": "main", "mass": 0.035,
-      "mount": { "rotor": "wings", "blade": 0, "radius": 0.72 } },
-    { "type": "motor", "name": "tm1", "shaft": "tp1", "channel": "m2",
-      "kv": 1300, "resistance": 0.08, "idleCurrent": 0.5, "maxCurrent": 28, "bus": "main", "mass": 0.035,
-      "mount": { "rotor": "wings", "blade": 1, "radius": 0.72 } },
-    { "type": "motor", "name": "tm2", "shaft": "tp2", "channel": "m3",
-      "kv": 1300, "resistance": 0.08, "idleCurrent": 0.5, "maxCurrent": 28, "bus": "main", "mass": 0.035,
-      "mount": { "rotor": "wings", "blade": 2, "radius": 0.72 } },
-
-    { "type": "drag", "name": "pod drag", "position": [0, 0, 0.06], "area": 0.006 },
-
-    { "type": "gear", "name": "legA", "position": [0.12, 0, 0.18], "stiffness": 4000, "damping": 70 },
-    { "type": "gear", "name": "legB", "position": [-0.06, 0.1, 0.18], "stiffness": 4000, "damping": 70 },
-    { "type": "gear", "name": "legC", "position": [-0.06, -0.1, 0.18], "stiffness": 4000, "damping": 70 }
+  "blurb": "Exported from Whirligig (Tri-blade).",
+  "notes": "The Nick Rehm craft (PLAN §0): three WINGS that are also rotor blades, each carrying its own propeller and motor mid-span. The props drive the rotor the tip-jet way - thrust along the blades' travel, near-zero reaction on the pod. The party trick, asserted in its test: kill two of the three motors mid-hover and the dead props WINDMILL in the blades' own slipstream, the rotor keeps turning (one live prop plus autorotative inflow), and the craft descends under control instead of falling.\n\nEXPORT NOTES — contact spring numbers are Flightline-typical, not converted — the two contact models differ. drag CdA per axis estimated from the drag parts (x, 2x, 3x). head speed om0 set to 80 rad/s (typical for tip drive), not derived. tip drive: 3 props at 0.54 m, Tmax estimated 19.21 N each. no yaw device in the source; a 0.5 N·m mast motor added so the pedal works — Flightline's own tip-drive yaws the same way.",
+  "mass": 1.479,
+  "I": [
+   0.03,
+   0.03,
+   0.041
   ],
-  "mixer": {
-    "rules": [
-      { "input": "throttle", "channel": "col", "gain": 2, "offset": -1 },
-      { "input": "tips", "channel": "m1", "gain": 1 },
-      { "input": "tips", "channel": "m2", "gain": 1 },
-      { "input": "tips", "channel": "m3", "gain": 1 },
-      { "input": "roll", "channel": "cycRoll", "gain": 1 },
-      { "input": "pitch", "channel": "cycPitch", "gain": 1 }
-    ]
+  "body": {
+   "r": [
+    0,
+    0,
+    0
+   ],
+   "CdA": [
+    0.006,
+    0.012,
+    0.018
+   ]
   },
-  "stabilizer": {
-    "mode": "angle",
-    "maxRate": 2.5,
-    "maxAngle": 0.4,
-    "angleP": 3.5,
-    "roll": { "p": 0.5, "i": 0.08, "d": 0.04 },
-    "pitch": { "p": 0.5, "i": 0.08, "d": 0.04 },
-    "yaw": { "p": 0, "i": 0, "d": 0 }
+  "batt": {
+   "chem": "lipo",
+   "cells": 6,
+   "mAh": 2200,
+   "R": 0.02,
+   "Imax": 0,
+   "Iidle": 1,
+   "Vref": 22.2,
+   "label": "6S 2200 LiPo"
+  },
+  "wheels": [],
+  "points": [
+   {
+    "p": [
+     0.12,
+     0,
+     0.167
+    ],
+    "name": "legA",
+    "impact": 3,
+    "slide": 20,
+    "foot": true
+   },
+   {
+    "p": [
+     -0.06,
+     0.1,
+     0.167
+    ],
+    "name": "legB",
+    "impact": 3,
+    "slide": 20,
+    "foot": true
+   },
+   {
+    "p": [
+     -0.06,
+     -0.1,
+     0.167
+    ],
+    "name": "legC",
+    "impact": 3,
+    "slide": 20,
+    "foot": true
+   }
+  ],
+  "contact": {
+   "kW": 12000,
+   "cW": 240,
+   "kB": 3600,
+   "cB": 55,
+   "muRoll": 0.03,
+   "muLat": 0.9,
+   "muBody": 0.6
+  },
+  "crash": {
+   "wheelImpact": 99
+  },
+  "starts": [
+   "pad",
+   "air"
+  ],
+  "fpvCam": [
+   0.1,
+   0,
+   -0.05
+  ],
+  "camTilt": 8,
+  "colR": 0.75,
+  "pid": {
+   "roll": [
+    20,
+    110,
+    0.3,
+    2.2,
+    0.01
+   ],
+   "pitch": [
+    20,
+    110,
+    0.3,
+    2.2,
+    0.01
+   ],
+   "yaw": [
+    14,
+    60,
+    0.3,
+    1.4,
+    0
+   ]
+  },
+  "angle": {
+   "max": 45,
+   "k": 5,
+   "rate": 240
+  },
+  "rates": {
+   "roll": {
+    "c": 70,
+    "m": 220,
+    "e": 0
+   },
+   "pitch": {
+    "c": 70,
+    "m": 220,
+    "e": 0
+   },
+   "yaw": {
+    "c": 60,
+    "m": 180,
+    "e": 0
+   }
+  },
+  "rotor": {
+   "R": 0.75,
+   "chord": 0.145,
+   "blades": 3,
+   "a": 5.9,
+   "Cd0": 0.012,
+   "kInd": 1.15,
+   "CLmax": 1.1,
+   "om0": 80,
+   "J": 0.122,
+   "Pmax": 1199,
+   "govK": 0,
+   "spool": 0.4,
+   "friction": 0.0005,
+   "h": 0.093,
+   "Kh": 42,
+   "tauF": 0.03,
+   "maxCyc": 0.13,
+   "blowback": 3,
+   "lt": 0,
+   "TtMax": 0,
+   "tauT": 0.04,
+   "spin": 1,
+   "curves": {
+    "normal": [
+     -4.87,
+     3.41,
+     9.74
+    ],
+    "3d": [
+     -9.74,
+     0,
+     9.74
+    ]
+   },
+   "drive": "tip",
+   "rake": 0,
+   "hFlare": 2,
+   "tauRake": 1.2,
+   "tip": {
+    "n": 3,
+    "r": 0.54,
+    "Tmax": 19.21,
+    "Vp": 36.35,
+    "eta": 0.75,
+    "kD": 0.02
+   },
+   "mast": {
+    "Q": 0.5
+   }
   }
+ }
 }

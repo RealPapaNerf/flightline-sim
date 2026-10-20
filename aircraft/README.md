@@ -19,6 +19,25 @@ installed app, download a `.json` from here and use **Import aircraft file**.
 | `gyrodyne.json` | shaft rotor with no tail rotor, two reversing-pitch props on booms; throttle hold makes it an autogyro, 4.5 kg |
 | `prandtl-d.json` | 3.75 m bell-spanload flying wing, no fin; proverse yaw. **Needs Sim rules → Accurate aerodynamics** |
 
+## From Whirligig
+
+Eight more were built part-by-part in [Whirligig](https://github.com/RealPapaNerf/whirligig)
+and exported with its `tools/export-flightline.js` — a projection, not a
+translation: mass, inertia, geometry and battery carry over exactly, thrusts
+and head speeds are estimated by momentum theory, and each file's `notes`
+field ends with exactly what was estimated.
+
+| file | what it is |
+|---|---|
+| `heli-600.json` | 600-size direct-drive electric heli, no gearbox, ~4 kg |
+| `tipjet.json` | tip-drive heli: free shaft, two props on the blades, no tail rotor, 1.8 kg |
+| `triblade.json` | three wings that are also rotor blades, a motor on each, 1.5 kg |
+| `stoprotor.json` | the stop-rotor machine flying its helicopter half, 2.2 kg |
+| `whirligig-autogyro.json` | the 2 kg autogyro (Flightline's own 3.2 kg one is `autogyro.json`) |
+| `whirligig-gyrodyne.json` | the gyrodyne capstone on Flightline's heli→autogyro transition, 2.9 kg |
+| `quad-7in-whirligig.json` | the 725 g 7-inch baseline quad on 4S Li-ion |
+| `tiltrotor.json` | the tandem-wing tiltrotor as a plain quad in hover trim, 0.95 kg |
+
 **These are starting points, not measurements.** Each one was built from
 published frame, motor and cell figures plus a weight estimate, and each file
 says in its own `notes` field exactly what was assumed — the sim shows that

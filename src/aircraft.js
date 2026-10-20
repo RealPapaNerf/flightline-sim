@@ -281,6 +281,7 @@ const ACF = (function (FL) {
     drive: e(['shaft', 'tip', 'none'], 'shaft'),
     fixed: opt(n(-5, 15)),          // an autogyro's one blade angle, degrees
     autoPitch: opt(n(-10, 10)),     // where a collective parks once the drive is off, degrees
+    vAuto: opt(n(0.5, 60)),         // the drive holds on until this airspeed, m/s — a gyrodyne's mode change
     rake: n(0, 20, 0),              // degrees the mast leans back
     rakeFree: opt(n(0, 20)),        // the rake it takes up with the drive off, if that is different
     tauRake: n(0.1, 10, 1.2),       // how long the head takes to get there

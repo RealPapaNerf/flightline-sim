@@ -1,0 +1,212 @@
+{
+ "format": "flightline-aircraft/1",
+ "author": "whirligig",
+ "version": "1",
+ "source": "exported from Whirligig \"Autogyro\" on 2026-10-20",
+ "def": {
+  "kind": "gyro",
+  "id": "whirligig-autogyro",
+  "name": "Whirligig autogyro",
+  "blurb": "Exported from Whirligig (Autogyro).",
+  "notes": "A 2 kg autogyro: free-spinning teetering rotor on a mast raked 9 degrees back, a pusher propeller, and a small electric pre-rotator that spins the head up before the takeoff roll and then drops out - the rotor is UNPOWERED in flight, kept turning entirely by the airflow (PLAN Phase 4). Control is cyclic on the free head plus a rudder on the fin, like the full-size machines. Nothing in the engine knows what an autogyro is; the mast rake and the free shaft are the whole trick.\n\nEXPORT NOTES — contact spring numbers are Flightline-typical, not converted — the two contact models differ. drag CdA per axis estimated from the drag parts (x, 2x, 3x). prerotator (3 A) read as a pre-rotator, not a drive. head speed om0 set to 65 rad/s (typical for autorotation), not derived. 1 forward prop(s) exported as thrusters (Tmax estimated); differential yaw where they sit off-centre. fin's rudder exported as a yaw vane (k 0.6 assumed).",
+  "mass": 1.717,
+  "I": [
+   0.032,
+   0.1,
+   0.07
+  ],
+  "body": {
+   "r": [
+    0,
+    0,
+    0
+   ],
+   "CdA": [
+    0.008,
+    0.016,
+    0.024
+   ],
+   "fin": 0.017,
+   "finX": -0.631
+  },
+  "batt": {
+   "chem": "lipo",
+   "cells": 4,
+   "mAh": 2600,
+   "R": 0.02,
+   "Imax": 0,
+   "Iidle": 1,
+   "Vref": 14.8,
+   "label": "4S 2600 LiPo"
+  },
+  "wheels": [
+   {
+    "p": [
+     0.289,
+     0,
+     0.177
+    ]
+   },
+   {
+    "p": [
+     -0.061,
+     -0.18,
+     0.177
+    ]
+   },
+   {
+    "p": [
+     -0.061,
+     0.18,
+     0.177
+    ]
+   }
+  ],
+  "points": [
+   {
+    "p": [
+     -0.611,
+     0,
+     0.137
+    ],
+    "name": "tailBumper",
+    "impact": 3,
+    "slide": 20,
+    "foot": true
+   }
+  ],
+  "contact": {
+   "kW": 12000,
+   "cW": 240,
+   "kB": 3600,
+   "cB": 55,
+   "muRoll": 0.03,
+   "muLat": 0.9,
+   "muBody": 0.6
+  },
+  "crash": {
+   "wheelImpact": 99
+  },
+  "starts": [
+   "pad",
+   "air"
+  ],
+  "fpvCam": [
+   0.089,
+   0,
+   -0.05
+  ],
+  "camTilt": 8,
+  "colR": 0.75,
+  "pid": {
+   "roll": [
+    20,
+    110,
+    0.3,
+    2.2,
+    0.01
+   ],
+   "pitch": [
+    20,
+    110,
+    0.3,
+    2.2,
+    0.01
+   ],
+   "yaw": [
+    14,
+    60,
+    0.3,
+    1.4,
+    0
+   ]
+  },
+  "angle": {
+   "max": 45,
+   "k": 5,
+   "rate": 240
+  },
+  "rates": {
+   "roll": {
+    "c": 70,
+    "m": 220,
+    "e": 0
+   },
+   "pitch": {
+    "c": 70,
+    "m": 220,
+    "e": 0
+   },
+   "yaw": {
+    "c": 60,
+    "m": 180,
+    "e": 0
+   }
+  },
+  "rotor": {
+   "R": 0.75,
+   "chord": 0.065,
+   "blades": 2,
+   "a": 5.9,
+   "Cd0": 0.012,
+   "kInd": 1.15,
+   "CLmax": 1.1,
+   "om0": 65,
+   "J": 0.056,
+   "Pmax": 36,
+   "govK": 0,
+   "spool": 0.4,
+   "friction": 0.0005,
+   "h": 0.263,
+   "Kh": 16,
+   "tauF": 0.03,
+   "maxCyc": 0.18,
+   "blowback": 3,
+   "lt": 0,
+   "TtMax": 0,
+   "tauT": 0.04,
+   "spin": 1,
+   "curves": {
+    "normal": [
+     -2.86,
+     2.01,
+     5.73
+    ],
+    "3d": [
+     -5.73,
+     0,
+     5.73
+    ]
+   },
+   "drive": "none",
+   "rake": 8.97,
+   "hFlare": 2,
+   "tauRake": 1.2,
+   "fixed": 2.29,
+   "prerot": {
+    "Q": 0.716,
+    "om": 62
+   },
+   "vane": {
+    "area": 0.017,
+    "arm": 0.631,
+    "k": 0.6
+   }
+  },
+  "thrusters": [
+   {
+    "p": [
+     -0.431,
+     0,
+     0.037
+    ],
+    "Tmax": 21.56,
+    "Tmin": 0,
+    "tau": 0.08,
+    "Vp": 23.96,
+    "D": 0.254,
+    "yaw": false
+   }
+  ]
+ }
+}

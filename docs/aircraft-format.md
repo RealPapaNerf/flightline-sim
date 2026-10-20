@@ -629,6 +629,7 @@ to the surfaces has the deflection to fly it with.
 | `rotor.drive` | `shaft`, `tip`, `none` | *shaft* | what turns the rotor — see [Three ways to turn a rotor](#three-ways-to-turn-a-rotor) |
 | `rotor.fixed` | -5 … 15 | *optional* | one blade angle for the whole flight, degrees. An autogyro has this instead of `curves` |
 | `rotor.autoPitch` | -10 … 10 | *optional* | where a collective parks when the drive goes off and the stick becomes engine power, degrees |
+| `rotor.vAuto` | 0.5 … 60 | *optional* | the drive holds on until the thrusters have pulled it this fast, m/s — below it, throttle hold means transition, not autorotation |
 | `rotor.rake` | 0 … 20 | *0* | degrees the mast leans back. An autogyro's reason to turn at all |
 | `rotor.rakeFree` | 0 … 20 | *= rake* | the rake the head takes up with the drive off — a tilting head, and a gyrodyne's mode change |
 | `rotor.tauRake` | 0.1 … 10 | *1.2* | how long the head takes to get there, s |

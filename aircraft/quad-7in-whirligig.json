@@ -1,0 +1,188 @@
+{
+ "format": "flightline-aircraft/1",
+ "author": "whirligig",
+ "version": "1",
+ "source": "exported from Whirligig \"Quad 7in\" on 2026-10-20",
+ "def": {
+  "kind": "quad",
+  "id": "quad-7in",
+  "name": "Quad 7in",
+  "blurb": "Exported from Whirligig (Quad 7in).",
+  "notes": "The Phase 3 baseline: a 725 g 7-inch quad in X layout, 4S Li-ion, 7x3.5 props. Nothing in the engine knows it is a quadcopter: the mixer template reads the motor layout off the geometry and the stabilizer's rate PIDs do the rest. Diagonal pairs spin together (FR+RL positive, FL+RR negative) so yaw comes from unbalancing the drive reactions.\n\nEXPORT NOTES — contact spring numbers are Flightline-typical, not converted — the two contact models differ. drag CdA per axis estimated from the drag parts (x, 2x, 3x). quad motor Tmax estimated 18.58 N by momentum theory.",
+  "mass": 0.724,
+  "I": [
+   0.005,
+   0.005,
+   0.009
+  ],
+  "body": {
+   "r": [
+    0,
+    0,
+    0
+   ],
+   "CdA": [
+    0.004,
+    0.008,
+    0.012
+   ]
+  },
+  "batt": {
+   "chem": "liion",
+   "cells": 4,
+   "mAh": 3000,
+   "R": 0.035,
+   "Imax": 0,
+   "Iidle": 1,
+   "Vref": 14.8,
+   "label": "4S 3000 Li-ion"
+  },
+  "wheels": [],
+  "points": [
+   {
+    "p": [
+     0.125,
+     0.125,
+     0.053
+    ],
+    "name": "legFR",
+    "impact": 3,
+    "slide": 20,
+    "foot": true
+   },
+   {
+    "p": [
+     0.125,
+     -0.125,
+     0.053
+    ],
+    "name": "legFL",
+    "impact": 3,
+    "slide": 20,
+    "foot": true
+   },
+   {
+    "p": [
+     -0.125,
+     -0.125,
+     0.053
+    ],
+    "name": "legRL",
+    "impact": 3,
+    "slide": 20,
+    "foot": true
+   },
+   {
+    "p": [
+     -0.125,
+     0.125,
+     0.053
+    ],
+    "name": "legRR",
+    "impact": 3,
+    "slide": 20,
+    "foot": true
+   }
+  ],
+  "contact": {
+   "kW": 12000,
+   "cW": 240,
+   "kB": 3600,
+   "cB": 55,
+   "muRoll": 0.03,
+   "muLat": 0.9,
+   "muBody": 0.6
+  },
+  "crash": {
+   "wheelImpact": 99
+  },
+  "starts": [
+   "pad",
+   "air"
+  ],
+  "fpvCam": [
+   0.1,
+   0,
+   -0.05
+  ],
+  "camTilt": 8,
+  "colR": 0.1,
+  "pid": {
+   "roll": [
+    20,
+    110,
+    0.3,
+    2.2,
+    0.01
+   ],
+   "pitch": [
+    20,
+    110,
+    0.3,
+    2.2,
+    0.01
+   ],
+   "yaw": [
+    14,
+    60,
+    0.3,
+    1.4,
+    0
+   ]
+  },
+  "angle": {
+   "max": 45,
+   "k": 5,
+   "rate": 240
+  },
+  "rates": {
+   "roll": {
+    "c": 70,
+    "m": 220,
+    "e": 0
+   },
+   "pitch": {
+    "c": 70,
+    "m": 220,
+    "e": 0
+   },
+   "yaw": {
+    "c": 60,
+    "m": 180,
+    "e": 0
+   }
+  },
+  "motors": [
+   [
+    0.125,
+    0.125,
+    -0.012
+   ],
+   [
+    0.125,
+    -0.125,
+    -0.012
+   ],
+   [
+    -0.125,
+    -0.125,
+    -0.012
+   ],
+   [
+    -0.125,
+    0.125,
+    -0.012
+   ]
+  ],
+  "motor": {
+   "Tmax": 18.58,
+   "tau": 0.04,
+   "idle": 0.04,
+   "kQ": 0.012,
+   "Vp": 24.23,
+   "D": 0.178
+  },
+  "rotorDrag": 0.05,
+  "look": {}
+ }
+}
