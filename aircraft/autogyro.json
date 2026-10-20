@@ -1,275 +1,245 @@
 {
-  "format": "whirligig-aircraft/1",
-  "name": "Autogyro",
-  "author": "whirligig",
+  "format": "flightline-aircraft/1",
+  "author": "Flightline",
   "version": "1",
-  "notes": "A 2 kg autogyro: free-spinning teetering rotor on a mast raked 9 degrees back, a pusher propeller, and a small electric pre-rotator that spins the head up before the takeoff roll and then drops out - the rotor is UNPOWERED in flight, kept turning entirely by the airflow (PLAN Phase 4). Control is cyclic on the free head plus a rudder on the fin, like the full-size machines. Nothing in the engine knows what an autogyro is; the mast rake and the free shaft are the whole trick.",
-  "parts": [
-    {
-      "type": "mass",
-      "name": "frame",
-      "position": [
-        0.02,
+  "source": "designed in the sim, 18 Oct 2026; see notes",
+  "def": {
+    "id": "gyro",
+    "name": "Autogyro",
+    "blurb": "3.2 kg autogyro: a 1.7 m rotor nobody drives, a pusher prop, and a mast raked 9° back so the air keeps the head turning. Prerotate on the ground, roll, fly. Every landing is an autorotation, which is why gyro pilots are good at them.",
+    "notes": "A model-sized autogyro worked out rather than measured. The rotor is never driven: the mast is raked 9° back so air comes up through the disc and keeps it turning, and the head settles around 520 rpm on its own at every attitude. The prerotator is 0.55 N·m, which is about ten seconds of waiting before it will fly. The number to correct first is the all-up weight, then the pusher thrust.",
+    "mass": 3.2,
+    "I": [
+      0.18,
+      0.42,
+      0.35
+    ],
+    "body": {
+      "r": [
         0,
-        0.04
+        0,
+        0
       ],
-      "mass": 0.9,
-      "size": [
-        0.55,
-        0.1,
-        0.12
+      "CdA": [
+        0.05,
+        0.16,
+        0.2
+      ],
+      "fin": 0.03,
+      "finX": -0.85
+    },
+    "batt": {
+      "chem": "lipo",
+      "cells": 6,
+      "mAh": 6000,
+      "R": 0.02,
+      "Imax": 0,
+      "Iidle": 1.2,
+      "Vref": 22.8,
+      "label": "6S 6000 LiPo"
+    },
+    "wheels": [
+      {
+        "p": [
+          0.34,
+          0,
+          0.3
+        ],
+        "steer": true
+      },
+      {
+        "p": [
+          -0.1,
+          0.22,
+          0.3
+        ]
+      },
+      {
+        "p": [
+          -0.1,
+          -0.22,
+          0.3
+        ]
+      }
+    ],
+    "points": [
+      {
+        "p": [
+          -0.68,
+          0,
+          -0.05
+        ],
+        "name": "tail",
+        "impact": 2,
+        "slide": 4
+      },
+      {
+        "p": [
+          0.42,
+          0,
+          0
+        ],
+        "name": "nose",
+        "impact": 2.5,
+        "slide": 6
+      },
+      {
+        "p": [
+          0,
+          0,
+          -0.52
+        ],
+        "name": "rotor head",
+        "impact": 1.5,
+        "slide": 2
+      }
+    ],
+    "contact": {
+      "kW": 3000,
+      "cW": 60,
+      "kB": 2600,
+      "cB": 40,
+      "muRoll": 0.03,
+      "muLat": 0.6,
+      "muBody": 0.6
+    },
+    "crash": {
+      "wheelImpact": 5
+    },
+    "starts": [
+      "runway",
+      "air"
+    ],
+    "fpvCam": [
+      0.46,
+      0,
+      -0.06
+    ],
+    "camTilt": 5,
+    "colR": 0.5,
+    "pid": {
+      "roll": [
+        14,
+        70,
+        0.3,
+        1.8,
+        0.01
+      ],
+      "pitch": [
+        14,
+        70,
+        0.3,
+        1.8,
+        0.01
+      ],
+      "yaw": [
+        8,
+        30,
+        0.3,
+        1,
+        0
       ]
     },
-    {
-      "type": "battery",
-      "name": "pack",
-      "position": [
-        0.22,
-        0,
-        0.03
-      ],
-      "cells": 4,
-      "chemistry": "lipo",
-      "capacity": 2.6,
-      "resistance": 0.02,
-      "bus": "main",
-      "mass": 0.3
+    "angle": {
+      "max": 35,
+      "k": 4,
+      "rate": 160
     },
-    {
-      "type": "rotor",
-      "name": "head",
-      "position": [
-        0,
-        0,
-        -0.3
-      ],
-      "axis": [
-        -0.156,
-        0,
-        -0.988
-      ],
-      "spin": 1,
-      "diameter": 1.5,
-      "blades": 2,
-      "rootChord": 0.07,
-      "tipChord": 0.06,
-      "collective": 0.04,
-      "twist": 0,
-      "mass": 0.3,
-      "elements": 10,
-      "flap": {
-        "hinge": 0.03,
-        "spring": 8,
-        "damping": 0.5
+    "rates": {
+      "roll": {
+        "c": 50,
+        "m": 160,
+        "e": 0
       },
-      "cyclic": {
-        "rollChannel": "cycRoll",
-        "pitchChannel": "cycPitch",
-        "range": 0.18,
-        "phase": 0.15
+      "pitch": {
+        "c": 45,
+        "m": 140,
+        "e": 0
+      },
+      "yaw": {
+        "c": 45,
+        "m": 130,
+        "e": 0
       }
     },
-    {
-      "type": "motor",
-      "name": "prerotator",
-      "position": [
-        0,
-        0,
-        -0.2
-      ],
-      "shaft": "head",
-      "channel": "prespin",
-      "kv": 40,
-      "resistance": 0.4,
-      "idleCurrent": 0.15,
-      "maxCurrent": 3,
-      "bus": "main",
-      "mass": 0.08,
-      "slew": 0.12
-    },
-    {
-      "type": "prop",
-      "name": "pusher",
-      "position": [
-        -0.42,
-        0,
-        0
-      ],
-      "axis": [
-        1,
-        0,
-        0
-      ],
-      "spin": 1,
-      "diameter": 0.254,
-      "pitch": 0.127,
+    "kind": "gyro",
+    "rotor": {
+      "R": 0.85,
+      "chord": 0.075,
       "blades": 2,
-      "mass": 0.012
-    },
-    {
-      "type": "motor",
-      "name": "cruiseMotor",
-      "position": [
-        -0.38,
-        0,
-        0
-      ],
-      "shaft": "pusher",
-      "channel": "pusherEsc",
-      "kv": 900,
-      "resistance": 0.06,
-      "idleCurrent": 0.6,
-      "maxCurrent": 35,
-      "bus": "main",
-      "mass": 0.07
-    },
-    {
-      "type": "wing",
-      "name": "fin",
-      "position": [
-        -0.62,
-        0,
-        -0.02
-      ],
-      "span": 0.16,
-      "rootChord": 0.13,
-      "tipChord": 0.08,
-      "dihedral": 1.5708,
-      "airfoil": "symmetric",
-      "elements": 3,
-      "mass": 0.025,
-      "control": {
-        "channel": "rudder",
-        "fraction": 0.4,
-        "throw": 0.5
+      "a": 5.7,
+      "Cd0": 0.013,
+      "kInd": 1.15,
+      "CLmax": 1,
+      "om0": 55,
+      "J": 0.075,
+      "Pmax": 0,
+      "govK": 0,
+      "spool": 1,
+      "friction": 0.0008,
+      "h": 0.5,
+      "Kh": 55,
+      "tauF": 0.035,
+      "maxCyc": 0.2,
+      "blowback": 2.5,
+      "lt": 0,
+      "TtMax": 0,
+      "tauT": 0.05,
+      "spin": -1,
+      "drive": "none",
+      "fixed": 2.5,
+      "rake": 9,
+      "tauRake": 1.2,
+      "hFlare": 1.5,
+      "vane": {
+        "area": 0.04,
+        "arm": 0.95,
+        "k": 0.6
+      },
+      "prerot": {
+        "Q": 0.55,
+        "om": 45
       }
     },
-    {
-      "type": "wing",
-      "name": "hstab",
-      "position": [
-        -0.58,
-        0,
-        0.02
+    "thrusters": [
+      {
+        "p": [
+          -0.38,
+          0,
+          -0.03
+        ],
+        "Tmax": 38,
+        "Tmin": 0,
+        "tau": 0.12,
+        "Vp": 40,
+        "D": 0.33,
+        "yaw": false
+      }
+    ],
+    "cruise": 20,
+    "steerMax": 0.5,
+    "look": {
+      "front": [
+        0.8,
+        0.2,
+        0.16
       ],
-      "span": 0.17,
-      "rootChord": 0.13,
-      "mirror": true,
-      "airfoil": "symmetric",
-      "elements": 3,
-      "mass": 0.015,
-      "incidence": 0.06
-    },
-    {
-      "type": "drag",
-      "name": "frame drag",
-      "position": [
-        0.02,
-        0,
-        0.02
+      "rear": [
+        0.9,
+        0.9,
+        0.88
       ],
-      "area": 0.008
-    },
-    {
-      "type": "gear",
-      "name": "noseWheel",
-      "position": [
+      "frame": [
+        0.2,
+        0.2,
+        0.22
+      ],
+      "wrap": [
         0.3,
-        0,
-        0.14
+        0.32,
+        0.36
       ],
-      "stiffness": 4000,
-      "damping": 60,
-      "gearType": "wheel",
-      "rollingFriction": 0.02
-    },
-    {
-      "type": "gear",
-      "name": "mainL",
-      "position": [
-        -0.05,
-        -0.18,
-        0.14
-      ],
-      "stiffness": 5000,
-      "damping": 70,
-      "gearType": "wheel",
-      "rollingFriction": 0.02
-    },
-    {
-      "type": "gear",
-      "name": "mainR",
-      "position": [
-        -0.05,
-        0.18,
-        0.14
-      ],
-      "stiffness": 5000,
-      "damping": 70,
-      "gearType": "wheel",
-      "rollingFriction": 0.02
-    },
-    {
-      "type": "gear",
-      "name": "tailBumper",
-      "position": [
-        -0.6,
-        0,
-        0.1
-      ],
-      "stiffness": 2500,
-      "damping": 40,
-      "gearType": "skid"
-    }
-  ],
-  "mixer": {
-    "rules": [
-      {
-        "input": "throttle",
-        "channel": "pusherEsc",
-        "gain": 1
-      },
-      {
-        "input": "prespin",
-        "channel": "prespin",
-        "gain": 1
-      },
-      {
-        "input": "roll",
-        "channel": "cycRoll",
-        "gain": 1
-      },
-      {
-        "input": "pitch",
-        "channel": "cycPitch",
-        "gain": 1
-      },
-      {
-        "input": "yaw",
-        "channel": "rudder",
-        "gain": 1
-      }
-    ]
-  },
-  "stabilizer": {
-    "mode": "angle",
-    "maxRate": 1.5,
-    "maxAngle": 0.45,
-    "angleP": 2.5,
-    "roll": {
-      "p": 0.55,
-      "i": 0.1,
-      "d": 0.035
-    },
-    "pitch": {
-      "p": 0.4,
-      "i": 0.08,
-      "d": 0.02
-    },
-    "yaw": {
-      "p": 0.2,
-      "i": 0.1,
-      "d": 0
+      "blades": 2
     }
   }
 }
