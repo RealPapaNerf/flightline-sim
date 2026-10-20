@@ -176,6 +176,16 @@ if (want('gyrodyne')) {
     ok(!s.crashed, 'the mode switch can be thrown in flight and thrown back', s.crashMsg || 'throttle hold is the whole switch');
     ok(omGyro < 0.7 * omHeli && s.om > 0.9 * omHeli, 'and the rotor slows to a free speed and comes back', `${rpm(omHeli).toFixed(0)} → ${rpm(omGyro).toFixed(0)} → ${rpm(s.om).toFixed(0)} rpm`); }
 
+  /* The contract the app leans on: in autogyro mode `armed` stays true and `hold`
+     alone frees the rotor. Send armed:false instead and the propellers die with
+     the drive — a dead-stick autorotation, which is not a mode anyone asked for. */
+  { const s = at(ac, 120, 15);
+    fly(ac, s, { thr: 1, hold: true }, 10);
+    ok(s.tp[0] > 2 && s.tp[1] > 2, 'on hold the propellers stay live: a powered autogyro, not a dead stick', `${s.tp.map((x) => x.toFixed(1)).join('/')} N at full stick`);
+    const d = at(ac, 120, 15);
+    fly(ac, d, { thr: 1, hold: true, armed: false }, 10);
+    ok(Math.abs(d.tp[0]) < 0.05 && Math.abs(d.tp[1]) < 0.05, 'disarmed they are not — hold must be sent with armed still true', `${d.tp.map((x) => x.toFixed(1)).join('/')} N`); }
+
   { const s = at(ac, 80, 10); let g = null, td = null;
     fly(ac, s, (s) => {
       const h = -s.p[2];

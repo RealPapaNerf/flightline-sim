@@ -1666,7 +1666,7 @@
     ['mode-cycle', 'Flight mode: cycle'], ['mode-manual', 'Flight mode: manual / acro'], ['mode-horizon', 'Flight mode: horizon'], ['mode-trainer', 'Flight mode: trainer'], ['mode-stab', 'Flight mode: stabilised / angle'],
     ['mode-althold', 'Autopilot: alt hold'], ['mode-loiter', 'Autopilot: loiter / position hold'], ['mode-rtl', 'Autopilot: return to launch (RTL)'],
     ['stab-toggle', 'Stabilised mode: toggle'], ['stab-hold', 'Stabilised mode: while held / switch on'],
-    ['cut-toggle', 'Throttle cut / heli throttle hold: toggle'], ['cut-hold', 'Throttle cut / heli throttle hold: while held'],
+    ['cut-toggle', 'Throttle cut / heli hold / gyrodyne autogyro: toggle'], ['cut-hold', 'Throttle cut / heli hold / gyrodyne autogyro: while held'],
     ['curve-toggle', 'Heli pitch curve: Normal / 3D'], ['curve-3d-hold', 'Heli pitch curve: 3D while held / switch on'],
     ['launch', 'Hand launch: throw now'],
     ['trim-e-up', 'Trim: nose up'], ['trim-e-down', 'Trim: nose down'],
@@ -2971,7 +2971,7 @@
         seg('aircraft', 'Model', Object.values(ACS).map((a) => [a.id, a.name]), AC.blurb, () => S.aircraft, (v) => setAircraft(v)),
         seg('start', 'Reset puts you', AC.starts.map((s) => [s, START_LABEL[s]]), AC.kind === 'wing' ? 'Hand launch: arm with throttle down, then push throttle above 70% and the model is thrown once the motor is wound up (or press L to throw at any throttle). Real technique applies: full power, and maybe a touch of up elevator.' : '', () => startOf(AC.id), (v) => { S.start[AC.id] = v; doReset(); refreshBar(); }),
         ...(COLL(AC) ? [seg('curve', 'Pitch curve', [['normal', 'Normal'], ['3d', '3D (idle up)']],
-          `Normal: ${AC.rotor.curves.normal.join('° / ')}° at the bottom, middle and top of the stick; hover is at about ${Math.round(AC.hoverThrCurve.normal * 100)}%. 3D: ${AC.rotor.curves['3d'].join('° / ')}°, with zero pitch at mid stick so you can fly inverted; hover is at about ${Math.round(AC.hoverThrCurve['3d'] * 100)}%. The governor holds ${Math.round((AC.rotor.om0 * 60) / (2 * Math.PI))} rpm in both. Throttle hold (H, or a controller channel) stops the motor and leaves the collective live, for autorotations.`,
+          `Normal: ${AC.rotor.curves.normal.join('° / ')}° at the bottom, middle and top of the stick; hover is at about ${Math.round(AC.hoverThrCurve.normal * 100)}%. 3D: ${AC.rotor.curves['3d'].join('° / ')}°, with zero pitch at mid stick so you can fly inverted; hover is at about ${Math.round(AC.hoverThrCurve['3d'] * 100)}%. The governor holds ${Math.round((AC.rotor.om0 * 60) / (2 * Math.PI))} rpm in both. ${AC.thrusters && AC.thrusters.length ? 'Throttle hold (H, or a controller channel) is the helicopter ⇄ autogyro switch: the rotor drive stops, the head rakes back, the collective parks, and the throttle stick becomes propeller power. Let it off and it is a helicopter again.' : 'Throttle hold (H, or a controller channel) stops the motor and leaves the collective live, for autorotations.'}`,
           () => S.curve, (v) => setCurve(v))] : []),
         seg('mode', 'Flight mode', MODES.map((m) => [m, baseName(m)]), ROTARY(AC)
           ? 'Acro: sticks command rotation rates. Horizon: levels near centre stick and becomes acro at full stick, so hard stick means a flip. Acro trainer: acro, but stopped at the trainer limits. Angle: sticks command bank and pitch.'
@@ -4688,8 +4688,11 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     const inp = heldInp; // the receiver's view of your sticks: frozen while packets are being lost
     if (ROTARY(AC)) {
       const cut = holdNow(), heli = ROTOR(AC);
-      // heli: the throttle stick is collective, live even with the motor held; hold stops the motor only
-      return { thr: armed || heli ? inp.thr : 0, a: inp.a, e: inp.e, r: inp.r, armed: armed && !cut, hold: cut, curve: S.curve,
+      /* heli: the throttle stick is collective, live even with the motor held; hold stops the motor only.
+         The rotor steppers read `hold` themselves and must stay armed through it — a gyrodyne on hold
+         is an autogyro flying on its propellers, not a dead stick (test/rotorcraft_test.js pins this).
+         Quads and tail-sitters have no hold of their own, so for them cut disarms the motors. */
+      return { thr: armed || heli ? inp.thr : 0, a: inp.a, e: inp.e, r: inp.r, armed: heli ? armed : armed && !cut, hold: cut, curve: S.curve,
         fwd: fwdCmd, mode: { manual: 'acro', horizon: 'horizon', trainer: 'trainer', stab: 'angle' }[S.mode] || 'acro', lim: limNow() };
     }
     const ex = (x, e) => { const k = e / 100; return x * (k * x * x + 1 - k); };
