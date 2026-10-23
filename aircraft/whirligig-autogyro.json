@@ -2,13 +2,13 @@
  "format": "flightline-aircraft/1",
  "author": "whirligig",
  "version": "1",
- "source": "exported from Whirligig \"Autogyro\" on 2026-10-20",
+ "source": "exported from Whirligig \"Autogyro\" on 2026-10-23",
  "def": {
   "kind": "gyro",
-  "id": "whirligig-autogyro",
-  "name": "Whirligig autogyro",
+  "id": "autogyro",
+  "name": "Autogyro",
   "blurb": "Exported from Whirligig (Autogyro).",
-  "notes": "A 2 kg autogyro: free-spinning teetering rotor on a mast raked 9 degrees back, a pusher propeller, and a small electric pre-rotator that spins the head up before the takeoff roll and then drops out - the rotor is UNPOWERED in flight, kept turning entirely by the airflow (PLAN Phase 4). Control is cyclic on the free head plus a rudder on the fin, like the full-size machines. Nothing in the engine knows what an autogyro is; the mast rake and the free shaft are the whole trick.\n\nEXPORT NOTES — contact spring numbers are Flightline-typical, not converted — the two contact models differ. drag CdA per axis estimated from the drag parts (x, 2x, 3x). prerotator (3 A) read as a pre-rotator, not a drive. head speed om0 set to 65 rad/s (typical for autorotation), not derived. 1 forward prop(s) exported as thrusters (Tmax estimated); differential yaw where they sit off-centre. fin's rudder exported as a yaw vane (k 0.6 assumed).",
+  "notes": "A 2 kg autogyro: free-spinning teetering rotor on a mast raked 9 degrees back, a pusher propeller, and a small electric pre-rotator that spins the head up before the takeoff roll and then drops out - the rotor is UNPOWERED in flight, kept turning entirely by the airflow (PLAN Phase 4). Control is cyclic on the free head plus a rudder on the fin, like the full-size machines. Nothing in the engine knows what an autogyro is; the mast rake and the free shaft are the whole trick.\n\nEXPORT NOTES — contact spring numbers are Flightline-typical, not converted — the two contact models differ. drag CdA per axis estimated from the drag parts (x, 2x, 3x). prerotator (3 A) read as a pre-rotator, not a drive. head speed om0 set to 65 rad/s (typical for autorotation), not derived — on a free rotor it is only a reference, the air sets the real one. 1 forward prop(s) exported as thrusters (Tmax estimated); differential yaw where they sit off-centre. Tmin 0: these propellers only pull forward, so the hover holds its nose with one of the pair idle and the other against the torque, and it hovers slightly nose-up because of it. fin's rudder exported as a yaw vane (k 0.6 assumed).",
   "mass": 1.717,
   "I": [
    0.032,
@@ -34,7 +34,7 @@
    "cells": 4,
    "mAh": 2600,
    "R": 0.02,
-   "Imax": 0,
+   "Imax": 38,
    "Iidle": 1,
    "Vref": 14.8,
    "label": "4S 2600 LiPo"
@@ -73,6 +73,26 @@
     "impact": 3,
     "slide": 20,
     "foot": true
+   },
+   {
+    "p": [
+     0.209,
+     0,
+     0.067
+    ],
+    "name": "battery",
+    "impact": 5,
+    "slide": 10
+   },
+   {
+    "p": [
+     0.089,
+     0,
+     -0.05
+    ],
+    "name": "camera",
+    "impact": 4,
+    "slide": 8
    }
   ],
   "contact": {

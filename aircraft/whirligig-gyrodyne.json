@@ -2,13 +2,13 @@
  "format": "flightline-aircraft/1",
  "author": "whirligig",
  "version": "1",
- "source": "exported from Whirligig \"Gyrodyne\" on 2026-10-20",
+ "source": "exported from Whirligig \"Gyrodyne\" on 2026-10-23",
  "def": {
   "kind": "heli",
-  "id": "whirligig-gyrodyne",
-  "name": "Whirligig gyrodyne",
+  "id": "gyrodyne",
+  "name": "Gyrodyne",
   "blurb": "Exported from Whirligig (Gyrodyne).",
-  "notes": "The Phase 4 capstone: a big lightly-loaded rotor that is DRIVEN in heli mode and FREE in autogyro mode, stub wings whose tip propellers balance the rotor torque in the hover (differentially) and push it along in cruise, and ONE aux slider - the mode crossfade - carrying the whole heli<->autogyro conversion. No scripting engine anywhere: the crossfade slides mode-tagged mixer rules in and out (PLAN 5.9), the rotor's motor dies away, and autorotation takes over because the physics has nowhere else to go. Tractor motors are 3115-class (95 g, 55 A, 900 kV on 10x5s) per the owner: the originals were tail-rotor-sized and could not pull the conversion.\n\nEXPORT NOTES — contact spring numbers are Flightline-typical, not converted — the two contact models differ. drag CdA per axis estimated from the drag parts (x, 2x, 3x). 2 forward prop(s) exported as thrusters (Tmax estimated); differential yaw where they sit off-centre. mode crossfade mapped onto Flightline's own heli->autogyro transition (vAuto 12 m/s, rakeFree 6 deg, autoPitch 2 deg) — the mechanics differ, the idea matches.",
+  "notes": "The Phase 4 capstone: a big lightly-loaded rotor that is DRIVEN in heli mode and FREE in autogyro mode, stub wings whose tip propellers balance the rotor torque in the hover (differentially) and push it along in cruise, and ONE aux slider - the mode crossfade - carrying the whole heli<->autogyro conversion. No scripting engine anywhere: the crossfade slides mode-tagged mixer rules in and out (PLAN 5.9), the rotor's motor dies away, and autorotation takes over because the physics has nowhere else to go. Tractor motors are 3115-class (95 g, 55 A, 900 kV on 10x5s) per the owner: the or\n\nEXPORT NOTES — contact spring numbers are Flightline-typical, not converted — the two contact models differ. drag CdA per axis estimated from the drag parts (x, 2x, 3x). 2 forward prop(s) exported as thrusters (Tmax estimated); differential yaw where they sit off-centre. Tmin 0: these propellers only pull forward, so the hover holds its nose with one of the pair idle and the other against the torque, and it hovers slightly nose-up because of it. mode crossfade mapped onto Flightline's own heli->autogyro transition (vAuto 12 m/s, rakeFree 6 deg, autoPitch 2 deg) — the mechanics differ, the idea matches.",
   "mass": 2.917,
   "I": [
    0.102,
@@ -34,7 +34,7 @@
    "cells": 6,
    "mAh": 4000,
    "R": 0.015,
-   "Imax": 0,
+   "Imax": 155,
    "Iidle": 1,
    "Vref": 22.2,
    "label": "6S 4000 LiPo"
@@ -95,6 +95,26 @@
     "impact": 3,
     "slide": 20,
     "foot": true
+   },
+   {
+    "p": [
+     0.131,
+     0,
+     0.041
+    ],
+    "name": "battery",
+    "impact": 5,
+    "slide": 10
+   },
+   {
+    "p": [
+     0.071,
+     0,
+     -0.05
+    ],
+    "name": "camera",
+    "impact": 4,
+    "slide": 8
    }
   ],
   "contact": {

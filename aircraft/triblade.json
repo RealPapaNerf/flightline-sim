@@ -2,13 +2,13 @@
  "format": "flightline-aircraft/1",
  "author": "whirligig",
  "version": "1",
- "source": "exported from Whirligig \"Tri-blade\" on 2026-10-20",
+ "source": "exported from Whirligig \"Tri-blade\" on 2026-10-23",
  "def": {
   "kind": "heli",
   "id": "tri-blade",
   "name": "Tri-blade",
   "blurb": "Exported from Whirligig (Tri-blade).",
-  "notes": "The Nick Rehm craft (PLAN §0): three WINGS that are also rotor blades, each carrying its own propeller and motor mid-span. The props drive the rotor the tip-jet way - thrust along the blades' travel, near-zero reaction on the pod. The party trick, asserted in its test: kill two of the three motors mid-hover and the dead props WINDMILL in the blades' own slipstream, the rotor keeps turning (one live prop plus autorotative inflow), and the craft descends under control instead of falling.\n\nEXPORT NOTES — contact spring numbers are Flightline-typical, not converted — the two contact models differ. drag CdA per axis estimated from the drag parts (x, 2x, 3x). head speed om0 set to 80 rad/s (typical for tip drive), not derived. tip drive: 3 props at 0.54 m, Tmax estimated 19.21 N each. no yaw device in the source; a 0.5 N·m mast motor added so the pedal works — Flightline's own tip-drive yaws the same way.",
+  "notes": "The Nick Rehm craft (PLAN §0): three WINGS that are also rotor blades, each carrying its own propeller and motor mid-span. The props drive the rotor the tip-jet way - thrust along the blades' travel, near-zero reaction on the pod. The party trick, asserted in its test: kill two of the three motors mid-hover and the dead props WINDMILL in the blades' own slipstream, the rotor keeps turning (one live prop plus autorotative inflow), and the craft descends under control instead of falling.\n\nEXPORT NOTES — contact spring numbers are Flightline-typical, not converted — the two contact models differ. drag CdA per axis estimated from the drag parts (x, 2x, 3x). head speed om0 59 rad/s: set by what the tip propellers can still pull at, not by the head — three quarters of their pitch speed at the mounting radius. Whirligig flies this head faster; Flightline's linear propeller model cannot drive it that fast. tip drive: 3 props at 0.54 m, Tmax estimated 19.21 N each, zero-thrust speed 42.33 m/s, pod drag kD 0.00058 from a 53 mm nacelle. no yaw device in the source; a 0.5 N·m mast motor added so the pedal works — Flightline's own tip-drive yaws the same way.",
   "mass": 1.479,
   "I": [
    0.03,
@@ -32,7 +32,7 @@
    "cells": 6,
    "mAh": 2200,
    "R": 0.02,
-   "Imax": 0,
+   "Imax": 84,
    "Iidle": 1,
    "Vref": 22.2,
    "label": "6S 2200 LiPo"
@@ -71,6 +71,26 @@
     "impact": 3,
     "slide": 20,
     "foot": true
+   },
+   {
+    "p": [
+     0,
+     0,
+     0.047
+    ],
+    "name": "battery",
+    "impact": 5,
+    "slide": 10
+   },
+   {
+    "p": [
+     0.1,
+     0,
+     -0.05
+    ],
+    "name": "camera",
+    "impact": 4,
+    "slide": 8
    }
   ],
   "contact": {
@@ -149,10 +169,10 @@
    "Cd0": 0.012,
    "kInd": 1.15,
    "CLmax": 1.1,
-   "om0": 80,
+   "om0": 59,
    "J": 0.122,
    "Pmax": 1199,
-   "govK": 0,
+   "govK": 0.06,
    "spool": 0.4,
    "friction": 0.0005,
    "h": 0.093,
@@ -184,9 +204,9 @@
     "n": 3,
     "r": 0.54,
     "Tmax": 19.21,
-    "Vp": 36.35,
+    "Vp": 42.33,
     "eta": 0.75,
-    "kD": 0.02
+    "kD": 0.00058
    },
    "mast": {
     "Q": 0.5

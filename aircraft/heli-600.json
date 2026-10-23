@@ -2,7 +2,7 @@
  "format": "flightline-aircraft/1",
  "author": "whirligig",
  "version": "1",
- "source": "exported from Whirligig \"Heli 600 DD\" on 2026-10-20",
+ "source": "exported from Whirligig \"Heli 600 DD\" on 2026-10-23",
  "def": {
   "kind": "heli",
   "id": "heli-600-dd",
@@ -34,7 +34,7 @@
    "cells": 12,
    "mAh": 5000,
    "R": 0.02,
-   "Imax": 0,
+   "Imax": 105,
    "Iidle": 1,
    "Vref": 44.4,
    "label": "12S 5000 LiPo"
@@ -95,6 +95,26 @@
     "impact": 3,
     "slide": 20,
     "foot": true
+   },
+   {
+    "p": [
+     0.07,
+     0,
+     0.056
+    ],
+    "name": "battery",
+    "impact": 5,
+    "slide": 10
+   },
+   {
+    "p": [
+     0.09,
+     0,
+     -0.05
+    ],
+    "name": "camera",
+    "impact": 4,
+    "slide": 8
    }
   ],
   "contact": {

@@ -2,13 +2,13 @@
  "format": "flightline-aircraft/1",
  "author": "whirligig",
  "version": "1",
- "source": "exported from Whirligig \"Quad 7in\" on 2026-10-20",
+ "source": "exported from Whirligig \"Quad 7in\" on 2026-10-23",
  "def": {
   "kind": "quad",
   "id": "quad-7in",
   "name": "Quad 7in",
   "blurb": "Exported from Whirligig (Quad 7in).",
-  "notes": "The Phase 3 baseline: a 725 g 7-inch quad in X layout, 4S Li-ion, 7x3.5 props. Nothing in the engine knows it is a quadcopter: the mixer template reads the motor layout off the geometry and the stabilizer's rate PIDs do the rest. Diagonal pairs spin together (FR+RL positive, FL+RR negative) so yaw comes from unbalancing the drive reactions.\n\nEXPORT NOTES — contact spring numbers are Flightline-typical, not converted — the two contact models differ. drag CdA per axis estimated from the drag parts (x, 2x, 3x). quad motor Tmax estimated 18.58 N by momentum theory.",
+  "notes": "The Phase 3 baseline: a 725 g 7-inch quad in X layout, 4S Li-ion, 7x3.5 props. Nothing in the engine knows it is a quadcopter: the mixer template reads the motor layout off the geometry and the stabilizer's rate PIDs do the rest. Diagonal pairs spin together (FR+RL positive, FL+RR negative) so yaw comes from unbalancing the drive reactions.\n\nEXPORT NOTES — contact spring numbers are Flightline-typical, not converted — the two contact models differ. drag CdA per axis estimated from the drag parts (x, 2x, 3x). quad motor Tmax estimated 18.58 N by momentum theory; in-plane rotor drag is Flightline's own 0.012, not converted.",
   "mass": 0.724,
   "I": [
    0.005,
@@ -32,7 +32,7 @@
    "cells": 4,
    "mAh": 3000,
    "R": 0.035,
-   "Imax": 0,
+   "Imax": 160,
    "Iidle": 1,
    "Vref": 14.8,
    "label": "4S 3000 Li-ion"
@@ -82,6 +82,26 @@
     "impact": 3,
     "slide": 20,
     "foot": true
+   },
+   {
+    "p": [
+     0,
+     0,
+     -0.007
+    ],
+    "name": "battery",
+    "impact": 5,
+    "slide": 10
+   },
+   {
+    "p": [
+     0.1,
+     0,
+     -0.05
+    ],
+    "name": "camera",
+    "impact": 4,
+    "slide": 8
    }
   ],
   "contact": {
@@ -182,7 +202,7 @@
    "Vp": 24.23,
    "D": 0.178
   },
-  "rotorDrag": 0.05,
+  "rotorDrag": 0.012,
   "look": {}
  }
 }

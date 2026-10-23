@@ -2,13 +2,13 @@
  "format": "flightline-aircraft/1",
  "author": "whirligig",
  "version": "1",
- "source": "exported from Whirligig \"Stop-rotor\" on 2026-10-20",
+ "source": "exported from Whirligig \"Stop-rotor\" on 2026-10-23",
  "def": {
   "kind": "heli",
   "id": "stop-rotor",
   "name": "Stop-rotor",
   "blurb": "Exported from Whirligig (Stop-rotor).",
-  "notes": "The stopped-rotor machine (PLAN §0, Phase 5): a tip-prop rotor lifts it like the tipjet; slide the mode and the tip props die, the park controller brakes the head and indexes the blades spanwise, and the same two blades are now the WING - collective is wing incidence, pitch cyclic is the ailerons (at a 90-degree park, cyclic pitch is differential left/right blade incidence), the tailplane's elevator takes over pitch, and a pusher drives it. Slide back and the tip props spin the wing into a rotor again. Transition lift gap is real (it killed the X-50): convert high and fast.\n\nEXPORT NOTES — contact spring numbers are Flightline-typical, not converted — the two contact models differ. drag CdA per axis estimated from the drag parts (x, 2x, 3x). head speed om0 set to 80 rad/s (typical for tip drive), not derived. tip drive: 2 props at 0.675 m, Tmax estimated 15.6 N each. 1 forward prop(s) exported as thrusters (Tmax estimated); differential yaw where they sit off-centre. no yaw device in the source; a 1.17 N·m mast motor added so the pedal works — Flightline's own tip-drive yaws the same way.",
+  "notes": "The stopped-rotor machine (PLAN §0, Phase 5): a tip-prop rotor lifts it like the tipjet; slide the mode and the tip props die, the park controller brakes the head and indexes the blades spanwise, and the same two blades are now the WING - collec\n\nEXPORT NOTES — contact spring numbers are Flightline-typical, not converted — the two contact models differ. drag CdA per axis estimated from the drag parts (x, 2x, 3x). head speed om0 57 rad/s: set by what the tip propellers can still pull at, not by the head — three quarters of their pitch speed at the mounting radius. Whirligig flies this head faster; Flightline's linear propeller model cannot drive it that fast. tip drive: 2 props at 0.675 m, Tmax estimated 15.6 N each, zero-thrust speed 51.28 m/s, pod drag kD 0.00055 from a 46 mm nacelle. 1 forward prop(s) exported as thrusters (Tmax estimated); differential yaw where they sit off-centre. Tmin 0: these propellers only pull forward, so the hover holds its nose with one of the pair idle and the other against the torque, and it hovers slightly nose-up because of it. no yaw device in the source; a 1.17 N·m mast motor added so the pedal works — Flightline's own tip-drive yaws the same way.",
   "mass": 2.172,
   "I": [
    0.019,
@@ -34,7 +34,7 @@
    "cells": 6,
    "mAh": 3500,
    "R": 0.015,
-   "Imax": 0,
+   "Imax": 88,
    "Iidle": 1,
    "Vref": 22.2,
    "label": "6S 3500 LiPo"
@@ -95,6 +95,26 @@
     "impact": 3,
     "slide": 20,
     "foot": true
+   },
+   {
+    "p": [
+     0.115,
+     0,
+     0.042
+    ],
+    "name": "battery",
+    "impact": 5,
+    "slide": 10
+   },
+   {
+    "p": [
+     0.095,
+     0,
+     -0.05
+    ],
+    "name": "camera",
+    "impact": 4,
+    "slide": 8
    }
   ],
   "contact": {
@@ -173,10 +193,10 @@
    "Cd0": 0.012,
    "kInd": 1.15,
    "CLmax": 1.1,
-   "om0": 80,
+   "om0": 57,
    "J": 0.111,
    "Pmax": 799,
-   "govK": 0,
+   "govK": 0.06,
    "spool": 0.4,
    "friction": 0.0005,
    "h": 0.158,
@@ -208,9 +228,9 @@
     "n": 2,
     "r": 0.675,
     "Tmax": 15.6,
-    "Vp": 44.03,
+    "Vp": 51.28,
     "eta": 0.75,
-    "kD": 0.02
+    "kD": 0.00055
    },
    "mast": {
     "Q": 1.17

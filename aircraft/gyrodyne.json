@@ -6,8 +6,8 @@
   "def": {
     "id": "gyrodyne",
     "name": "Gyrodyne",
-    "blurb": "4.5 kg helicopter–autogyro hybrid: a 1.7 m shaft-driven rotor, no tail rotor, and two reversing-pitch tractor props on stub wings countering the torque between them. Throttle hold starts the transition: the props pull it up to 12 m/s with the rotor still driven, then the drive lets go and it is an autogyro. Let the switch off and it is a helicopter again.",
-    "notes": "The Fairey Gyrodyne idea at model scale: a shaft-driven rotor with no tail rotor, countered by two reversing-pitch propellers on stub booms. In the hover they sit at plus and minus three newtons, so the torque is cancelled at zero net thrust and it hovers straight. Throttle hold thrown slow starts a transition — the props run up to a strong fixed pull while the stick is still collective and the rotor is still driven — and at vAuto (12 m/s) the drive lets go, the head rakes back 7°, the collective parks at 2.5°, and the stick becomes engine power: the same airframe is an autogyro at 46% headspeed. Correct the all-up weight and the propeller thrust first.",
+    "blurb": "4.5 kg helicopter–autogyro hybrid: a 1.7 m shaft-driven rotor, no tail rotor, and two 3115-class tractor props on stub booms that cancel the shaft torque in the hover and are the engine in autogyro mode. Throttle hold starts the transition: both props pull it up to 12 m/s with the rotor still driven, then the drive lets go. Switch off and it is a helicopter again.",
+    "notes": "The Fairey Gyrodyne idea at model scale: a shaft-driven rotor with no tail rotor, countered by two propellers on stub booms. The propellers are sized to FLY it, not to cancel torque — a pair of 3115-class outrunners (95 g, 55 A, 450 kV on 12S) on 10×7s at about 16,400 rpm, ~1.2 kW each: 40 N static (Ct 0.105), 48.6 m/s pitch speed, 1.22 kW by Cp 0.046. The hover needs about 6 N of differential across the pair to hold the nose, so they are hugely oversized for the anti-torque job, and that is deliberate: once the rotor is free they are the whole powerplant and the machine is faster as an autogyro than it ever was as a helicopter. One propeller can sit at idle while the other holds the nose. Reversing pitch is not what buys the yaw — it buys hovering at zero NET thrust, so it sits still instead of leaning on the disc. Throttle hold thrown slow starts a transition — both propellers go to full pull while the stick is still collective and the rotor is still driven — and at vAuto (12 m/s) the drive lets go, the head rakes back 7 degrees, the collective parks at 2.5 degrees, and the stick becomes engine power. Correct the all-up weight first.",
     "mass": 4.5,
     "I": [
       0.42,
@@ -259,11 +259,11 @@
           0.62,
           -0.02
         ],
-        "Tmax": 18,
-        "Tmin": -14,
+        "Tmax": 40,
+        "Tmin": -16,
         "tau": 0.1,
-        "Vp": 40,
-        "D": 0.3,
+        "Vp": 48.6,
+        "D": 0.254,
         "yaw": true
       },
       {
@@ -272,11 +272,11 @@
           -0.62,
           -0.02
         ],
-        "Tmax": 18,
-        "Tmin": -14,
+        "Tmax": 40,
+        "Tmin": -16,
         "tau": 0.1,
-        "Vp": 40,
-        "D": 0.3,
+        "Vp": 48.6,
+        "D": 0.254,
         "yaw": true
       }
     ],

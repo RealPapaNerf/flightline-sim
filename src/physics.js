@@ -571,6 +571,16 @@ const FL = (function () {
        pulls, which is why it can hold a hover straight instead of charging
        forward at whatever thrust its anti-torque happens to need.
 
+       The propellers are sized for the OTHER half of the machine's life. The
+       hover asks about six newtons of them, differentially, and they will make
+       eighty between them: a pair of 3115s, because once the drive lets go they
+       are the entire powerplant and an autogyro that cannot outrun the
+       helicopter it was a minute ago has missed the point of being one. The
+       reversing pitch is not where the yaw comes from — the pair swings about
+       whatever mean the throttle is holding, so one propeller idling while the
+       other pulls is a perfectly good pedal — it is what lets the mean be zero,
+       so the hover is a hover and not a slow charge forwards.
+
        Throttle hold is the mode switch, and thrown in a hover it starts a
        transition rather than letting the head go into still air: the
        propellers run up to a strong fixed pull while the stick is still the
@@ -583,7 +593,7 @@ const FL = (function () {
     gyrodyne: {
       id: 'gyrodyne',
       name: 'Gyrodyne',
-      blurb: '4.5 kg helicopter–autogyro hybrid: a 1.7 m shaft-driven rotor, no tail rotor, and two reversing-pitch tractor props on stub wings countering the torque between them. Throttle hold starts the transition: the props pull it up to 12 m/s with the rotor still driven, then the drive lets go and it is an autogyro. Let the switch off and it is a helicopter again.',
+      blurb: "4.5 kg helicopter–autogyro hybrid: a 1.7 m shaft-driven rotor, no tail rotor, and two 3115-class tractor props on stub booms that cancel the shaft torque in the hover and are the engine in autogyro mode. Throttle hold starts the transition: both props pull it up to 12 m/s with the rotor still driven, then the drive lets go. Switch off and it is a helicopter again.",
       kind: 'heli',
       mass: 4.5,
       I: [0.42, 0.55, 0.55],
@@ -600,10 +610,19 @@ const FL = (function () {
         hFlare: 2,
         curves: { normal: [-4, 3.5, 10], '3d': [-9, 0, 10] },
       },
-      // out on the booms, where the arm is long: at 0.62 m they yaw it hard and pitch it hardly at all
+      /* Out on the booms, where the arm is long: at 0.62 m they yaw it hard and
+         pitch it hardly at all. Sized to PROPEL, not merely to cancel the shaft
+         torque — a pair of 3115-class outrunners (95 g, 55 A, 450 kV on 12S)
+         turning 10×7s at about 16,400 rpm, ~1.2 kW each. Static thrust
+         Ct·ρ·n²·D⁴ with Ct 0.105 gives 40 N; the pitch speed is n × 0.178 m =
+         48.6 m/s; the power that implies, Cp·ρ·n³·D⁵ at Cp 0.046, is 1.22 kW,
+         which is the 55 A. The anti-torque the hover actually needs is about
+         6 N of differential across the pair, so these are enormously oversized
+         for that job and that is the point: it is the half of the machine that
+         is supposed to fly it fast once the rotor is free. */
       thrusters: [
-        { p: [0.06, 0.62, -0.02], Tmax: 18, Tmin: -14, tau: 0.1, Vp: 40, D: 0.3, yaw: true },
-        { p: [0.06, -0.62, -0.02], Tmax: 18, Tmin: -14, tau: 0.1, Vp: 40, D: 0.3, yaw: true },
+        { p: [0.06, 0.62, -0.02], Tmax: 40, Tmin: -16, tau: 0.1, Vp: 48.6, D: 0.254, yaw: true },
+        { p: [0.06, -0.62, -0.02], Tmax: 40, Tmin: -16, tau: 0.1, Vp: 48.6, D: 0.254, yaw: true },
       ],
       body: { r: [0, 0, 0], CdA: [0.045, 0.14, 0.22], fin: 0.035, finX: -0.95 },
       pid: { roll: [20, 110, 0.3, 2.2, 0.01], pitch: [20, 110, 0.3, 2.2, 0.01], yaw: [14, 60, 0.3, 1.4, 0] },
@@ -2185,7 +2204,15 @@ const FL = (function () {
        Qaero is what the air asks of the head. It goes negative when the flow
        comes up through the disc, and a negative Qaero is autorotation: the air
        paying instead of charging. */
-    const mu = Vh / OmR;
+    /* Profile power. The (1 + 4.65µ²) correlation is a forward-flight fit and
+       it is not valid much past µ = 0.5 — the same limit the thrust integral
+       above already caps at — so this caps there too. Letting it run on is not
+       conservatism, it is a trap: on a FREE rotor the extra drag slows the
+       head, slowing the head raises µ, and the rotor talks itself to a
+       standstill in mid-air. A real one hits retreating-blade stall at these
+       speeds and gets unpleasant, which the thrust cap and `bladeStall` below
+       already deliver; it does not quietly stop turning. */
+    const mu = Math.min(0.5, Vh / OmR);
     const P0 = (rho * A * OmR ** 3 * Ro.sigma * (Ro.Cd0 + bpen.dCD) * (1 + 4.65 * mu * mu) * (1 + 6 * bladeStall)) / 8; // iced or stalled blades: more drag
     const tailP = drv === 'shaft' && Ro.TtMax ? 1.12 : 1; // a tail rotor costs about 12% of the main rotor's profile power
     const Qaero = (T * (vc + vi) + P0 * tailP) / Math.max(s.om, 5);
@@ -2237,11 +2264,31 @@ const FL = (function () {
     }
     let thrCap = 0, TcomEach = 0;
     if (nT) {
-      /* In a transition the pull is fixed, and deliberately not all of it: the
-         propellers are still the only thing cancelling the shaft torque, so a
-         quarter of the range stays behind as differential headroom. */
-      TcomEach = engineOn && stickIsEngine ? x * ac.thrMax : trans ? 0.75 * ac.thrMax : 0;
-      for (const Th of ac.thrusters) if (Th.yaw) thrCap += Math.abs(Th.p[1]) * Math.max(0, Math.min(Th.Tmax - TcomEach, TcomEach - Th.Tmin));
+      /* In a transition both propellers pull, all of it: getting to vAuto is the
+         whole point of the manoeuvre, and the differential below costs the mean
+         nothing it has to be given in advance. */
+      TcomEach = engineOn && stickIsEngine ? x * ac.thrMax : trans ? ac.thrMax : 0;
+      /* What the pair can make about that mean. Each propeller has its own room
+         in the direction the pedal would move it — one towards its Tmax, the
+         other towards its Tmin — and the authority is the sum of the two, which
+         for a matched pair is arm × (Tmax − Tmin) wherever the mean happens to
+         sit. That matters at both ends of the range, and both ends are places
+         this machine really flies: a gyrodyne hovers at zero mean thrust, and
+         an autogyro cruises with both propellers against their stops. Taking
+         only the symmetric half-range, as this used to, gave exactly nothing in
+         either case — a gyrodyne whose propellers do not reverse had no yaw at
+         all in the hover, and no yaw at full cruise power whatever they did.
+         (The two pedal directions differ only if the propellers are not a
+         matched pair, and then the guaranteed number is the smaller.) */
+      let capL = 0, capR = 0;
+      for (const Th of ac.thrusters) {
+        // dead propellers do not yaw it: a failed engine takes the pedal with it
+        if (!Th.yaw || !engineOn) continue;
+        const arm = Math.abs(Th.p[1]);
+        const up = arm * Math.max(0, Th.Tmax - TcomEach), dn = arm * Math.max(0, TcomEach - Th.Tmin);
+        if (Th.p[1] > 0) { capL += dn; capR += up; } else { capL += up; capR += dn; }
+      }
+      thrCap = Math.min(capL, capR);
     }
     const yawCap = TtMax * (Ro.lt || 0) + mastQ + vaneCap + thrCap;
 
@@ -2297,17 +2344,50 @@ const FL = (function () {
     const F = [-T * tq, T * tp, -T];
     const Mo = [Ks * fp + T * Ro.h * tp, Ks * fq + T * Ro.h * tq, react + yf * (TtMax * (Ro.lt || 0) + mastQ + vaneCap)];
     if (nT) {
-      /* The propellers: each one's share of the mean, each one's share of the
-         differential, and both acting where it is actually bolted — so a pair
-         slung below the centre of gravity pitches the nose as the power comes
-         on, exactly as the real thing does. Reversing pitch is what lets the
-         differential sit about zero mean thrust, which is the only reason a
-         gyrodyne can hover straight instead of charging forward at whatever
-         thrust its anti-torque happens to need. */
+      /* The propellers: the commanded mean, plus this one's share of the yaw,
+         and both acting where they are actually bolted — so a pair slung below
+         the centre of gravity pitches the nose as the power comes on, exactly
+         as the real thing does. The yaw share is asymmetric: the propeller the
+         pedal wants more from runs up towards its own Tmax, the other one down
+         towards its own Tmin, each as far as it has room. They move by
+         different amounts, so a yaw demand shifts the mean thrust a little —
+         which is what really happens, and far better than having no yaw at all
+         at the ends of the range. Reversing pitch (Tmin below zero) is not what
+         buys the authority; it buys hovering at zero NET thrust, so the machine
+         sits still instead of leaning on the disc to cancel its own anti-torque
+         pull. A machine whose propellers only pull forward still yaws — it
+         holds the nose with one of them idle — it just hovers nose-up. */
+      /* How the yaw demand is shared out. Each propeller's `room` is how far it
+         can move the way the pedal wants it, and the two are not equal unless
+         the mean happens to sit in the middle of the range. Equal-and-opposite
+         for as long as BOTH have the room — that is what keeps a hovering
+         gyrodyne's net thrust at zero, so it sits still instead of leaning on
+         the disc — and only once the nearer propeller is against its stop does
+         the rest come from the other one alone, which is the case that used to
+         have no answer at all. `u` is the demand as a fraction of what the pair
+         can make, `uSym` the fraction the equal-and-opposite part covers; the
+         moment delivered stays exactly linear in the demand across the join,
+         which is what the controller above assumes when it divides by yawCap. */
+      const room = new Array(nT).fill(0);
+      let armSum = 0, Mtot = 0, roomMin = Infinity;
       for (let i = 0; i < nT; i++) {
         const Th = ac.thrusters[i];
-        const head = Th.yaw ? Math.max(0, Math.min(Th.Tmax - TcomEach, TcomEach - Th.Tmin)) : 0;
-        const want = clamp(TcomEach - yf * Math.sign(Th.p[1]) * head, Th.Tmin, Th.Tmax);
+        if (!Th.yaw || !engineOn) continue;
+        room[i] = -yf * Math.sign(Th.p[1]) > 0 ? Th.Tmax - TcomEach : -(TcomEach - Th.Tmin);
+        armSum += Math.abs(Th.p[1]);
+        Mtot += Math.abs(Th.p[1] * room[i]);
+        roomMin = Math.min(roomMin, Math.abs(room[i]));
+      }
+      if (!Number.isFinite(roomMin)) roomMin = 0; // nothing on this machine yaws, or the engine is out
+      const u = Math.abs(yf);
+      const uSym = Mtot > 1e-9 ? (roomMin * armSum) / Mtot : 0;
+      for (let i = 0; i < nT; i++) {
+        const Th = ac.thrusters[i];
+        const sgn = room[i] < 0 ? -1 : 1;
+        const d = u <= uSym
+          ? sgn * roomMin * (uSym > 1e-9 ? u / uSym : 0)
+          : sgn * roomMin + (room[i] - sgn * roomMin) * ((u - uSym) / Math.max(1e-9, 1 - uSym));
+        const want = clamp(TcomEach + (Th.yaw ? d : 0), Th.Tmin, Th.Tmax);
         s.tp[i] += (want - s.tp[i]) * Math.min(1, dt / Th.tau);
         const Ti = s.tp[i] * clamp(1 - Math.max(0, vb[0]) / Th.Vp, 0, 1.2); // a propeller stops pulling at its pitch speed
         F[0] += Ti;
@@ -2328,9 +2408,13 @@ const FL = (function () {
     }
     const Vn = Math.hypot(vb[0], vb[1], vb[2]), kd = 0.5 * rho * Vn, Cd = ac.body.CdA;
     F[0] -= kd * Cd[0] * vb[0]; F[1] -= kd * Cd[1] * vb[1]; F[2] -= kd * Cd[2] * vb[2];
-    // tail fin and boom: weathervane in sideslip
-    const Yf = -0.5 * rho * Vn * ac.body.fin * 3 * vb[1];
-    F[1] += Yf; Mo[2] += ac.body.finX * Yf;
+    /* Tail fin and boom: weathervane in sideslip. `fin` and `finX` are optional
+       in the file format — a rotorcraft with nothing back there is a real
+       machine, and reading them as numbers when they are absent put a NaN
+       straight into the side force and the yaw moment, which took the whole
+       aircraft out on its first step. */
+    const Yf = -0.5 * rho * Vn * (ac.body.fin || 0) * 3 * vb[1];
+    F[1] += Yf; Mo[2] += (ac.body.finX || 0) * Yf;
     Mo[0] -= 0.03 * w[0]; Mo[1] -= 0.05 * w[1]; // rotor damping
     // stub wings and a tailplane, if it has them: the same strip model a plane uses
     if (ac.strips.length) {

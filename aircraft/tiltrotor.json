@@ -2,13 +2,13 @@
  "format": "flightline-aircraft/1",
  "author": "whirligig",
  "version": "1",
- "source": "exported from Whirligig \"Tiltrotor\" on 2026-10-20",
+ "source": "exported from Whirligig \"Tiltrotor\" on 2026-10-23",
  "def": {
   "kind": "quad",
   "id": "tiltrotor",
   "name": "Tiltrotor",
   "blurb": "Exported from Whirligig (Tiltrotor).",
-  "notes": "A tandem-wing quad tiltrotor (PLAN Phase 5): four props on tilt servos at the wing tips, straight up at mode 0 and straight ahead at mode 1, all on ONE aux slider. In hover it is a quad (the quad-x template, tagged to the hover side of the crossfade); wingborne it is an airplane (throttle to all four, ailerons on the front wing, elevator on the rear, differential motors for yaw). The conversion corridor is nothing but the crossfade sliding one set of rules out and the other in while the tilt servos swing - no scripting engine anywhere (PLAN 5.9).\n\nEXPORT NOTES — contact spring numbers are Flightline-typical, not converted — the two contact models differ. drag CdA per axis estimated from the drag parts (x, 2x, 3x). quad motor Tmax estimated 15.35 N by momentum theory. tilt servos do not translate to Flightline; exported as a plain quad in hover trim.",
+  "notes": "A tandem-wing quad tiltrotor (PLAN Phase 5): four props on tilt servos at the wing tips, straight up at mode 0 and straight ahead at mode 1, all on ONE aux slider. In hover it is a quad (the quad-x template, tagged to the hover side of the crossfade); wingborne it is an airplane (throttle to all four, ailerons on the front wing, elevator on the rear, differential motors for yaw). The conversion corridor is nothing but the crossfade sliding one set of rules out and the other in while the tilt servos swing - no scripting engine anywhere (PLAN 5.9).\n\nEXPORT NOTES — contact spring numbers are Flightline-typical, not converted — the two contact models differ. drag CdA per axis estimated from the drag parts (x, 2x, 3x). quad motor Tmax estimated 15.35 N by momentum theory; in-plane rotor drag is Flightline's own 0.012, not converted. tilt servos do not translate to Flightline; exported as a plain quad in hover trim.",
   "mass": 0.954,
   "I": [
    0.062,
@@ -34,7 +34,7 @@
    "cells": 4,
    "mAh": 2200,
    "R": 0.02,
-   "Imax": 0,
+   "Imax": 120,
    "Iidle": 1,
    "Vref": 14.8,
    "label": "4S 2200 LiPo"
@@ -84,6 +84,26 @@
     "impact": 3,
     "slide": 20,
     "foot": true
+   },
+   {
+    "p": [
+     0.048,
+     0,
+     0.007
+    ],
+    "name": "battery",
+    "impact": 5,
+    "slide": 10
+   },
+   {
+    "p": [
+     0.098,
+     0,
+     -0.05
+    ],
+    "name": "camera",
+    "impact": 4,
+    "slide": 8
    }
   ],
   "contact": {
@@ -184,7 +204,7 @@
    "Vp": 24.23,
    "D": 0.178
   },
-  "rotorDrag": 0.05,
+  "rotorDrag": 0.012,
   "look": {}
  }
 }

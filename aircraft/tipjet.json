@@ -2,13 +2,13 @@
  "format": "flightline-aircraft/1",
  "author": "whirligig",
  "version": "1",
- "source": "exported from Whirligig \"Tipjet\" on 2026-10-20",
+ "source": "exported from Whirligig \"Tipjet\" on 2026-10-23",
  "def": {
   "kind": "heli",
-  "id": "whirligig-tipjet",
+  "id": "tipjet",
   "name": "Tipjet",
   "blurb": "Exported from Whirligig (Tipjet).",
-  "notes": "A tip-drive helicopter (PLAN Phase 5): the rotor shaft is FREE - no motor on it anywhere - and the head is driven entirely by two small propellers mounted at 92% radius on the blades, thrusting along the blades' direction of travel. Their torque enters the shaft as blade-frame force, never as shaft torque, so the airframe reaction is close to zero: NO TAIL ROTOR, and the hover test asserts the yaw barely drifts. The fin is for weathervaning in translation, not anti-torque.\n\nEXPORT NOTES — contact spring numbers are Flightline-typical, not converted — the two contact models differ. drag CdA per axis estimated from the drag parts (x, 2x, 3x). head speed om0 set to 80 rad/s (typical for tip drive), not derived. tip drive: 2 props at 0.736 m, Tmax estimated 14.72 N each. no yaw device in the source; a 0.74 N·m mast motor added so the pedal works — Flightline's own tip-drive yaws the same way.",
+  "notes": "A tip-drive helicopter (PLAN Phase 5): the rotor shaft is FREE - no motor on it anywhere - and the head is driven entirely by two small propellers mounted at 92% radius on the blades, thrusting along the blades' direction of travel. Their torque enters the shaft as blade-frame force, never as shaft torque, so the airframe reaction is close to zero: NO TAIL ROTOR, and the hover test asserts the yaw barely drifts. The fin is for weathervaning in translation, not anti-torque.\n\nEXPORT NOTES — contact spring numbers are Flightline-typical, not converted — the two contact models differ. drag CdA per axis estimated from the drag parts (x, 2x, 3x). head speed om0 52 rad/s: set by what the tip propellers can still pull at, not by the head — three quarters of their pitch speed at the mounting radius. Whirligig flies this head faster; Flightline's linear propeller model cannot drive it that fast. tip drive: 2 props at 0.736 m, Tmax estimated 14.72 N each, zero-thrust speed 51.28 m/s, pod drag kD 0.00072 from a 46 mm nacelle. no yaw device in the source; a 0.74 N·m mast motor added so the pedal works — Flightline's own tip-drive yaws the same way.",
   "mass": 1.774,
   "I": [
    0.021,
@@ -34,7 +34,7 @@
    "cells": 6,
    "mAh": 3000,
    "R": 0.015,
-   "Imax": 0,
+   "Imax": 44,
    "Iidle": 1,
    "Vref": 22.2,
    "label": "6S 3000 LiPo"
@@ -95,6 +95,26 @@
     "impact": 3,
     "slide": 20,
     "foot": true
+   },
+   {
+    "p": [
+     0.073,
+     0,
+     0.049
+    ],
+    "name": "battery",
+    "impact": 5,
+    "slide": 10
+   },
+   {
+    "p": [
+     0.073,
+     0,
+     -0.05
+    ],
+    "name": "camera",
+    "impact": 4,
+    "slide": 8
    }
   ],
   "contact": {
@@ -173,10 +193,10 @@
    "Cd0": 0.012,
    "kInd": 1.15,
    "CLmax": 1.1,
-   "om0": 80,
+   "om0": 52,
    "J": 0.11,
    "Pmax": 799,
-   "govK": 0,
+   "govK": 0.06,
    "spool": 0.4,
    "friction": 0.0005,
    "h": 0.191,
@@ -208,9 +228,9 @@
     "n": 2,
     "r": 0.736,
     "Tmax": 14.72,
-    "Vp": 44.03,
+    "Vp": 51.28,
     "eta": 0.75,
-    "kD": 0.02
+    "kD": 0.00072
    },
    "mast": {
     "Q": 0.74
