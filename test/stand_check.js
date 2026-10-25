@@ -117,6 +117,40 @@ const MAP = 'zion-canyon';
   const d = await page.evaluate(() => { const m = window.__flightline.mapInfo(); return { n: m.pilot.n, e: m.pilot.e, sel: m.standSel }; });
   ok(d.sel === 'map' && d.n === a.base.n && d.e === a.base.e, 'selecting "where the map puts you" goes back', `${d.n}, ${d.e}`);
 
+  /* The map builder's whole point is moving the stand point, and the setting
+     above used to outrank it for ever: once you had pressed B or picked a site
+     on a map, re-authoring its pilot spot was invisible in the sim and the
+     picker still read the old choice. The document is its author saying
+     "stand HERE now", so it wins, once, and the remembered choice is dropped. */
+  console.log('\n== the map builder moves the stand point and the sim honours it ==');
+  const openMoved = (id, mv) => page.evaluate(async ([want, m2]) => {
+    const F = window.__flightline;
+    const l = await F.MAPS.fetchLibrary('library/');
+    const got = await F.MAPS.fetchMap(l.base, l.maps.find((m) => m.id === want), () => {});
+    if (m2) { got.json.pilot = { n: m2.n, e: m2.e }; got.json.home = { n: m2.n, e: m2.e }; }
+    const m = F.openMap(got);
+    return { n: m.pilot.n, e: m.pilot.e, sel: m.standSel, stale: !!m.standStale, rec: F.S.mapStand[want] || null };
+  }, [id, mv]);
+  const moved = { n: a.base.n - 1100, e: a.base.e + 640 };
+  for (const [what, rec] of [['a point you flew to', { sel: 'custom', n: a.base.n + 1200, e: a.base.e + 800 }],
+                             ['a named site you picked', { sel: null }]]) {
+    await page.evaluate(([id, r, siteFirst]) => {
+      const F = window.__flightline;
+      F.S.mapStand[id] = r.sel ? { ...r, base: { n: siteFirst.n, e: siteFirst.e } }
+        : { sel: F.mapInfo().sites[0].id, base: { n: siteFirst.n, e: siteFirst.e } };
+    }, [MAP, rec, a.base]);
+    const m = await openMoved(MAP, moved);
+    ok(Math.abs(m.n - moved.n) < 0.01 && Math.abs(m.e - moved.e) < 0.01 && m.sel === 'map' && m.stale && m.rec === null,
+      `the new spot beats ${what}`, `${m.n}, ${m.e} (sel ${m.sel}, remembered ${JSON.stringify(m.rec)})`);
+  }
+  // and a choice made against a document that has NOT moved still survives
+  await page.evaluate(([id, base]) => {
+    window.__flightline.S.mapStand[id] = { sel: 'custom', n: base.n + 300, e: base.e - 200, base: { n: base.n, e: base.e } };
+  }, [MAP, a.base]);
+  const kept = await openMoved(MAP, null);
+  ok(kept.sel === 'custom' && Math.abs(kept.n - (a.base.n + 300)) < 0.01 && !kept.stale,
+    'and a map that did not move still stands you where you left off', `${kept.n}, ${kept.e} (sel ${kept.sel})`);
+
   ok(errors.length === 0, 'no page errors throughout', errors.join(' | ') || 'none');
   console.log(`\n${fail === 0 ? 'ALL PASS' : `${fail} FAILED`}`);
   await browser.close();

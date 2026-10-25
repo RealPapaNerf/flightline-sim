@@ -141,6 +141,26 @@ line('\n== RC failsafe ==');
   line(`ELRS 2.4 behind a building (−18 dB) with +20 dB interference, 20 m up: ${lq.join(' | ')} → failsafe at ${tFs === null ? '—' : (tFs / 1000).toFixed(2) + ' km'}`);
 }
 
+line('\n== Signal & video loss turned off ==');
+{ /* Settings → Link & sensors → Signal & video loss → Off. The point of it is
+     flying terrain ten kilometres from where you stand, so the test flies past
+     the far edge of every link budget in the catalogue and expects the OSD to
+     read as if the model were on the end of a wire. */
+  const nav = NAV.make(), s = FL.makeState(); s.p = [0, 0, -20];
+  let worst = { lq: 100, vid: 1 }, fs = false, far = 0;
+  for (let f = 0; f < 60 * 400; f++) {
+    s.p[0] += 25 * FRAME;
+    const k = NAV.link(nav, s, { rc: 'elrs24', vtx: 'a600', obsRc: 40, obsVid: 60, noise: 30, perfect: true }, FRAME);
+    worst = { lq: Math.min(worst.lq, k.rcLq), vid: Math.min(worst.vid, k.vidQ) };
+    if (k.rcFs) fs = true;
+    far = s.p[0];
+  }
+  const ok = !fs && worst.lq === 100 && worst.vid === 1;
+  line(`out to ${(far / 1000).toFixed(0)} km behind −40 dB of obstruction with +30 dB of interference: worst LQ ${worst.lq.toFixed(0)}%, worst video ${worst.vid.toFixed(2)}, failsafe ${fs ? 'yes' : 'never'}`);
+  line(ok ? '  ok    no failsafe, full LQ and a clean picture at any range' : '  FAIL  the link budget still bites with loss turned off');
+  if (!ok) process.exitCode = 1;
+}
+
 line('\n== The antenna is where you stand, not at the map origin ==');
 { /* Found on the public maps: fly 2 km down the canyon, press B to stand by
      the aircraft, and the video was still snow — link() measured range from

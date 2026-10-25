@@ -142,9 +142,19 @@ const NAV = (function () {
   }
 
   /* ---------------- link ----------------
-     opt: { rc, vtx (catalogue keys), obsRc, obsVid (dB of obstruction), noise (dB rise of the noise floor) } */
+     opt: { rc, vtx (catalogue keys), obsRc, obsVid (dB of obstruction), noise (dB rise of the noise floor),
+            perfect (skip the link budget: full LQ, clean picture, no failsafe, however far away) } */
   function link(nav, s, opt, dt) {
     const k = nav.link, rc = RCLINKS[opt.rc] || RCLINKS.elrs24, vt = VTXS[opt.vtx] || VTXS.a600;
+    /* Radio off: the aircraft is on the end of a wire. Nothing to do with how far
+       or how low it is, so the fades and the obstruction losses go to zero too —
+       a half-modelled link would still make the OSD twitch. */
+    if (opt.perfect) {
+      k.fadeRc = 0; k.fadeVid = 0; k.obsRc = 0; k.obsVid = 0;
+      k.rcRssi = -40; k.vidRssi = -40; k.rcLq = 100; k.vidQ = 1;
+      k.fresh = true; k.lastPkt = nav.t; k.rcFs = false;
+      return k;
+    }
     /* Your antenna is where YOU are, not at the map's origin. On the built-in
        field those are the same place; on a terrain map the document puts the
        pilot wherever it likes and the stand point can then move again (B, or

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<!-- built by tools/build.py from src/ (0bb46e41); edit the sources, not this file -->
+<!-- built by tools/build.py from src/ (8ecde990); edit the sources, not this file -->
 <title>Flightline RC Sim</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Browser RC flight trainer: Nano Goblin and trainer flight models, line of sight, FPV and split view, USB transmitter support.">
@@ -5235,9 +5235,19 @@ const NAV = (function () {
   }
 
   /* ---------------- link ----------------
-     opt: { rc, vtx (catalogue keys), obsRc, obsVid (dB of obstruction), noise (dB rise of the noise floor) } */
+     opt: { rc, vtx (catalogue keys), obsRc, obsVid (dB of obstruction), noise (dB rise of the noise floor),
+            perfect (skip the link budget: full LQ, clean picture, no failsafe, however far away) } */
   function link(nav, s, opt, dt) {
     const k = nav.link, rc = RCLINKS[opt.rc] || RCLINKS.elrs24, vt = VTXS[opt.vtx] || VTXS.a600;
+    /* Radio off: the aircraft is on the end of a wire. Nothing to do with how far
+       or how low it is, so the fades and the obstruction losses go to zero too —
+       a half-modelled link would still make the OSD twitch. */
+    if (opt.perfect) {
+      k.fadeRc = 0; k.fadeVid = 0; k.obsRc = 0; k.obsVid = 0;
+      k.rcRssi = -40; k.vidRssi = -40; k.rcLq = 100; k.vidQ = 1;
+      k.fresh = true; k.lastPkt = nav.t; k.rcFs = false;
+      return k;
+    }
     /* Your antenna is where YOU are, not at the map's origin. On the built-in
        field those are the same place; on a terrain map the document puts the
        pilot wherever it likes and the stand point can then move again (B, or
@@ -7235,6 +7245,9 @@ if (typeof module !== 'undefined') module.exports = NET;
     hud: 'hud', // FPV OSD style: 'hud' (pitch ladder and tapes) or 'classic'
     // link and sensors: downward lidar, RC link, video transmitter, interference (%), RTL altitude (m) for planes / rotorcraft
     lidar: 'tf02', rcLink: 'elrs24', vtx: 'a600', rfNoise: 0, rtlAlt: { plane: 50, rotary: 15 },
+    // model the radio link at all. Off = full LQ and a clean picture at any range,
+    // which is how you go and look at a mountain ten kilometres away.
+    linkLoss: true,
   };
   const load = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
   const store = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage blocked */ } };
@@ -7928,10 +7941,23 @@ if (typeof module !== 'undefined') module.exports = NET;
 
   /* The point the settings ask for, falling back to the document's own when
      a saved site id is not in this map — which happens when a map is rebuilt
-     with different sites under a settings file that remembers the old ones. */
+     with different sites under a settings file that remembers the old ones.
+
+     A remembered spot belongs to the map it was chosen on. Move the stand
+     point in the map builder and the document is its author saying "stand
+     HERE now", so it has to outrank what the player picked last time —
+     otherwise the edit is invisible in the sim and the picker still reads the
+     old choice, which is exactly how an afternoon goes missing. `base` is the
+     document pilot the choice was made against; a record written before the
+     sim kept that cannot be checked against anything, so it is stale too. */
   function standPoint(map) {
     const rec = S.mapStand[map.id];
     if (!rec) return { ...map.basePilot, sel: 'map' };
+    if (!rec.base || Math.abs(rec.base.n - map.basePilot.n) > 0.01 || Math.abs(rec.base.e - map.basePilot.e) > 0.01) {
+      delete S.mapStand[map.id]; saveS();
+      map.standStale = true;
+      return { ...map.basePilot, sel: 'map' };
+    }
     if (rec.sel === 'custom') return { n: rec.n, e: rec.e, sel: 'custom' };
     const site = map.sites.find((x) => x.id === rec.sel);
     if (site) return { n: site.n, e: site.e, sel: site.id };
@@ -7967,7 +7993,7 @@ if (typeof module !== 'undefined') module.exports = NET;
     if (!mapInfo) { toast('Stand points are a terrain-map thing — the built-in field has one place to stand.'); return; }
     const n = st.p[0], e = st.p[1], T = mapInfo.terrain;
     if (n < T.nMin || n > T.nMax || e < T.eMin || e > T.eMax) { toast('That is off the edge of the map.'); return; }
-    S.mapStand[mapInfo.id] = { sel: 'custom', n, e };
+    S.mapStand[mapInfo.id] = { sel: 'custom', n, e, base: { n: mapInfo.basePilot.n, e: mapInfo.basePilot.e } };
     saveS();
     const p = applyStand(mapInfo);
     toast(`Standing here — ${Math.round(mapInfo.datumElevM + p.up)} m, ${Math.round(Math.hypot(n - mapInfo.basePilot.n, e - mapInfo.basePilot.e))} m from where the map put you`);
@@ -7995,7 +8021,9 @@ if (typeof module !== 'undefined') module.exports = NET;
       (colorTex ? `, imagery ${colorTex.w}x${colorTex.h}${colorTex.pot ? '' : ' (not a power of two: no mipmaps, so it will shimmer at distance)'}` : ', no imagery');
     for (const w of map.warnings) mapStatus += `\nWarning: ${w}`;
     if (tut.lesson) tutBuildMarks(tut.lesson);
-    toast(`Flying ${map.name}`);
+    toast(map.standStale
+      ? `Flying ${map.name} — this map moved where you stand, so you are at its new spot. Press B to stand somewhere else.`
+      : `Flying ${map.name}`);
     return map;
   }
 
@@ -10170,7 +10198,9 @@ if (typeof module !== 'undefined') module.exports = NET;
         ...(mapInfo && standSites(mapInfo).length > 1 ? [seg('mapStand', 'Where you stand', standSites(mapInfo).map((s) => [s.id, s.name]),
           'A map is kilometres across and the document picks one spot on it. Choose another, or fly somewhere you like the look of and press B to stand there — the camera, the windsock and the density altitude all come with you, and the aircraft keeps flying.',
           () => (mapInfo ? mapInfo.standSel : 'map'),
-          (v) => { S.mapStand[mapInfo.id] = v === 'custom' ? S.mapStand[mapInfo.id] : { sel: v }; saveS(); applyStand(mapInfo); refreshBar(); })] : []),
+          (v) => { const b = { n: mapInfo.basePilot.n, e: mapInfo.basePilot.e };
+            S.mapStand[mapInfo.id] = v === 'custom' ? S.mapStand[mapInfo.id] : { sel: v, base: b };
+            saveS(); applyStand(mapInfo); refreshBar(); })] : []),
         ...(mapInfo && mapInfo.starts.length > 1 ? [seg('mapStart', 'Reset puts you', mapInfo.starts.map((s) => [s.id, s.name]), '', () => S.mapStart, (v) => { S.mapStart = v; saveS(); doReset(); refreshBar(); })] : []),
       ] },
       { tab: 'controller', title: 'Controller', items: [{ type: 'radio' },
@@ -10185,6 +10215,8 @@ if (typeof module !== 'undefined') module.exports = NET;
         seg('lidar', 'Downward lidar', Object.entries(NAV.LIDARS).map(([k, l]) => [k, l.name]), 'Range to whatever is under the aircraft. Range drops with weaker reflectors: grass about half the rated range, dark asphalt about a third, wet asphalt less; snow reflects well. Beyond 35° of bank or out of range the estimate falls back to the barometer, which drifts and reads low at speed.'),
       ] },
       { tab: 'link', title: 'Radio & video', items: [
+        seg('linkLoss', 'Signal & video loss', [[true, 'On'], [false, 'Off']],
+          'Off means the aircraft is on the end of a wire: full link quality, a clean picture and no failsafe however far away or low down you fly. Everything below it stops mattering. Turn it off to go and look at terrain kilometres from where you stand.'),
         seg('rcLink', 'RC link', Object.entries(NAV.RCLINKS).map(([k, l]) => [k, l.name]), '900 MHz goes further and through trees better; 2.4 GHz has smaller antennas. A second without packets is a failsafe: RTL.'),
         seg('vtx', 'Video transmitter', Object.entries(NAV.VTXS).map(([k, l]) => [k, l.name]), 'Analog video fades to snow, then tears and drops out. Flying low and far costs signal (ground bounce), and so does flying straight overhead (antenna null).'),
         rng('rfNoise', 'Interference', 0, 100, 5, (v) => `${v}% · +${Math.round(0.3 * v)} dB`, 'Raises the noise floor for both links: a busy staging area, other pilots, a noisy BEC. The power line north of the field adds its own hiss when you fly near it.'),
@@ -10292,7 +10324,7 @@ if (typeof module !== 'undefined') module.exports = NET;
     if (k === 'stickMode') { homeSticks(); refreshWelcomeKeys(); }
     if (k === 'touch' || k === 'stickMode') refreshTouch();
     if (k === 'aa') toast('Smooth edges applies after you reload the page');
-    if (k === 'units' || k === 'rcLink' || k === 'vtx' || k === 'rfNoise' || k === 'stickMode') buildSheet();
+    if (k === 'units' || k === 'rcLink' || k === 'vtx' || k === 'rfNoise' || k === 'linkLoss' || k === 'stickMode') buildSheet();
   }
   function daHtml() {
     const a = updateAtmos(), w0 = FL.weatherAt(wxBase, 10), wc = S.ceilFt > 0 ? FL.weatherAt(wxBase, S.ceilFt * 0.3048 + 5) : null;
@@ -10347,6 +10379,8 @@ if (typeof module !== 'undefined') module.exports = NET;
           inpEl.addEventListener('input', () => { const v = Number(inpEl.value); if (it.set) it.set(v); else S[it.key] = v; out.textContent = it.fmt(v); saveS(); applySetting(it.key); });
         } else if (it.type === 'apinfo') {
           box.innerHTML = `<div class="help">Autopilot modes, ArduPilot-style. <b>J</b> alt hold (throttle stick climbs and sinks; ${ROTARY(AC) ? 'sticks still tilt' : 'roll stick banks, throttle sets speed'}), <b>K</b> loiter (${ROTARY(AC) ? 'holds a GPS position; sticks fly it around' : 'circles where you are'}), <b>G</b> RTL. Any flight-mode switch, or <b>M</b>, takes back control. Map them to radio switches under Controller. If the RC link drops for a second the aircraft starts an RTL by itself; when the link comes back it keeps going until you switch modes.</div>`;
+        } else if (it.type === 'linkinfo' && !S.linkLoss) {
+          box.innerHTML = '<div class="help">Signal and video loss are off, so none of these apply: the link is perfect at any range.</div>';
         } else if (it.type === 'linkinfo') {
           const rc = NAV.RCLINKS[S.rcLink], vt = NAV.VTXS[S.vtx], n = 0.3 * S.rfNoise;
           const rangeOf = (L, thr, h) => { let far = 0; for (let d = 20; d < 100000; d *= 1.04) if (NAV.received(L, d, h, Math.atan2(h, d), 0) > thr) far = d; return far; };
@@ -11847,8 +11881,9 @@ Tail sees prop wash and wing downwash ε = 2·CL/(π·AR)</span>
     const P = FL.PRECIP[S.precip];
     NAV.sensors(nav, st, { lidar: S.lidar, surface: surfaceAt, beta: (env.wx && env.wx.visM < 25000 ? 3.912 / env.wx.visM : 0), precipR: P.R, snowing: !P.liquid && atmo.Tc <= 2, V: st.tele.V }, dt);
     if (nav.est.src !== lastSrc) { if (apMode()) flash(nav.est.src === 'lidar' ? 'RANGEFINDER' : 'BARO ALT'); lastSrc = nav.est.src; }
-    obsT -= dt; if (obsT <= 0) { obsT = 0.1; obs = obstruction(); }
-    NAV.link(nav, st, { rc: S.rcLink, vtx: S.vtx, obsRc: obs.rc, obsVid: obs.vid, noise: noiseRise(), pilot: antennaNED() }, dt);
+    // the obstruction ray trace is only ever read by the link budget, so it goes away with it
+    if (S.linkLoss) { obsT -= dt; if (obsT <= 0) { obsT = 0.1; obs = obstruction(); } }
+    NAV.link(nav, st, { rc: S.rcLink, vtx: S.vtx, obsRc: obs.rc, obsVid: obs.vid, noise: noiseRise(), pilot: antennaNED(), perfect: !S.linkLoss }, dt);
     if (nav.link.fresh) heldInp = { thr: inp.thr, a: inp.a, e: inp.e, r: inp.r };
     // RC failsafe: a second without packets → RTL; when the link returns, you take over with a mode switch
     if (nav.link.rcFs && !fsActive) { fsActive = true; if (armed && !st.held && !st.wow) { NAV.enter(nav, 'rtl', st); } flash('RC FAILSAFE'); refreshBar(); }
